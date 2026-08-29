@@ -69,14 +69,14 @@ class RegionConfig:
     def find_region_by_manim_account(self, bank: str, account_code: str) -> str | None:
         """Banka ve MANİM hesap/IBAN değerinin son hanelerinden bölgeyi bulur."""
         bank_key = str(bank or "").strip().upper()
-        account_key = self._account_key(account_code)
-        if not bank_key or not account_key:
+        account_candidates = self._account_candidate_keys(account_code)
+        if not bank_key or not account_candidates:
             return None
 
         matches: list[tuple[str, str]] = []
         for region in self.regions():
             suffix = self._account_key(self.manim_hesap_kodu(region, bank_key))
-            if suffix and account_key.endswith(suffix):
+            if suffix and any(candidate.endswith(suffix) for candidate in account_candidates):
                 matches.append((region, suffix))
         if not matches:
             return None
@@ -133,6 +133,26 @@ class RegionConfig:
         if re.fullmatch(r"\d+\.0+", text):
             text = text.split(".", 1)[0]
         return re.sub(r"[^A-Z0-9]+", "", text)
+
+    @classmethod
+    def _account_candidate_keys(cls, value: object) -> tuple[str, ...]:
+        """Hesabın tamamını ve ayrılmış parçalarını eşleşme adayı yapar.
+
+        MANİM alanı yalnız bir hesap/IBAN içerebildiği gibi
+        ``Garanti-Antalya Ticari-0509-Vadesiz TRY`` biçiminde açıklamalı da
+        gelebilir. Bu ikinci biçimde hesap kodu metnin sonunda olmadığı için
+        yalnız tüm alan üzerinde ``endswith`` kullanmak kodu kaçırır.
+        """
+        text = str(value or "").strip().upper()
+        if not text:
+            return ()
+
+        candidates = [cls._account_key(text)]
+        candidates.extend(
+            cls._account_key(part)
+            for part in re.findall(r"[A-Z0-9]+", text)
+        )
+        return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 
 def active_region_config_path(resource_config_dir: str | Path, data_root: str | Path) -> Path:

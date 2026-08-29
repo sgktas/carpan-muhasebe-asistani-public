@@ -26,32 +26,32 @@ def test_aydin_dosyasi_kod_sube_ile_uc_akisi_nazilliden_ayirir(
     manim_path = manim_path.with_name("TEST_AYDIN_Manim.xlsx")
     rows = [
         {
-            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1007", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "AYDIN HAVALE", "Tutar": 1000.0, "Dekont Durumu": "Aktarıldı",
             "Karşı Hesap Adı": "XYZ FIRMASI", "Karşı Hesap Kodu": "XYZ999",
         },
         {
-            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1008", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1008-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "NAZILLI HAVALE", "Tutar": 1100.0, "Dekont Durumu": "Aktarıldı",
             "Karşı Hesap Adı": "XYZ FIRMASI", "Karşı Hesap Kodu": "XYZ999",
         },
         {
-            "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2007", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "AYDIN ODEME", "Tutar": 1200.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
-            "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2008", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2008-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "NAZILLI ODEME", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
-            "Banka": "Ziraat", "Kod - Şube": "TEST-HESAP-3007", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "Ziraat", "Kod - Şube": "TEST-HESAP-3007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "AYDIN REFERANSLI", "Tutar": 1400.0, "Dekont Durumu": "Referanslı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
-            "Banka": "Ziraat", "Kod - Şube": "TEST-HESAP-3008", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "Ziraat", "Kod - Şube": "TEST-HESAP-3008-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "NAZILLI REFERANSLI", "Tutar": 1500.0, "Dekont Durumu": "Referanslı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
@@ -120,7 +120,7 @@ def test_hesap_bulunamazsa_guncel_musteri_kodu_ve_adi_bolgeyi_ayirir(
             "Karşı Hesap Adı": "NAZILLI TEST MARKET", "Karşı Hesap Kodu": "",
         },
         {
-            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1007", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+            "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
             "Açıklama": "HESAP ONCELIKLI AYDIN", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "NAZILLI TEST MARKET", "Karşı Hesap Kodu": "NAZ001",
         },

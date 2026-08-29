@@ -114,6 +114,12 @@ def test_manim_banka_ve_kod_sube_bolgeyi_tekil_bulur():
     config = RegionConfig("config/bolge_kodlari.json")
     assert config.find_region_by_manim_account("GARANTI", "TEST-HESAP-1007") == "AYDIN"
     assert config.find_region_by_manim_account("GARANTI", "TEST-HESAP-1008") == "NAZILLI"
+    assert config.find_region_by_manim_account(
+        "GARANTI", "Garanti-Aydın Ticari-1007-Vadesiz TRY"
+    ) == "AYDIN"
+    assert config.find_region_by_manim_account(
+        "GARANTI", "Garanti-Nazilli Ticari-1008-Vadesiz TRY"
+    ) == "NAZILLI"
     assert config.find_region_by_manim_account("YKB", "TEST-HESAP-2007") == "AYDIN"
     assert config.find_region_by_manim_account("YKB", "TEST-HESAP-2008") == "NAZILLI"
     assert config.find_region_by_manim_account("ZIRAAT", "TEST-HESAP-3007") == "AYDIN"
