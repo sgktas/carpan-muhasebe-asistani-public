@@ -1,0 +1,13 @@
+{
+  "_aciklama": "Netsis'ten Excel olarak disa aktardiginiz ay sonu raporunun sutun eslemesi. Netsis hesap hareketi raporlarinda tutar genelde tek sutun degil, ayri 'Borc' ve 'Alacak' sutunlari halinde gelir (tutar = Borc - Alacak olarak hesaplanir). Netsis raporlama ekraninda sutun adlari degisebilir; buradaki degerleri kendi raporunuzdaki gercek basliklarla degistirin ya da Ayarlar ekranindan yeni bir profil olusturun.",
+  "id": "netsis",
+  "name": "Netsis Ay Sonu Raporu",
+  "description": "Tarih, açıklama, Borç/Alacak ve satır bazlı bakiye sütunu olan Netsis hesap hareketi raporu.",
+  "columns": {
+    "Tarih": "tarih",
+    "Açıklama": "aciklama",
+    "Borç": "borc",
+    "Alacak": "alacak",
+    "Bakiye": "bakiye"
+  }
+}

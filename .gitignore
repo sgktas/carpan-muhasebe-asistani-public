@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/.pytest_tmp_public*/
+/pytest-cache-files-*/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Derleme ve dağıtım çıktıları
+build/
+dist/
+*.exe
+*.zip
+
+# Yerel çalışma verileri
+data/*
+!data/.gitkeep
+output/
+*.sqlite3
+processed_files.json
+customer_mappings.json
+
+# Gerçek müşteri/personel/işlem verileri ve yerel şirket ayarları
+local_data/
+inputs/
+outputs/
+config/local/
+config/personnel_seed/*.xls
+config/personnel_seed/*.xlsx
+!config/personnel_seed/README.md
+templates/local/
+
+# Uygulama kaynaklarına yanlışlıkla bırakılan operasyon dosyaları
+*.csv
+*.tsv
+
+# Excel ve editör geçici dosyaları
+~$*
+*.tmp
+.idea/
+.vscode/
+
+# İşletim sistemi
+Thumbs.db
+.DS_Store

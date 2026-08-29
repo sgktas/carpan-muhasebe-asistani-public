@@ -1,0 +1,16 @@
+{
+  "_aciklama": "Bu dosya banka hareket raporunun (orn. MANIM) sutun esleme tanimidir. Baska bir bankacilik/raporlama sistemine gecerken Python koduna dokunmadan buraya yeni bir profil dosyasi (orn. baska_sistem.json) eklemeniz yeterlidir. 'columns' altinda: kaynak Excel dosyasindaki sutun basligi -> programin ic alan adi.",
+  "id": "manim",
+  "name": "MANİM Banka Hareket Raporu",
+  "description": "MANİM ekranından alınan banka hareketi raporunun varsayılan sütun eşlemesi.",
+  "columns": {
+    "Banka": "banka",
+    "Kod - Şube": "sube",
+    "İşlem Tarihi": "islem_tarihi",
+    "Açıklama": "aciklama",
+    "Tutar": "tutar",
+    "Dekont Durumu": "dekont_durumu",
+    "Karşı Hesap Adı": "karsi_hesap_adi",
+    "Karşı Hesap Kodu": "karsi_hesap_kodu"
+  }
+}

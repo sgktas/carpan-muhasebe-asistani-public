@@ -1,0 +1,93 @@
+{
+  "_aciklama": "Public örnek bölge yapılandırmasıdır. Gerçek şirket kodlarını config/local/bolge_kodlari.json altında tutun.",
+  "_alanlar": {
+    "kasa_kodu": "Ödeme Onaylandı çıktısındaki örnek kasa kodu",
+    "proje_kodu": "Ödeme Onaylandı çıktısındaki örnek proje kodu",
+    "ref_kodu": "Örnek referans kodu",
+    "banka_kodlari": "Bölge ve banka için örnek muhasebe kodu",
+    "manim_hesap_kodlari": "MANİM hesap/IBAN değerini ayıran örnek son haneler"
+  },
+  "_plasiyer_kodu": "TEST",
+  "_genel_ref_kodu": "R00",
+  "_config_surumu": 3,
+  "BODRUM": {
+    "aktif": true,
+    "sira": 1,
+    "kasa_kodu": 1001,
+    "proje_kodu": 101,
+    "ref_kodu": "R01",
+    "banka_kodlari": {"GARANTI": "BANK-G-01", "YKB": "BANK-Y-01", "ZIRAAT": "BANK-Z-01"},
+    "manim_hesap_kodlari": {"GARANTI": "1001", "YKB": "2001", "ZIRAAT": "3001"},
+    "musteri_sube_etiketleri": ["BODRUM"]
+  },
+  "FETHIYE": {
+    "aktif": true,
+    "sira": 2,
+    "kasa_kodu": 1002,
+    "proje_kodu": 102,
+    "ref_kodu": "R02",
+    "banka_kodlari": {"GARANTI": "BANK-G-02", "YKB": "BANK-Y-02", "ZIRAAT": "BANK-Z-02"},
+    "manim_hesap_kodlari": {"GARANTI": "1002", "YKB": "2002", "ZIRAAT": "3002"},
+    "musteri_sube_etiketleri": ["FETHIYE"]
+  },
+  "SOKE": {
+    "aktif": true,
+    "sira": 3,
+    "kasa_kodu": 1003,
+    "proje_kodu": 103,
+    "ref_kodu": "R03",
+    "banka_kodlari": {"GARANTI": "BANK-G-03", "YKB": "BANK-Y-03", "ZIRAAT": "BANK-Z-03"},
+    "manim_hesap_kodlari": {"GARANTI": "1003", "YKB": "2003", "ZIRAAT": "3003"},
+    "musteri_sube_etiketleri": ["KUSADASI", "SOKE"]
+  },
+  "MUGLA": {
+    "aktif": true,
+    "sira": 4,
+    "kasa_kodu": 1004,
+    "proje_kodu": 104,
+    "ref_kodu": "R04",
+    "banka_kodlari": {"GARANTI": "BANK-G-04", "YKB": "BANK-Y-04", "ZIRAAT": "BANK-Z-04"},
+    "manim_hesap_kodlari": {"GARANTI": "1004", "YKB": "2004", "ZIRAAT": "3004"},
+    "musteri_sube_etiketleri": ["MARMARIS", "MUGLA"]
+  },
+  "ANTALYA": {
+    "aktif": true,
+    "sira": 5,
+    "kasa_kodu": 1005,
+    "proje_kodu": 105,
+    "ref_kodu": "R05",
+    "banka_kodlari": {"GARANTI": "BANK-G-05", "YKB": "BANK-Y-05", "ZIRAAT": "BANK-Z-05"},
+    "manim_hesap_kodlari": {"GARANTI": "1005", "YKB": "2005", "ZIRAAT": "3005"},
+    "musteri_sube_etiketleri": ["ANTALYA", "ANTALYA TEMINATSIZ"]
+  },
+  "DENIZLI": {
+    "aktif": true,
+    "sira": 6,
+    "kasa_kodu": 1006,
+    "proje_kodu": 106,
+    "ref_kodu": "R06",
+    "banka_kodlari": {"GARANTI": "BANK-G-06", "YKB": "BANK-Y-06", "ZIRAAT": "BANK-Z-06"},
+    "manim_hesap_kodlari": {"GARANTI": "1006", "YKB": "2006", "ZIRAAT": "3006"},
+    "musteri_sube_etiketleri": ["DENIZLI"]
+  },
+  "AYDIN": {
+    "aktif": true,
+    "sira": 7,
+    "kasa_kodu": 1007,
+    "proje_kodu": 107,
+    "ref_kodu": "R07",
+    "banka_kodlari": {"GARANTI": "BANK-G-07", "YKB": "BANK-Y-07", "ZIRAAT": "BANK-Z-07"},
+    "manim_hesap_kodlari": {"GARANTI": "1007", "YKB": "2007", "ZIRAAT": "3007"},
+    "musteri_sube_etiketleri": ["AYDIN"]
+  },
+  "NAZILLI": {
+    "aktif": true,
+    "sira": 8,
+    "kasa_kodu": 1008,
+    "proje_kodu": 108,
+    "ref_kodu": "R08",
+    "banka_kodlari": {"GARANTI": "BANK-G-08", "YKB": "BANK-Y-08", "ZIRAAT": "BANK-Z-08"},
+    "manim_hesap_kodlari": {"GARANTI": "1008", "YKB": "2008", "ZIRAAT": "3008"},
+    "musteri_sube_etiketleri": ["NAZILLI"]
+  }
+}

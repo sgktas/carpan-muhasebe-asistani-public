@@ -1,0 +1,12 @@
+{
+  "_aciklama": "Banka ekstresi (hesap hareketi + bakiye) dosyanizin sutun eslemesi. Her banka ekstresi biraz farkli sutun adi kullanabilir; buradaki degerleri kendi dosyanizdaki gercek basliklarla degistirin ya da Ayarlar ekranindan yeni bir profil olusturun.",
+  "id": "genel",
+  "name": "Genel Banka Ekstresi",
+  "description": "Tarih, açıklama, tutar ve satır bazlı bakiye sütunu olan standart banka ekstresi formatı.",
+  "columns": {
+    "Tarih": "tarih",
+    "Açıklama": "aciklama",
+    "Tutar": "tutar",
+    "Bakiye": "bakiye"
+  }
+}

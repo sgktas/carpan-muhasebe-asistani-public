@@ -1,0 +1,8 @@
+pandas
+openpyxl
+xlrd
+xlwt
+PySide6
+pyinstaller
+pytest
+pywin32; sys_platform == "win32"

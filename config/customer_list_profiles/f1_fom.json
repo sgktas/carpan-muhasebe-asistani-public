@@ -1,0 +1,13 @@
+{
+  "_aciklama": "Bu dosya musteri (cari) listesi disa aktariminin sutun eslemesini tanimlar. Her ic alan icin birden fazla olasi sutun adi (aliases) yazilabilir; dosyada bulunan ilk esleme kullanilir. Baska bir kaynak sisteme (farkli bir ERP/CRM disa aktarimina) gecerken Python koduna dokunmadan buraya yeni bir profil dosyasi eklemeniz yeterlidir.",
+  "id": "f1_fom",
+  "name": "F1 FOM (VisionPlus)",
+  "description": "F1 FOM / VisionPlus satış-pazarlama-finans modülünden alınan müşteri listesi dışa aktarımı.",
+  "aliases": {
+    "cari_kodu": ["Müşteri Kodu", "Cari Kod", "CariKodu", "MusteriKodu"],
+    "unvan": ["Ünvan", "Unvan", "Cari Adı", "CariAdi", "Müşteri İsmi", "MusteriIsmi"],
+    "tabela_adi": ["Tabela Adi", "Tabela Adı", "TabelaAdi", "Ticari Ünvan", "Ticari Unvan"],
+    "vergi_no": ["Vergi No", "VergiNo", "Vergi Numarası", "VergiNumarasi", "VKN", "TC/VKN", "T.C. / Vergi No"],
+    "sube": ["Şube", "Sube"]
+  }
+}
