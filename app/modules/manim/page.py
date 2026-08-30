@@ -6,6 +6,7 @@ from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -16,14 +17,17 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QTextEdit,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core.app_paths import APP_PATHS
+from app.core.active_profile_store import ActiveProfileStore
 from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
+from app.core.output_profile import OutputProfileStore
 from app.core.personnel_list_cache import PersonnelListCache
 from app.core.processing_engine import (
     CustomerListUpdateRequired,
@@ -50,12 +54,17 @@ class ManimModulePage(QWidget):
         self.last_output_dir: Path | None = None
         self.last_odeme_onaylandi_items: list = []
         self.last_odeme_onaylandi_path: Path | None = None
+        self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
+        self._output_profile_store = OutputProfileStore(APP_PATHS.config_dir)
         self.setAcceptDrops(True)
         self._build_ui()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("manimTabs")
 
         page = QScrollArea()
         page.setWidgetResizable(True)
@@ -230,7 +239,92 @@ class ManimModulePage(QWidget):
         layout.addWidget(log_card, 1)
 
         page.setWidget(content)
-        root.addWidget(page)
+        self.tabs.addTab(page, "Aktarım")
+        self.tabs.addTab(self._build_output_settings_tab(), "Aktarım Ayarları")
+        root.addWidget(self.tabs)
+
+    def _build_output_settings_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(18)
+
+        add_page_header(
+            layout,
+            "Aktarım Ayarları",
+            "Havale ve ileride referanslı kayıtlar için kullanılacak çıktı şablonunu seçin.",
+            "MODÜL 01",
+        )
+
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 20, 22, 20)
+        card_layout.setSpacing(10)
+        title = QLabel("Havale çıktı şablonu")
+        title.setObjectName("cardTitle")
+        subtitle = QLabel(
+            "Mevcut banka-bölge ayrımlı şablon korunur. Toplu şablon seçildiğinde "
+            "Garanti, Yapı Kredi ve Ziraat kayıtları her bölge için tek dosyada, "
+            "ilgili BM banka kodlarıyla yazılır."
+        )
+        subtitle.setObjectName("cardSubtitle")
+        subtitle.setWordWrap(True)
+        card_layout.addWidget(title)
+        card_layout.addWidget(subtitle)
+
+        self.havale_template_combo = QComboBox()
+        self._havale_profiles = [
+            profile for profile in self._output_profile_store.list_profiles()
+            if profile.category == "havale"
+        ]
+        for profile in self._havale_profiles:
+            self.havale_template_combo.addItem(profile.name, profile.profile_id)
+        active_profile_id = self._active_profiles.get_output_profile_id()
+        selected_index = self.havale_template_combo.findData(active_profile_id)
+        self.havale_template_combo.setCurrentIndex(max(0, selected_index))
+        self.havale_template_combo.currentIndexChanged.connect(self._change_havale_template)
+        card_layout.addWidget(self.havale_template_combo)
+
+        self.havale_template_detail = QLabel()
+        self.havale_template_detail.setObjectName("cardSubtitle")
+        self.havale_template_detail.setWordWrap(True)
+        card_layout.addWidget(self.havale_template_detail)
+        self._update_havale_template_detail()
+        layout.addWidget(card)
+
+        future_card = QFrame()
+        future_card.setObjectName("surfaceCard")
+        future_layout = QVBoxLayout(future_card)
+        future_layout.setContentsMargins(22, 18, 22, 18)
+        future_title = QLabel("Referanslı kayıt şablonları")
+        future_title.setObjectName("cardTitle")
+        future_text = QLabel(
+            "Referanslı kayıtların ayrı şablon seçenekleri bu bölüme eklenecek."
+        )
+        future_text.setObjectName("cardSubtitle")
+        future_layout.addWidget(future_title)
+        future_layout.addWidget(future_text)
+        layout.addWidget(future_card)
+        layout.addStretch()
+        return page
+
+    def _change_havale_template(self, index: int) -> None:
+        if index < 0:
+            return
+        profile_id = self.havale_template_combo.itemData(index)
+        if profile_id:
+            self._active_profiles.set_output_profile_id(str(profile_id))
+        self._update_havale_template_detail()
+
+    def _update_havale_template_detail(self) -> None:
+        profile_id = self.havale_template_combo.currentData()
+        profile = next(
+            (item for item in self._havale_profiles if item.profile_id == profile_id),
+            None,
+        )
+        if profile:
+            self.havale_template_detail.setText(profile.description)
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls() and any(

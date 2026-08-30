@@ -246,6 +246,14 @@ aktarımı bu hazırlanmış sürümü kullanır. MANİM'deki açık karşı hes
 hafızadaki listede yoksa sistem yanlış cari kodla çıktı üretmeden durur ve
 kullanıcıyı Müşteri Listesi modülünden güncel listeyi içe aktarmaya yönlendirir.
 
+### Havale çıktı şablonları
+
+MANİM Aktarma > **Aktarım Ayarları** sekmesinden havale şablonu seçilir.
+Mevcut şablon bölge ve banka için ayrı dosya üretmeye devam eder. **Netsis —
+Toplu Banka Kodlu Havale** şablonu ise her bölge için tek dosya üretir; Garanti,
+Yapı Kredi ve Ziraat satırlarının `Banka Hes.Kodu(*)` alanına bölge ayarlarındaki
+ilgili BM kodu otomatik yazılır.
+
 
 ## Revize 18 — Çıktı Klasörü ve FOM Adlandırması
 

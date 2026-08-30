@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 import re
@@ -261,7 +261,10 @@ class ProcessingEngine:
                     continue
 
                 for netsis_row in netsis_rows:
-                    outputs[(region, self._bank_key(record.banka))].append(netsis_row)
+                    bank = self._bank_key(record.banka)
+                    outputs[self._output_key(region, bank, output_profile)].append(
+                        self._with_region_codes(netsis_row, region, bank)
+                    )
                     result.produced_netsis_records += 1
 
             if row_region_counts:
@@ -339,7 +342,9 @@ class ProcessingEngine:
                         row.tutar,
                         "MANUEL_ESLESTIRME",
                     )
-                    outputs[(item.region, bank)].append(netsis_row)
+                    outputs[self._output_key(item.region, bank, output_profile)].append(
+                        self._with_region_codes(netsis_row, item.region, bank)
+                    )
                     result.produced_netsis_records += 1
 
                 mapping_updates.append(
@@ -422,8 +427,8 @@ class ProcessingEngine:
                     ),
                 )
                 for (region, bank), rows in ordered_outputs:
-                    file_name = (
-                        f"{region_file_prefix(region, self.REGIONS)}_{region}_{bank}_{tarih_etiketi}.xls"
+                    file_name = self._netsis_file_name(
+                        region, bank, tarih_etiketi, output_profile
                     )
                     writer.write(rows, staging_dir / file_name)
                     created_names.append(file_name)
@@ -504,6 +509,26 @@ class ProcessingEngine:
         )
 
         return result
+
+    @staticmethod
+    def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
+        return (region, bank if output_profile.grouping == "region_bank" else "TOPLU")
+
+    def _with_region_codes(self, record, region: str, bank: str):
+        return replace(
+            record,
+            bolge=region,
+            banka_hesap_kodu=self.region_config.banka_kodu(region, bank) or "",
+            muh_ref_kodu=self.region_config.ref_kodu(region) or "",
+            proje_kodu=str(self.region_config.proje_kodu(region) or ""),
+            plasiyer_kodu=self.region_config.plasiyer_kodu(),
+        )
+
+    def _netsis_file_name(self, region: str, bank: str, date_label: str, output_profile) -> str:
+        prefix = region_file_prefix(region, self.REGIONS)
+        if output_profile.grouping == "region":
+            return f"{prefix}_{region}_{date_label}.xls"
+        return f"{prefix}_{region}_{bank}_{date_label}.xls"
 
     @staticmethod
     def _validate_manual_rows(

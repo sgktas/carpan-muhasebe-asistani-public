@@ -37,6 +37,8 @@ class OutputProfile:
     description: str
     template_file: str
     columns: tuple[OutputColumn, ...]
+    category: str = "havale"
+    grouping: str = "region_bank"
 
     def headers(self) -> list[str]:
         return [column.header for column in self.columns]
@@ -76,6 +78,8 @@ class OutputProfile:
             description=data.get("description", ""),
             template_file=data["template_file"],
             columns=columns,
+            category=data.get("category", "havale"),
+            grouping=data.get("grouping", "region_bank"),
         )
 
 
