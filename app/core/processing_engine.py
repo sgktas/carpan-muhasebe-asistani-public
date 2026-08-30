@@ -519,9 +519,6 @@ class ProcessingEngine:
             record,
             bolge=region,
             banka_hesap_kodu=self.region_config.banka_kodu(region, bank) or "",
-            muh_ref_kodu=self.region_config.ref_kodu(region) or "",
-            proje_kodu=str(self.region_config.proje_kodu(region) or ""),
-            plasiyer_kodu=self.region_config.plasiyer_kodu(),
         )
 
     def _netsis_file_name(self, region: str, bank: str, date_label: str, output_profile) -> str:

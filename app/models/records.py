@@ -44,9 +44,6 @@ class NetsisRecord:
     bolge: str
     kaynak: str
     banka_hesap_kodu: str = ""
-    muh_ref_kodu: str = ""
-    proje_kodu: str = ""
-    plasiyer_kodu: str = ""
 
 
 @dataclass(frozen=True)
