@@ -35,7 +35,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=["app/runtime_hook_qt.py"],
     excludes=[],
     noarchive=False,
     cipher=block_cipher,
@@ -74,4 +74,3 @@ coll = COLLECT(
     upx_exclude=[],
     name="MuhasebeAsistani",
 )
-
