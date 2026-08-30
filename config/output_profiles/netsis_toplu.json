@@ -8,7 +8,7 @@
   "template_file": "netsis_toplu_template.xlsx",
   "columns": [
     {"header": "Banka Hes.Kodu(*)", "width": 18, "style": "text", "source": "field", "field": "banka_hesap_kodu", "force_text": true},
-    {"header": "Gelen/Gönderilen (0/1)", "width": 18, "style": "integer", "source": "const", "value": 1},
+    {"header": "Gelen/Gönderilen (0/1)", "width": 18, "style": "integer", "source": "const", "value": 0},
     {"header": "Referans No", "width": 14, "style": "text", "source": "const", "value": null},
     {"header": "İşlem Tarihi(*)", "width": 15, "style": "date", "source": "field", "field": "islem_tarihi"},
     {"header": "Efektif Tarih(*)", "width": 15, "style": "date", "source": "field", "field": "islem_tarihi"},

@@ -37,5 +37,5 @@ def test_toplu_netsis_sablonu_banka_kodlariyla_bolge_basina_tek_dosya_yazar(
     assert {sheet.cell_value(row, 0) for row in range(1, sheet.nrows)} == {
         "BANK-G-01", "BANK-Z-01"
     }
-    assert {sheet.cell_value(row, 1) for row in range(1, sheet.nrows)} == {1.0}
+    assert {sheet.cell_value(row, 1) for row in range(1, sheet.nrows)} == {0.0}
     assert {sheet.cell_value(row, 18) for row in range(1, sheet.nrows)} == {"R01"}
