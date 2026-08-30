@@ -396,27 +396,14 @@ class ManimModulePage(QWidget):
         except CustomerListUpdateRequired as error:
             self.history.fail(operation_id, str(error))
             self.progress.setValue(0)
-            self.progress_detail.setText("Güncel müşteri listesi gerekiyor.")
+            self.progress_detail.setText("Güncel müşteri listesini Müşteri Listesi modülünden içe aktarın.")
             self.log.append(f"UYARI: {error}")
-            answer = QMessageBox.question(
+            QMessageBox.information(
                 self,
                 "Güncel müşteri listesi gerekli",
-                f"{error}\n\nGüncel müşteri listesini şimdi seçmek ister misiniz?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
+                f"{error}\n\nSol menüdeki Müşteri Listesi modülünden ham FOM müşteri listesini "
+                "içe aktarın. Ardından bu ekrana dönüp işlemi tekrar başlatın.",
             )
-            if answer == QMessageBox.Yes:
-                selected, _ = QFileDialog.getOpenFileName(
-                    self,
-                    "Güncel müşteri listesini seçin",
-                    str(Path.home()),
-                    "Excel dosyaları (*.xlsx *.xls)",
-                )
-                if selected:
-                    self._load_files([*self.files, Path(selected)])
-                    self.log.append(
-                        "Güncel müşteri listesi eklendi. İşleme başla düğmesine yeniden basın."
-                    )
         except Exception as error:
             self.history.fail(operation_id, str(error))
             self.progress.setValue(0)
@@ -433,7 +420,7 @@ class ManimModulePage(QWidget):
         cache = CustomerListCache(APP_PATHS.data_root)
         if cache.get():
             return "MANİM dosyaları + tahsilat raporu • son müşteri listesi hafızadan kullanılır"
-        return "MANİM dosyaları + tahsilat raporu + ilk kullanımda müşteri listesi"
+        return "MANİM dosyaları + tahsilat raporu • önce Müşteri Listesi modülünden liste içe aktarın"
 
     def open_output_dir(self) -> None:
         if self.last_output_dir and self.last_output_dir.is_dir():

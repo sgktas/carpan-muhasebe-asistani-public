@@ -21,7 +21,7 @@ def test_girdi_aciklamasi_sabit_manim_sayisi_soylemez(monkeypatch):
 
     _FakeCustomerListCache.cached_path = None
     first_use = ManimModulePage._input_files_description()
-    assert first_use == "MANİM dosyaları + tahsilat raporu + ilk kullanımda müşteri listesi"
+    assert "Müşteri Listesi modülünden" in first_use
     assert "4 MANİM" not in first_use
 
     _FakeCustomerListCache.cached_path = Path("hafizadaki_musteri_listesi.xlsx")

@@ -140,11 +140,12 @@ Uygulama artık sabit sayfalardan oluşan tek amaçlı bir araç değildir. Mod�
 `app/modules/registry.py` üzerinden kayıt edilir ve kullanıcının yerel
 entitlement yetkilerine göre sidebar'a dinamik olarak eklenir.
 
-İlk iki modül:
+Müşteri listesi dahil modüller:
 
 ```text
 MODÜL 01 — MANİM Aktarma
 MODÜL 02 — Rapor Düzenleme
+MODÜL 05 — Müşteri Listesi
 ```
 
 Ortak çekirdek hizmetleri:
@@ -239,11 +240,11 @@ eşleştirme için bu tam veri sayfasını otomatik seçer. Tek sayfalı orijina
 tahsilat raporlarında ilk sayfa okunmaya devam eder.
 
 MANİM Aktarma ekranı sabit bir MANİM dosya sayısı beklemez; aynı işlemde bir
-veya daha fazla MANİM raporu verilebilir. Müşteri listesi ilk başarılı
-kullanımdan sonra yerel hafızada saklanır ve sonraki aktarımlarda yeniden
-seçilmesi gerekmez. MANİM'deki açık karşı hesap kodu hafızadaki listede yoksa
-sistem yanlış cari kodla çıktı üretmeden durur, yeni müşteri uyarısı verir ve
-güncel müşteri listesinin seçilmesini ister.
+veya daha fazla MANİM raporu verilebilir. Ham FOM müşteri listesi, bağımsız
+**Müşteri Listesi** modülünde düzenlenir ve yerel hafızaya alınır; MANİM
+aktarımı bu hazırlanmış sürümü kullanır. MANİM'deki açık karşı hesap kodu
+hafızadaki listede yoksa sistem yanlış cari kodla çıktı üretmeden durur ve
+kullanıcıyı Müşteri Listesi modülünden güncel listeyi içe aktarmaya yönlendirir.
 
 
 ## Revize 18 — Çıktı Klasörü ve FOM Adlandırması

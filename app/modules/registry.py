@@ -4,6 +4,7 @@ from app.core.operation_history import OperationHistory
 from app.modules.bank_reconciliation.page import BankReconciliationPage
 from app.modules.base import ModuleManifest
 from app.modules.cari_reconciliation.page import CariReconciliationPage
+from app.modules.customer_list.page import CustomerListPage
 from app.modules.manim.page import ManimModulePage
 from app.modules.report_editing.page import ReportEditingPage
 
@@ -49,5 +50,15 @@ def build_module_registry(history: OperationHistory) -> list[ModuleManifest]:
             badge="MODÜL 04",
             description="Müşteri bazında Netsis bakiyesi ile kayıtları karşılaştırıp mutabakat raporu hazırlar.",
             page_factory=lambda: CariReconciliationPage(history),
+        ),
+        ModuleManifest(
+            module_id="customer_list_import",
+            name="Müşteri Listesi",
+            nav_label="Müşteri Listesi",
+            version="1.0.0",
+            icon_name="upload",
+            badge="MODÜL 05",
+            description="Ham FOM müşteri listesini düzenler ve MANİM için hafızaya alır.",
+            page_factory=lambda: CustomerListPage(history),
         ),
     ]
