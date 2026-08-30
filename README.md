@@ -238,6 +238,13 @@ kullanılabilir. Dosyada `ŞUBELİLER` sayfası varsa MANİM motoru şubeli
 eşleştirme için bu tam veri sayfasını otomatik seçer. Tek sayfalı orijinal
 tahsilat raporlarında ilk sayfa okunmaya devam eder.
 
+MANİM Aktarma ekranı sabit bir MANİM dosya sayısı beklemez; aynı işlemde bir
+veya daha fazla MANİM raporu verilebilir. Müşteri listesi ilk başarılı
+kullanımdan sonra yerel hafızada saklanır ve sonraki aktarımlarda yeniden
+seçilmesi gerekmez. MANİM'deki açık karşı hesap kodu hafızadaki listede yoksa
+sistem yanlış cari kodla çıktı üretmeden durur, yeni müşteri uyarısı verir ve
+güncel müşteri listesinin seçilmesini ister.
+
 
 ## Revize 18 — Çıktı Klasörü ve FOM Adlandırması
 

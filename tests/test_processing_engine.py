@@ -1,6 +1,11 @@
 import xlrd
+import pytest
 
-from app.core.processing_engine import ManualResolution, ProcessingEngine
+from app.core.processing_engine import (
+    CustomerListUpdateRequired,
+    ManualResolution,
+    ProcessingEngine,
+)
 from app.models.records import TahsilatRecord
 
 
@@ -310,6 +315,10 @@ def test_iki_gunluk_aktarim_dosya_adi_tarih_araligi_ve_satir_sirasi(synthetic_pr
             "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "C1800",
         },
     ]).to_excel(manim_path, index=False)
+    pd.DataFrame([
+        {"Müşteri Kodu": "C1800", "Ünvan": "CUMARTESI MUSTERI", "Vergi No": "1800", "Şube": "BODRUM"},
+        {"Müşteri Kodu": "C1900", "Ünvan": "PAZAR MUSTERI", "Vergi No": "1900", "Şube": "BODRUM"},
+    ]).to_excel(customer_path, index=False)
 
     engine = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root)
     result = engine.run()
@@ -365,3 +374,52 @@ def test_hic_hafiza_yokken_musteri_listesi_verilmezse_hata_verir(synthetic_proje
         assert False, "ValueError bekleniyordu"
     except ValueError as exc:
         assert "Musteri listesi bulunamadi" in str(exc)
+
+
+def test_hafizadaki_listede_yeni_musteri_yoksa_guncel_liste_istenir_ve_yenisi_saklanir(
+    synthetic_project,
+    tmp_path,
+):
+    import pandas as pd
+
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root).run()
+
+    new_manim = tmp_path / "input" / "TEST_BODRUM_YENI_MUSTERI_Manim.xlsx"
+    pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123",
+        "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "YENI MUSTERI ODEMESI", "Tutar": 1700.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "YENI MUSTERI",
+        "Karşı Hesap Kodu": "NEW001",
+    }]).to_excel(new_manim, index=False)
+
+    with pytest.raises(CustomerListUpdateRequired) as captured:
+        ProcessingEngine([new_manim, tahsilat_path], project_root).run()
+    assert captured.value.cached_list_used is True
+    assert captured.value.customer_codes == ("NEW001",)
+    assert "Hafızadaki son müşteri listesinde" in str(captured.value)
+
+    updated_customers = tmp_path / "input" / "guncel_musteri_listesi.xlsx"
+    pd.DataFrame([
+        {"Müşteri Kodu": "ABC001", "Ünvan": "ABC LTD", "Vergi No": "2222222222", "Şube": "BODRUM"},
+        {"Müşteri Kodu": "XYZ999", "Ünvan": "XYZ FIRMASI", "Vergi No": "1111111111", "Şube": "BODRUM"},
+        {"Müşteri Kodu": "NEW001", "Ünvan": "YENI MUSTERI", "Vergi No": "3333333333", "Şube": "BODRUM"},
+    ]).to_excel(updated_customers, index=False)
+    updated_result = ProcessingEngine(
+        [new_manim, tahsilat_path, updated_customers],
+        project_root,
+    ).run()
+    assert updated_result.produced_netsis_records == 1
+
+    another_manim = tmp_path / "input" / "TEST_BODRUM_YENI_MUSTERI_2_Manim.xlsx"
+    pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123",
+        "İşlem Tarihi": pd.Timestamp("2026-07-18"),
+        "Açıklama": "YENI MUSTERI IKINCI ODEME", "Tutar": 1800.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "YENI MUSTERI",
+        "Karşı Hesap Kodu": "NEW001",
+    }]).to_excel(another_manim, index=False)
+    cached_result = ProcessingEngine([another_manim, tahsilat_path], project_root).run()
+    assert cached_result.produced_netsis_records == 1
+    assert any("hafızadaki son liste kullanıldı" in log for log in cached_result.logs)

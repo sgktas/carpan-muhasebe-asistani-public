@@ -21,10 +21,15 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.app_paths import APP_PATHS
+from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
 from app.core.personnel_list_cache import PersonnelListCache
-from app.core.processing_engine import ManualResolution, ProcessingEngine
+from app.core.processing_engine import (
+    CustomerListUpdateRequired,
+    ManualResolution,
+    ProcessingEngine,
+)
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.models.records import TahsilatRecord
 from app.ui.common import add_page_header
@@ -66,7 +71,7 @@ class ManimModulePage(QWidget):
         add_page_header(
             layout,
             "MANİM Aktarma",
-            "MANİM, tahsilat raporu ve müşteri listesini güvenli şekilde Netsis aktarımına hazırlayın.",
+            "MANİM ve tahsilat raporlarını güvenli şekilde Netsis aktarımına hazırlayın.",
             "MODÜL 01",
         )
 
@@ -82,10 +87,10 @@ class ManimModulePage(QWidget):
         upload_header_col.setSpacing(3)
         upload_title = QLabel("Girdi dosyaları")
         upload_title.setObjectName("cardTitle")
-        upload_subtitle = QLabel("4 MANİM dosyası + tahsilat raporu + müşteri listesi")
-        upload_subtitle.setObjectName("cardSubtitle")
+        self.upload_subtitle = QLabel(self._input_files_description())
+        self.upload_subtitle.setObjectName("cardSubtitle")
         upload_header_col.addWidget(upload_title)
-        upload_header_col.addWidget(upload_subtitle)
+        upload_header_col.addWidget(self.upload_subtitle)
         upload_header.addLayout(upload_header_col, 1)
 
         self.file_status = QLabel("Dosya bekleniyor")
@@ -387,6 +392,31 @@ class ManimModulePage(QWidget):
             self.progress_detail.setText("İşlem başarıyla tamamlandı.")
             self.open_output_button.setVisible(bool(result.output_dir))
             self.review_odeme_button.setVisible(bool(result.odeme_onaylandi_items))
+            self.upload_subtitle.setText(self._input_files_description())
+        except CustomerListUpdateRequired as error:
+            self.history.fail(operation_id, str(error))
+            self.progress.setValue(0)
+            self.progress_detail.setText("Güncel müşteri listesi gerekiyor.")
+            self.log.append(f"UYARI: {error}")
+            answer = QMessageBox.question(
+                self,
+                "Güncel müşteri listesi gerekli",
+                f"{error}\n\nGüncel müşteri listesini şimdi seçmek ister misiniz?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if answer == QMessageBox.Yes:
+                selected, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Güncel müşteri listesini seçin",
+                    str(Path.home()),
+                    "Excel dosyaları (*.xlsx *.xls)",
+                )
+                if selected:
+                    self._load_files([*self.files, Path(selected)])
+                    self.log.append(
+                        "Güncel müşteri listesi eklendi. İşleme başla düğmesine yeniden basın."
+                    )
         except Exception as error:
             self.history.fail(operation_id, str(error))
             self.progress.setValue(0)
@@ -397,6 +427,13 @@ class ManimModulePage(QWidget):
             self.start_button.setEnabled(bool(self.files))
             self.select_button.setEnabled(True)
             self.clear_button.setEnabled(bool(self.files))
+
+    @staticmethod
+    def _input_files_description() -> str:
+        cache = CustomerListCache(APP_PATHS.data_root)
+        if cache.get():
+            return "MANİM dosyaları + tahsilat raporu • son müşteri listesi hafızadan kullanılır"
+        return "MANİM dosyaları + tahsilat raporu + ilk kullanımda müşteri listesi"
 
     def open_output_dir(self) -> None:
         if self.last_output_dir and self.last_output_dir.is_dir():

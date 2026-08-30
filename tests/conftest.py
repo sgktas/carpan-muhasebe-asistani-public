@@ -53,6 +53,7 @@ def synthetic_project(tmp_path):
 
     customer_path = input_dir / "musteri_listesi.xlsx"
     pd.DataFrame([
+        {"Müşteri Kodu": "ABC001", "Ünvan": "ABC LTD", "Vergi No": "2222222222", "Şube": "BODRUM"},
         {"Müşteri Kodu": "XYZ999", "Ünvan": "XYZ FIRMASI", "Vergi No": "1111111111", "Şube": "BODRUM"},
     ]).to_excel(customer_path, index=False)
 

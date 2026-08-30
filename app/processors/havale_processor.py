@@ -10,6 +10,7 @@ from app.models.records import CustomerRecord, ManimRecord, NetsisRecord, Tahsil
 
 class HavaleProcessor:
     ACCEPTED_STATUSES = {"AKTARILDI", "OTOMATIK OLARAK AKTARILDI", "OTOMATİK OLARAK AKTARILDI"}
+    MISSING_CUSTOMER_CODE_PREFIX = "Müşteri listesinde bulunmayan karşı hesap kodu:"
 
     def __init__(
         self,
@@ -38,8 +39,15 @@ class HavaleProcessor:
 
         if record.karsi_hesap_kodu:
             canonical = self.customers_by_code.get(self._code_key(record.karsi_hesap_kodu))
-            code = canonical.cari_kodu if canonical else str(record.karsi_hesap_kodu).strip()
-            return [self._netsis_record(record, code, record.tutar, "MANIM_KOD")], None
+            if not canonical:
+                code = str(record.karsi_hesap_kodu).strip()
+                return [], (
+                    f"{self.MISSING_CUSTOMER_CODE_PREFIX} {code}. "
+                    "Bu kayıt yeni müşteri olabilir; güncel müşteri listesini yükleyin."
+                )
+            return [
+                self._netsis_record(record, canonical.cari_kodu, record.tutar, "MANIM_KOD")
+            ], None
 
         # Açıklamadaki açık veya maskeli cari kod en kesin kimliktir.
         code_in_description = self._find_customer_code_in_description(record.aciklama)

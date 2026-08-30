@@ -2,7 +2,11 @@ from app.models.records import CustomerRecord, ManimRecord
 from app.processors.havale_processor import HavaleProcessor
 
 
-def _manim(description: str, amount: float = 1000.0) -> ManimRecord:
+def _manim(
+    description: str,
+    amount: float = 1000.0,
+    customer_code: str = "",
+) -> ManimRecord:
     return ManimRecord(
         banka="Garanti",
         sube="123",
@@ -11,7 +15,7 @@ def _manim(description: str, amount: float = 1000.0) -> ManimRecord:
         tutar=amount,
         dekont_durumu="Aktarıldı",
         karsi_hesap_adi="",
-        karsi_hesap_kodu="",
+        karsi_hesap_kodu=customer_code,
         kaynak_dosya="test.xlsx",
         kaynak_satir=2,
     )
@@ -108,3 +112,20 @@ def test_gercek_x_iceren_cari_kodu_ayirici_sanilmaz():
 
     assert reason is None
     assert rows[0].cari_kodu == "MX11111111111"
+
+
+def test_manimdeki_karsi_hesap_kodu_musteri_listesinde_yoksa_sessizce_aktarmaz():
+    customers = [
+        CustomerRecord("ABC001", "MEVCUT MUSTERI", "1111111111", "SIMSEK-BODRUM")
+    ]
+    processor = HavaleProcessor([], customers)
+
+    rows, reason = processor.process(
+        _manim("YENI MUSTERI ODEMESI", customer_code="NEW001"),
+        "BODRUM",
+    )
+
+    assert rows == []
+    assert reason is not None
+    assert reason.startswith(HavaleProcessor.MISSING_CUSTOMER_CODE_PREFIX)
+    assert "güncel müşteri listesini" in reason

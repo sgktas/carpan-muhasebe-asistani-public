@@ -72,6 +72,23 @@ class ManualResolution:
     rows: list[TahsilatRecord] | None = None
 
 
+class CustomerListUpdateRequired(ValueError):
+    """MANİM'deki yeni cari kod mevcut müşteri listesinde bulunamadı."""
+
+    def __init__(self, customer_codes: set[str], cached_list_used: bool):
+        self.customer_codes = tuple(sorted(customer_codes))
+        self.cached_list_used = cached_list_used
+        shown = ", ".join(self.customer_codes[:8])
+        if len(self.customer_codes) > 8:
+            shown += f" ve {len(self.customer_codes) - 8} kod daha"
+        source = "Hafızadaki son" if cached_list_used else "Seçilen"
+        super().__init__(
+            f"{source} müşteri listesinde şu karşı hesap kodları bulunamadı: {shown}. "
+            "Bu kayıtlar yeni müşteri olabilir. Güncel müşteri listesini yükleyip "
+            "işlemi yeniden başlatın."
+        )
+
+
 class ProcessingEngine:
     FALLBACK_REGIONS = ("BODRUM", "FETHIYE", "MUGLA", "SOKE")
 
@@ -144,8 +161,6 @@ class ProcessingEngine:
         tahsilat = tahsilat_parser.load()
         customers = CustomerParser(customer_file, profile=customer_list_profile).load()
         customer_region_by_code, customer_region_by_name = self._customer_region_indexes(customers)
-        if customer_file_is_fresh:
-            customer_cache.save(customer_file)
         customer_codes = {self._customer_code_key(row.cari_kodu): row.cari_kodu for row in customers}
         mapping_store = MappingStore(self.data_root / "data" / "customer_mappings.json")
         region_branch_aliases = {
@@ -167,6 +182,7 @@ class ProcessingEngine:
         islem_tarihleri: set[date] = set()
         processed_candidates: list[tuple[str, str, int]] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
+        missing_customer_codes: set[str] = set()
 
         result.logs.append(
             f"Girdi profili: {input_profile.name} | Çıktı profili: {output_profile.name} | "
@@ -239,6 +255,8 @@ class ProcessingEngine:
 
                 netsis_rows, reason = processor.process(record, region)
                 if reason:
+                    if reason.startswith(HavaleProcessor.MISSING_CUSTOMER_CODE_PREFIX):
+                        missing_customer_codes.add(str(record.karsi_hesap_kodu).strip())
                     pending.append(UnresolvedItem(record=record, region=region, reason=reason))
                     continue
 
@@ -255,6 +273,18 @@ class ProcessingEngine:
                     )
                 )
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
+
+        if missing_customer_codes:
+            raise CustomerListUpdateRequired(
+                missing_customer_codes,
+                cached_list_used=not customer_file_is_fresh,
+            )
+
+        # Yeni liste yalnız geçerli MANİM kayıtlarındaki tüm açık cari kodları
+        # kapsadığı doğrulandıktan sonra hafızaya alınır. Böylece eksik/eski bir
+        # dosya son kullanılabilir listenin üzerine yazılmaz.
+        if customer_file_is_fresh:
+            customer_cache.save(customer_file)
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
