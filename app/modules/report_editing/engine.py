@@ -17,6 +17,8 @@ import xlrd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.core.customer_list_cache import CustomerListCache
+
 CUSTOMER_OUTPUT_COLUMNS = [
     "Müşteri Sayısı", "Müşteri Kodu", "Şube", "Tabela Adi", "Ünvan",
     "Vergi Dairesi", "Vergi Numarası", "Tekel No", "SR-Rota", "Banka",
@@ -45,6 +47,7 @@ SALES_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Satış_Faturaları)"
 COLLECTION_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Tahsilatlar)"
 SALES_CLEAN_OUTPUT_PREFIX = "02_SATIS_RAPORU_DUZENLENMIS"
 COLLECTION_CLEAN_OUTPUT_PREFIX = "03_TAHSILAT_RAPORU_DUZENLENMIS"
+CUSTOMER_CLEAN_OUTPUT_FILENAME = "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"
 SALES_SHEET_NAME = "SATIS_FATURALARI"
 COLLECTION_SHEET_NAME = "TAHSILATLAR"
 
@@ -328,6 +331,25 @@ def prepare_fom_customer_list(source_path: str | Path, output_path: str | Path) 
         blank_first_column=True,
     )
     return len(customer_rows)
+
+
+def refresh_customer_list_cache(
+    result: ReportEditingResult,
+    data_root: str | Path,
+) -> Path | None:
+    """FOM işleminde üretilen temiz müşteri listesini MANİM hafızasına alır."""
+    source = result.recognized_files.get("customer")
+    if not source:
+        return None
+    prepared = next(
+        (path for path in result.created_files if path.name == CUSTOMER_CLEAN_OUTPUT_FILENAME),
+        None,
+    )
+    if not prepared:
+        raise RuntimeError("Düzenlenmiş müşteri listesi FOM çıktılarında bulunamadı.")
+    cache = CustomerListCache(Path(data_root))
+    cache.save(prepared, original_name=source.name)
+    return cache.get()
 
 
 def _report_template_path(resource_root: Path, file_name: str) -> Path:
@@ -878,7 +900,7 @@ class ReportEditingEngine:
         customer_rows: list[dict] = []
         branch_lookup: dict[str, str] = {}
         if "customer" in recognized:
-            output = output_dir / "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"
+            output = output_dir / CUSTOMER_CLEAN_OUTPUT_FILENAME
             result.customer_rows = prepare_fom_customer_list(recognized["customer"], output)
             _, customer_rows, branch_lookup = self._customer_rows(recognized["customer"])
             result.created_files.append(output)

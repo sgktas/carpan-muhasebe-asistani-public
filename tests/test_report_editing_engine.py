@@ -14,7 +14,9 @@ from app.modules.report_editing.engine import (
     SALES_SHEET_NAME,
     ExcelTemplateWriter,
     ReportEditingEngine,
+    refresh_customer_list_cache,
 )
+from app.core.customer_list_cache import CustomerListCache
 
 
 def _save_xls(path: Path, sheet_name: str, headers: list[str], rows: list[list[object]]) -> Path:
@@ -140,6 +142,13 @@ def test_report_engine_applies_reference_rules(tmp_path):
     customer_output = next(path for path in result.created_files if "MUSTERI" in path.name)
     customer_wb = load_workbook(customer_output, data_only=True)
     assert customer_wb.active["D2"].value == "SIMSEK-NAZILLI"
+
+    cached_customer_list = refresh_customer_list_cache(result, tmp_path / "state")
+    assert cached_customer_list is not None
+    assert cached_customer_list.exists()
+    cache_metadata = CustomerListCache(tmp_path / "state").metadata()
+    assert cache_metadata is not None
+    assert cache_metadata["orijinal_ad"] == customer.name
 
     sales_output = next(
         path for path in result.created_files

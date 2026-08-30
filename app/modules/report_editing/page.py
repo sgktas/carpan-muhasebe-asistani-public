@@ -27,6 +27,7 @@ from app.modules.report_editing.engine import (
     MODULE_ID,
     MODULE_NAME,
     ReportEditingEngine,
+    refresh_customer_list_cache,
 )
 from app.ui.common import add_page_header
 from app.ui.theme import asset_icon, crisp_pixmap
@@ -367,6 +368,11 @@ class ReportEditingPage(QWidget):
                 create_template_outputs=True,
             )
             result = engine.run()
+            cached_customer_list = refresh_customer_list_cache(result, APP_PATHS.data_root)
+            if cached_customer_list:
+                result.logs.append(
+                    "Düzenlenmiş müşteri listesi MANİM Aktarma hafızasına da kaydedildi."
+                )
             for message in result.logs:
                 self.log.append(message)
             for path in result.created_files:
