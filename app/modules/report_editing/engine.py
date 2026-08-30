@@ -307,6 +307,29 @@ def _write_clean_xlsx(
     return ensure_writable(output_path)
 
 
+def prepare_fom_customer_list(source_path: str | Path, output_path: str | Path) -> int:
+    """Ham FOM müşteri listesini MANİM'in kullanacağı standart forma getirir.
+
+    Bu, FOM Rapor Düzenleme ekranında üretilen müşteri listesiyle aynı
+    sütunları ve aynı Aydın/Nazilli şube kuralını kullanır.  Böylece MANİM'e
+    tek başına bırakılan ham liste de ayrıca FOM modülüne girilmeden güvenle
+    kullanılabilir.
+    """
+    source_path = Path(source_path)
+    output_path = Path(output_path)
+    sheet_name, customer_rows, _ = ReportEditingEngine._customer_rows(source_path)
+    customer_values = [
+        [row.get(column) for column in CUSTOMER_OUTPUT_COLUMNS]
+        for row in customer_rows
+    ]
+    _write_clean_xlsx(
+        output_path,
+        [(sheet_name, CUSTOMER_OUTPUT_COLUMNS, customer_values, False)],
+        blank_first_column=True,
+    )
+    return len(customer_rows)
+
+
 def _report_template_path(resource_root: Path, file_name: str) -> Path:
     local = resource_root / "templates" / "local" / "report_editing" / file_name
     if os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1" and local.is_file():
@@ -855,23 +878,12 @@ class ReportEditingEngine:
         customer_rows: list[dict] = []
         branch_lookup: dict[str, str] = {}
         if "customer" in recognized:
-            customer_sheet, customer_rows, branch_lookup = self._customer_rows(
-                recognized["customer"]
-            )
-            customer_values = [
-                [row.get(column) for column in CUSTOMER_OUTPUT_COLUMNS]
-                for row in customer_rows
-            ]
             output = output_dir / "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"
-            _write_clean_xlsx(
-                output,
-                [(customer_sheet, CUSTOMER_OUTPUT_COLUMNS, customer_values, False)],
-                blank_first_column=True,
-            )
+            result.customer_rows = prepare_fom_customer_list(recognized["customer"], output)
+            _, customer_rows, branch_lookup = self._customer_rows(recognized["customer"])
             result.created_files.append(output)
-            result.customer_rows = len(customer_rows)
             result.logs.append(
-                f"Müşteri listesi düzenlendi: {len(customer_rows)} kayıt. "
+                f"Müşteri listesi düzenlendi: {result.customer_rows} kayıt. "
                 "AYDIN-DD-02 rotaları SIMSEK-NAZILLI şubesine ayrıldı."
             )
 

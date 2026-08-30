@@ -34,7 +34,7 @@ class CustomerListCache:
     def metadata(self) -> dict | None:
         return self._read_meta()
 
-    def save(self, source: Path) -> None:
+    def save(self, source: Path, *, original_name: str | None = None) -> None:
         # Önceki farklı uzantılı hafıza dosyası varsa temizle (örn. .xls -> .xlsx değişimi).
         for old in self._dir.glob("last_musteri_listesi.*"):
             old.unlink(missing_ok=True)
@@ -44,7 +44,7 @@ class CustomerListCache:
         shutil.copy2(source, cache_path)
 
         meta = {
-            "orijinal_ad": source.name,
+            "orijinal_ad": original_name or source.name,
             "kaydedilme_tarihi": datetime.now().isoformat(timespec="seconds"),
             "dosya_adi_hafiza": cache_name,
         }

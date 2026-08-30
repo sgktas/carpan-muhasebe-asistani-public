@@ -30,6 +30,7 @@ from app.core.processed_files_log import ProcessedFilesLog
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.core.tahsilat_parser import TahsilatParser
 from app.models.records import CustomerRecord, ManimRecord, TahsilatRecord
+from app.modules.report_editing.engine import CUSTOMER_OUTPUT_COLUMNS, prepare_fom_customer_list
 from app.processors.havale_processor import HavaleProcessor
 from app.writers.netsis_writer import NetsisWriter
 from app.writers.odeme_onaylandi_writer import OdemeOnaylandiWriter
@@ -149,10 +150,23 @@ class ProcessingEngine:
 
         customer_cache = CustomerListCache(self.data_root)
         customer_file_is_fresh = customer_file is not None
+        original_customer_file = customer_file
+        prepared_customer_file: Path | None = None
+        prepared_customer_rows: int | None = None
         if customer_file is None:
             customer_file = customer_cache.get()
             if not customer_file:
                 raise ValueError("Musteri listesi bulunamadi. Dosyayi da surukleyip birakin.")
+        elif self._is_fom_customer_list(customer_file):
+            # FOM'un ham müşteri listesi, FOM Rapor Düzenleme ekranıyla aynı
+            # kurallardan geçirilerek kullanılır ve bu hazırlanmış sürüm
+            # hafızaya alınır. Diğer müşteri-listesi profilleri olduğu gibi
+            # desteklenmeye devam eder.
+            prepared_customer_file = (
+                self.data_root / "data" / f".musteri_listesi_hazir_{uuid4().hex}.xlsx"
+            )
+            prepared_customer_rows = prepare_fom_customer_list(customer_file, prepared_customer_file)
+            customer_file = prepared_customer_file
 
         allow_duplicate_files = allow_duplicate_files or set()
         processed_log = ProcessedFilesLog(self.data_root / "data" / "processed_files.json")
@@ -195,11 +209,16 @@ class ProcessingEngine:
                 "(şubeli eşleştirme için tüm kayıtlar)"
             )
         musteri_listesi_gorunen_ad = (
-            customer_file.name
+            (original_customer_file or customer_file).name
             if customer_file_is_fresh
             else (customer_cache.metadata() or {}).get("orijinal_ad", customer_file.name)
         )
         result.logs.append(f"Musteri listesi: {musteri_listesi_gorunen_ad}")
+        if prepared_customer_rows is not None:
+            result.logs.append(
+                f"  Ham FOM müşteri listesi otomatik düzenlendi: {prepared_customer_rows} kayıt "
+                "(Aydın/Nazilli şube ayrımı uygulandı)."
+            )
         if not customer_file_is_fresh:
             cache_meta = customer_cache.metadata() or {}
             result.logs.append(
@@ -275,6 +294,8 @@ class ProcessingEngine:
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
 
         if missing_customer_codes:
+            if prepared_customer_file:
+                prepared_customer_file.unlink(missing_ok=True)
             raise CustomerListUpdateRequired(
                 missing_customer_codes,
                 cached_list_used=not customer_file_is_fresh,
@@ -284,7 +305,12 @@ class ProcessingEngine:
         # kapsadığı doğrulandıktan sonra hafızaya alınır. Böylece eksik/eski bir
         # dosya son kullanılabilir listenin üzerine yazılmaz.
         if customer_file_is_fresh:
-            customer_cache.save(customer_file)
+            customer_cache.save(
+                customer_file,
+                original_name=original_customer_file.name if original_customer_file else None,
+            )
+            if prepared_customer_file:
+                prepared_customer_file.unlink(missing_ok=True)
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
@@ -585,6 +611,13 @@ class ProcessingEngine:
         has_title = bool({"UNVAN", "CARIADI", "MUSTERIADI", "MUSTERIISMI"} & header_keys)
         has_customer_only_hint = bool({"VERGINO", "VERGINUMARASI", "SUBE"} & header_keys)
         return has_code and has_title and has_customer_only_hint
+
+    @staticmethod
+    def _is_fom_customer_list(file: Path) -> bool:
+        """Dosyanın FOM'un tam ham müşteri-listesi düzeninde olup olmadığını belirler."""
+        header_keys = {ProcessingEngine._key(header) for header in ProcessingEngine._headers(file)}
+        expected_keys = {ProcessingEngine._key(header) for header in CUSTOMER_OUTPUT_COLUMNS}
+        return expected_keys.issubset(header_keys)
 
     @staticmethod
     def _headers(file: Path) -> list[str]:

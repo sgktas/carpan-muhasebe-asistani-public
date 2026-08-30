@@ -1,11 +1,14 @@
 import xlrd
 import pytest
+from openpyxl import load_workbook
 
+from app.core.customer_list_cache import CustomerListCache
 from app.core.processing_engine import (
     CustomerListUpdateRequired,
     ManualResolution,
     ProcessingEngine,
 )
+from app.modules.report_editing.engine import CUSTOMER_OUTPUT_COLUMNS
 from app.models.records import TahsilatRecord
 
 
@@ -363,6 +366,44 @@ def test_musteri_listesi_verilmezse_hafizadaki_son_liste_kullanilir(synthetic_pr
     result2 = engine2.run()
     assert result2.produced_netsis_records == 1
     assert any("hafızadaki son liste kullanıldı" in log for log in result2.logs)
+
+
+def test_ham_fom_musteri_listesi_manim_icin_duzenlenip_hafizaya_alinir(
+    synthetic_project,
+    tmp_path,
+):
+    manim_path, tahsilat_path, _customer_path, project_root = synthetic_project
+    raw_customer_path = tmp_path / "input" / "ham_fom_musteri_listesi.xlsx"
+    raw_customer = {column: None for column in CUSTOMER_OUTPUT_COLUMNS}
+    raw_customer.update({
+        "Müşteri Sayısı": 1,
+        "Müşteri Kodu": "ABC001",
+        "Şube": "SIMSEK-AYDIN",
+        "Tabela Adi": "ABC MARKET",
+        "Ünvan": "ABC LTD",
+        "Vergi Numarası": "2222222222",
+        "SR-Rota": "AYDIN-DD-0203",
+    })
+    import pandas as pd
+    pd.DataFrame([raw_customer]).to_excel(raw_customer_path, index=False)
+
+    result = ProcessingEngine([manim_path, tahsilat_path, raw_customer_path], project_root).run()
+
+    assert result.produced_netsis_records == 1
+    assert any("Ham FOM müşteri listesi otomatik düzenlendi" in log for log in result.logs)
+    cache_path = CustomerListCache(project_root).get()
+    assert cache_path is not None
+    cache_book = load_workbook(cache_path, data_only=True)
+    try:
+        worksheet = cache_book.active
+        assert worksheet["B1"].value == "Müşteri Sayısı"
+        assert worksheet["D2"].value == "SIMSEK-NAZILLI"
+    finally:
+        cache_book.close()
+
+    metadata = CustomerListCache(project_root).metadata()
+    assert metadata is not None
+    assert metadata["orijinal_ad"] == raw_customer_path.name
 
 
 def test_hic_hafiza_yokken_musteri_listesi_verilmezse_hata_verir(synthetic_project):
