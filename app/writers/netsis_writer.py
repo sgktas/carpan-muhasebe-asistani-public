@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Iterable
 
@@ -26,11 +27,28 @@ def _default_profile() -> OutputProfile:
 
 
 def _default_template_path(profile: OutputProfile) -> Path:
-    project_root = Path(__file__).resolve().parents[2]
-    local_template = project_root / "templates" / "local" / profile.template_file
-    if os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1" and local_template.is_file():
-        return local_template
-    return project_root / "templates" / profile.template_file
+    # PyInstaller uygulamasında kaynak dosyaların konumu yerine `_MEIPASS`
+    # altındaki paket klasörü kullanılmalıdır. Aksi durumda şablon bulunamaz
+    # ve Netsis'in kabul etmediği genel xlwt çıktısına düşülebiliyordu.
+    roots: list[Path] = []
+    if getattr(sys, "frozen", False):
+        bundled_root = getattr(sys, "_MEIPASS", None)
+        if bundled_root:
+            roots.append(Path(bundled_root))
+    roots.append(Path(__file__).resolve().parents[2])
+
+    local_enabled = os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
+    for project_root in roots:
+        local_template = project_root / "templates" / "local" / profile.template_file
+        if local_enabled and local_template.is_file():
+            return local_template
+        packaged_template = project_root / "templates" / profile.template_file
+        if packaged_template.is_file():
+            return packaged_template
+
+    # Hata mesajında doğru beklenen konumu göstermek için mevcut davranışın
+    # yolunu döndür; Windows paketinde bu durum ayrıca açıkça ele alınır.
+    return roots[0] / "templates" / profile.template_file
 
 
 class NetsisWriter:
@@ -69,6 +87,11 @@ class NetsisWriter:
 
     def write(self, records: list[NetsisRecord], output_path: str | Path) -> Path:
         records = sorted(records, key=self._sort_key)
+        if os.name == "nt" and getattr(sys, "frozen", False) and not self.template_path.is_file():
+            raise FileNotFoundError(
+                f"'{self.profile.name}' için paket içi Netsis şablonu bulunamadı: "
+                f"{self.template_path}. Genel Excel çıktısı üretilmedi."
+            )
         if os.name == "nt" and self.template_path.is_file():
             try:
                 return self._write_with_microsoft_excel(records, output_path)

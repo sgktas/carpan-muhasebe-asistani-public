@@ -5,8 +5,9 @@ from pathlib import Path
 
 import xlrd
 
+from app.core.output_profile import OutputProfile
 from app.models.records import NetsisRecord
-from app.writers.netsis_writer import NetsisWriter
+from app.writers.netsis_writer import NetsisWriter, _default_template_path
 
 
 def _record(tutar=1000.0):
@@ -23,6 +24,25 @@ def _record(tutar=1000.0):
 
 def _open(path):
     return xlrd.open_workbook(path, formatting_info=True)
+
+
+def test_paketli_uygulama_sablonu_meipass_altindan_bulur(tmp_path, monkeypatch):
+    template_dir = tmp_path / "templates" / "local"
+    template_dir.mkdir(parents=True)
+    (template_dir / "netsis_template.xlsx").write_bytes(b"template")
+    profile = OutputProfile(
+        profile_id="netsis",
+        name="Netsis",
+        description="",
+        template_file="netsis_template.xlsx",
+        columns=(),
+    )
+
+    monkeypatch.delenv("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG", raising=False)
+    monkeypatch.setattr("app.writers.netsis_writer.sys.frozen", True, raising=False)
+    monkeypatch.setattr("app.writers.netsis_writer.sys._MEIPASS", str(tmp_path), raising=False)
+
+    assert _default_template_path(profile) == template_dir / "netsis_template.xlsx"
 
 
 def test_gercek_excel_97_2003_biff8_ve_xls_uzantisi(tmp_path):
