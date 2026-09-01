@@ -396,10 +396,13 @@ class ProcessingEngine:
         invalid_name: str | None = None
 
         try:
-            writer = NetsisWriter(
-                self.resource_root / "templates" / output_profile.template_file,
-                profile=output_profile,
-            )
+            # NetsisWriter şablonu uygulamanın gerçek çalışma yolundan seçer:
+            # paketli uygulamada ``templates/local`` içindeki doğrulanmış
+            # Netsis şablonu, kaynak pakette ise varsa genel şablon kullanılır.
+            # Burada ``templates/<dosya>`` yolunu doğrudan vermek local
+            # şablonu atlatıp genel xlwt çıktısına düşürebiliyordu; Ephesus
+            # bu çıktıyı "External table" hatasıyla reddedebiliyor.
+            writer = NetsisWriter(profile=output_profile)
             try:
                 ordered_outputs = sorted(
                     outputs.items(),

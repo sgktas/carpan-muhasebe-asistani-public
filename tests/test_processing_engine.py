@@ -20,6 +20,32 @@ def test_normal_kayit_netsis_dosyasina_yaziliyor(synthetic_project):
     assert len(netsis_files) == 1
 
 
+def test_netsis_writer_yerel_sablonu_secmesi_icin_yol_verilmeden_kurulur(
+    synthetic_project,
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeNetsisWriter:
+        def __init__(self, *args, profile=None):
+            captured["args"] = args
+            captured["profile"] = profile
+
+        def write(self, _rows, output_path):
+            output_path.write_bytes(b"test")
+            return output_path
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", FakeNetsisWriter)
+    engine = ProcessingEngine(_files(synthetic_project), synthetic_project[3])
+    engine.run()
+
+    assert captured["args"] == ()
+    assert captured["profile"].profile_id == "netsis"
+
+
 def test_odeme_onaylandi_ve_referansli_ayriliyor(synthetic_project):
     engine = ProcessingEngine(_files(synthetic_project), synthetic_project[3])
     result = engine.run()
