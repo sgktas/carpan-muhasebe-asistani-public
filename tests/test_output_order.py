@@ -49,6 +49,7 @@ def test_yeni_bolgeler_ayar_sirasina_gore_siralanir():
     assert region_file_prefix("NAZILLI", order) == "08"
     assert special_file_prefix("ODEME_ONAYLANDI", order) == "09"
     assert special_file_prefix("REFERANSLI", order) == "10"
+    assert special_file_prefix("KURAL_CALISTI", order) == "11"
 
 
 def test_odeme_onaylandi_bolge_bolge_gruplu_yazilir(tmp_path):

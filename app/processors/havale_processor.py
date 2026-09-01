@@ -10,7 +10,7 @@ from app.models.records import CustomerRecord, ManimRecord, NetsisRecord, Tahsil
 
 class HavaleProcessor:
     ACCEPTED_STATUSES = {"AKTARILDI", "OTOMATIK OLARAK AKTARILDI", "OTOMATİK OLARAK AKTARILDI"}
-    MISSING_CUSTOMER_CODE_PREFIX = "Müşteri listesinde bulunmayan karşı hesap kodu:"
+    PASSIVE_CUSTOMER_CODE_PREFIX = "Manuel kontrol bekleyen pasif veya listede olmayan cari kod:"
 
     def __init__(
         self,
@@ -42,8 +42,8 @@ class HavaleProcessor:
             if not canonical:
                 code = str(record.karsi_hesap_kodu).strip()
                 return [], (
-                    f"{self.MISSING_CUSTOMER_CODE_PREFIX} {code}. "
-                    "Bu kayıt yeni müşteri olabilir; güncel müşteri listesini yükleyin."
+                    f"{self.PASSIVE_CUSTOMER_CODE_PREFIX} {code}. "
+                    "Kodu ve tutarı kontrol edip manuel olarak onaylayın."
                 )
             return [
                 self._netsis_record(record, canonical.cari_kodu, record.tutar, "MANIM_KOD")

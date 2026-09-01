@@ -49,6 +49,7 @@ class ProcessingResult:
     produced_netsis_records: int = 0
     skipped_payment: int = 0
     skipped_reference: int = 0
+    skipped_rule: int = 0
     unresolved: int = 0
     duplicate_files: list[str] = field(default_factory=list)
     odeme_onaylandi_items: list[tuple] = field(default_factory=list)
@@ -168,10 +169,10 @@ class ProcessingEngine:
         invalid_rows: list[InvalidManimRow] = []
         odeme_onaylandi_items: list[tuple[ManimRecord, str, str]] = []
         referansli_by_region: dict[str, list[ManimRecord]] = defaultdict(list)
+        kural_calisti_by_region: dict[str, list[ManimRecord]] = defaultdict(list)
         islem_tarihleri: set[date] = set()
         processed_candidates: list[tuple[str, str, int]] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
-        missing_customer_codes: set[str] = set()
 
         result.logs.append(
             f"Girdi profili: {input_profile.name} | Çıktı profili: {output_profile.name} | "
@@ -237,6 +238,11 @@ class ProcessingEngine:
                     result.skipped_payment += 1
                     continue
 
+                if "KURAL CALISTI" in status:
+                    kural_calisti_by_region[region].append(record)
+                    result.skipped_rule += 1
+                    continue
+
                 if "REFERANSLI" in status:
                     referansli_by_region[region].append(record)
                     result.skipped_reference += 1
@@ -244,8 +250,6 @@ class ProcessingEngine:
 
                 netsis_rows, reason = processor.process(record, region)
                 if reason:
-                    if reason.startswith(HavaleProcessor.MISSING_CUSTOMER_CODE_PREFIX):
-                        missing_customer_codes.add(str(record.karsi_hesap_kodu).strip())
                     pending.append(UnresolvedItem(record=record, region=region, reason=reason))
                     continue
 
@@ -265,15 +269,6 @@ class ProcessingEngine:
                     )
                 )
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
-
-        if missing_customer_codes:
-            shown = ", ".join(sorted(missing_customer_codes)[:8])
-            if len(missing_customer_codes) > 8:
-                shown += f" ve {len(missing_customer_codes) - 8} kod daha"
-            result.logs.append(
-                "UYARI: Müşteri listesinde bulunamayan karşı hesap kodları "
-                f"manuel eşleştirme ekranına gönderildi: {shown}."
-            )
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
@@ -385,6 +380,8 @@ class ProcessingEngine:
         )
         for records in referansli_by_region.values():
             records.sort(key=self._manim_sort_key)
+        for records in kural_calisti_by_region.values():
+            records.sort(key=self._manim_sort_key)
 
         output_base = self.output_root
         output_base.mkdir(parents=True, exist_ok=True)
@@ -466,6 +463,21 @@ class ProcessingEngine:
                 created_names.append(referansli_name)
                 result.logs.append(
                     f"{referansli_name}: {total_referansli} referansli kaydi (bolge bazinda sayfa)."
+                )
+
+            kural_calisti_name = (
+                f"{special_file_prefix('KURAL_CALISTI', self.REGIONS)}_"
+                f"KURAL_CALISTI_{tarih_etiketi}.xls"
+            )
+            kural_calisti_path = ReferansliWriter(self.region_config).write(
+                kural_calisti_by_region,
+                staging_dir / kural_calisti_name,
+            )
+            if kural_calisti_path:
+                total_kural_calisti = sum(len(records) for records in kural_calisti_by_region.values())
+                created_names.append(kural_calisti_name)
+                result.logs.append(
+                    f"{kural_calisti_name}: {total_kural_calisti} kural çalıştı kaydı (bolge bazinda sayfa)."
                 )
 
             # Dosyalar önce geçici klasörde tamamen üretilir. Tek bir writer bile

@@ -127,5 +127,5 @@ def test_manimdeki_karsi_hesap_kodu_musteri_listesinde_yoksa_sessizce_aktarmaz()
 
     assert rows == []
     assert reason is not None
-    assert reason.startswith(HavaleProcessor.MISSING_CUSTOMER_CODE_PREFIX)
-    assert "güncel müşteri listesini" in reason
+    assert reason.startswith(HavaleProcessor.PASSIVE_CUSTOMER_CODE_PREFIX)
+    assert "manuel olarak onaylayın" in reason

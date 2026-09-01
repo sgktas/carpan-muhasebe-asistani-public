@@ -50,6 +50,52 @@ def test_odeme_onaylandi_ve_referansli_ayriliyor(synthetic_project):
     assert book.format_map[xf.format_key].format_str == "#,##0.00"
 
 
+def test_kural_calisti_eslestirmeye_girmeden_bolgesel_ciktiya_yazilir(synthetic_project):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    import pandas as pd
+
+    df = pd.read_excel(manim_path)
+    df = pd.concat([df, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-16"),
+        "Açıklama": "KURAL CALISTI TEST", "Tutar": 1250.0,
+        "Dekont Durumu": "Kural Çalıştı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
+    df.to_excel(manim_path, index=False)
+
+    result = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root).run()
+
+    assert result.skipped_rule == 1
+    assert result.unresolved == 0
+    files = [path for path in result.created_files if "KURAL_CALISTI" in path.name]
+    assert len(files) == 1
+    book = xlrd.open_workbook(files[0])
+    assert book.sheet_by_name("BODRUM").cell_value(1, 2) == "KURAL CALISTI TEST"
+
+
+def test_pasif_cari_kodu_hata_vermeden_manuel_onaya_gider(synthetic_project):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    import pandas as pd
+
+    df = pd.read_excel(manim_path)
+    df = pd.concat([df, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-16"),
+        "Açıklama": "PASIF CARI BORC KAPAMA", "Tutar": 1250.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "PASIF001",
+    }])], ignore_index=True)
+    df.to_excel(manim_path, index=False)
+
+    def resolver(pending, _customers, _tahsilat):
+        assert len(pending) == 1
+        assert "pasif veya listede olmayan" in pending[0].reason
+        return {0: ManualResolution(route="HAVALE", rows=[
+            TahsilatRecord("PASIF001", "", None, pending[0].record.tutar)
+        ])}
+
+    result = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root).run(resolver=resolver)
+    assert result.unresolved == 0
+    assert result.produced_netsis_records == 2
+
+
 def test_ayni_dosya_ikinci_kez_islenmiyor(synthetic_project):
     project_root = synthetic_project[3]
     files = _files(synthetic_project)
@@ -393,7 +439,7 @@ def test_hafizadaki_listede_yeni_musteri_yoksa_islem_durmaz_ve_yenisi_saklanir(
     unresolved_result = ProcessingEngine([new_manim, tahsilat_path], project_root).run()
     assert unresolved_result.unresolved == 1
     assert unresolved_result.output_dir is not None
-    assert any("manuel eşleştirme ekranına gönderildi" in log for log in unresolved_result.logs)
+    assert not any("Müşteri listesinde bulunamayan" in log for log in unresolved_result.logs)
 
     updated_customers = tmp_path / "input" / "guncel_musteri_listesi.xlsx"
     pd.DataFrame([

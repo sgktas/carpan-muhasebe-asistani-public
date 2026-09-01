@@ -457,6 +457,7 @@ class ManimModulePage(QWidget):
             self.log.append(f"Oluşturulan Netsis satırı: {result.produced_netsis_records}")
             self.log.append(f"Ödeme Onaylandı: {result.skipped_payment}")
             self.log.append(f"Referanslı: {result.skipped_reference}")
+            self.log.append(f"Kural Çalıştı: {result.skipped_rule}")
             self.log.append(f"İnceleme gereken: {result.unresolved}")
             if result.output_dir:
                 self.log.append(f"Çıktı klasörü: {result.output_dir}")
@@ -471,6 +472,7 @@ class ManimModulePage(QWidget):
                     "produced_netsis_records": result.produced_netsis_records,
                     "skipped_payment": result.skipped_payment,
                     "skipped_reference": result.skipped_reference,
+                    "skipped_rule": result.skipped_rule,
                     "unresolved": result.unresolved,
                 },
                 status=status,
