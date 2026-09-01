@@ -74,6 +74,8 @@ def test_odeme_onaylandi_ve_referansli_ayriliyor(synthetic_project):
     assert row[10] == "TEST"     # Public örnek plasiyer kodu
     xf = book.xf_list[sheet.cell_xf_index(1, 6)]
     assert book.format_map[xf.format_key].format_str == "#,##0.00"
+    doviz_xf = book.xf_list[sheet.cell_xf_index(1, 8)]
+    assert book.format_map[doviz_xf.format_key].format_str == "#,##0.00"
 
 
 def test_kural_calisti_eslestirmeye_girmeden_bolgesel_ciktiya_yazilir(synthetic_project):

@@ -97,6 +97,17 @@ def test_tarih_saatsiz_ve_dd_mm_yyyy_formatinda_yaziliyor(tmp_path):
     assert book.format_map[xf.format_key].format_str.upper() == "DD.MM.YYYY"
 
 
+def test_netsis_tutar_sutunlari_binlik_ayracli_yazilir(tmp_path):
+    output_path = NetsisWriter().write([_record(1234567.89)], tmp_path / "test.xls")
+    book = _open(output_path)
+    sheet = book.sheet_by_index(0)
+
+    doviz_xf = book.xf_list[sheet.cell_xf_index(1, 11)]
+    tutar_xf = book.xf_list[sheet.cell_xf_index(1, 12)]
+    assert book.format_map[doviz_xf.format_key].format_str == "#,##0.00"
+    assert book.format_map[tutar_xf.format_key].format_str == "#,##0.00"
+
+
 def test_gercek_27_sutunlu_netsis_basliklari_yaziliyor(tmp_path):
     output_path = NetsisWriter().write([_record()], tmp_path / "test.xls")
     sheet = _open(output_path).sheet_by_index(0)

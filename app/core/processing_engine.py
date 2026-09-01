@@ -740,7 +740,13 @@ class ProcessingEngine:
     @staticmethod
     def _write_review(rows: list[dict[str, object]], output_path: Path) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        return write_table_xls(rows, output_path, sheet_name="İnceleme")
+        return write_table_xls(
+            rows,
+            output_path,
+            sheet_name="İnceleme",
+            amount_columns=("Tutar",),
+            date_columns=("Tarih",),
+        )
 
     @staticmethod
     def _write_invalid_rows(rows: list[InvalidManimRow], output_path: Path) -> Path:

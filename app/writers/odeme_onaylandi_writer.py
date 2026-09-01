@@ -20,7 +20,7 @@ class OdemeOnaylandiWriter:
     ]
     COLUMN_WIDTHS = [10, 12, 7, 5, 5, 55, 13, 11, 10, 8, 10, 10, 9]
     CENTERED_COLUMNS = {
-        "KasaKodu", "Fisno", "GC", "Tip", "Kod", "DovizTut", "Kur",
+        "KasaKodu", "Fisno", "GC", "Tip", "Kod", "Kur",
         "Plasiyer", "ProjeKodu", "RefKodu",
     }
 
@@ -83,7 +83,7 @@ class OdemeOnaylandiWriter:
                 "RefKodu": "",
             }
             for col_index, column_name in enumerate(self.COLUMNS):
-                if column_name == "Tutar":
+                if column_name in {"Tutar", "DovizTut"}:
                     style_name = "amount"
                 elif column_name in self.CENTERED_COLUMNS:
                     style_name = "centered"

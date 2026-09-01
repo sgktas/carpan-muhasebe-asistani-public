@@ -18,7 +18,7 @@
     {"header": "Banka Hes.No(*)", "width": 12, "style": "integer", "source": "const", "value": 0},
     {"header": "IBAN", "width": 13, "style": "centered", "source": "const", "value": null},
     {"header": "Döviz Tipi(*)", "width": 10, "style": "integer", "source": "const", "value": 0},
-    {"header": "Döviz Tutar", "width": 12, "style": "integer", "source": "const", "value": 0},
+    {"header": "Döviz Tutar", "width": 12, "style": "amount", "source": "const", "value": 0},
     {"header": "Tutar", "width": 15, "style": "amount", "source": "field", "field": "tutar"},
     {"header": "Açıklama", "width": 45, "style": "text", "source": "field", "field": "aciklama"},
     {"header": "Cari Açıklama", "width": 40, "style": "text", "source": "field", "field": "aciklama"},
