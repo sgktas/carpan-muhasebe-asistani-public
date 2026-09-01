@@ -72,23 +72,6 @@ class ManualResolution:
     rows: list[TahsilatRecord] | None = None
 
 
-class CustomerListUpdateRequired(ValueError):
-    """MANİM'deki yeni cari kod mevcut müşteri listesinde bulunamadı."""
-
-    def __init__(self, customer_codes: set[str], cached_list_used: bool):
-        self.customer_codes = tuple(sorted(customer_codes))
-        self.cached_list_used = cached_list_used
-        shown = ", ".join(self.customer_codes[:8])
-        if len(self.customer_codes) > 8:
-            shown += f" ve {len(self.customer_codes) - 8} kod daha"
-        source = "Hafızadaki son" if cached_list_used else "Seçilen"
-        super().__init__(
-            f"{source} müşteri listesinde şu karşı hesap kodları bulunamadı: {shown}. "
-            "Bu kayıtlar yeni müşteri olabilir. Güncel müşteri listesini yükleyip "
-            "işlemi yeniden başlatın."
-        )
-
-
 class ProcessingEngine:
     FALLBACK_REGIONS = ("BODRUM", "FETHIYE", "MUGLA", "SOKE")
 
@@ -160,6 +143,13 @@ class ProcessingEngine:
         tahsilat_parser = TahsilatParser(tahsilat_file)
         tahsilat = tahsilat_parser.load()
         customers = CustomerParser(customer_file, profile=customer_list_profile).load()
+        # Kullanıcının bu turda verdiği liste güncel kabul edilir. İçinde
+        # MANİM'de geçen birkaç yeni kod henüz olmasa bile listeyi reddedip
+        # tüm aktarımı durdurmayız; o satırlar aşağıda manuel eşleştirme
+        # ekranına gider, liste ise sonraki işlemlerde kullanılmak üzere
+        # hafızaya alınır.
+        if customer_file_is_fresh:
+            customer_cache.save(customer_file)
         customer_region_by_code, customer_region_by_name = self._customer_region_indexes(customers)
         customer_codes = {self._customer_code_key(row.cari_kodu): row.cari_kodu for row in customers}
         mapping_store = MappingStore(self.data_root / "data" / "customer_mappings.json")
@@ -278,16 +268,13 @@ class ProcessingEngine:
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
 
         if missing_customer_codes:
-            raise CustomerListUpdateRequired(
-                missing_customer_codes,
-                cached_list_used=not customer_file_is_fresh,
+            shown = ", ".join(sorted(missing_customer_codes)[:8])
+            if len(missing_customer_codes) > 8:
+                shown += f" ve {len(missing_customer_codes) - 8} kod daha"
+            result.logs.append(
+                "UYARI: Müşteri listesinde bulunamayan karşı hesap kodları "
+                f"manuel eşleştirme ekranına gönderildi: {shown}."
             )
-
-        # Yeni liste yalnız geçerli MANİM kayıtlarındaki tüm açık cari kodları
-        # kapsadığı doğrulandıktan sonra hafızaya alınır. Böylece eksik/eski bir
-        # dosya son kullanılabilir listenin üzerine yazılmaz.
-        if customer_file_is_fresh:
-            customer_cache.save(customer_file)
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}

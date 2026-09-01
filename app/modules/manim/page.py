@@ -29,11 +29,7 @@ from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
 from app.core.output_profile import OutputProfileStore
 from app.core.personnel_list_cache import PersonnelListCache
-from app.core.processing_engine import (
-    CustomerListUpdateRequired,
-    ManualResolution,
-    ProcessingEngine,
-)
+from app.core.processing_engine import ManualResolution, ProcessingEngine
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.models.records import TahsilatRecord
 from app.ui.common import add_page_header
@@ -487,17 +483,6 @@ class ManimModulePage(QWidget):
             self.open_output_button.setVisible(bool(result.output_dir))
             self.review_odeme_button.setVisible(bool(result.odeme_onaylandi_items))
             self.upload_subtitle.setText(self._input_files_description())
-        except CustomerListUpdateRequired as error:
-            self.history.fail(operation_id, str(error))
-            self.progress.setValue(0)
-            self.progress_detail.setText("Güncel müşteri listesini Müşteri Listesi modülünden içe aktarın.")
-            self.log.append(f"UYARI: {error}")
-            QMessageBox.information(
-                self,
-                "Güncel müşteri listesi gerekli",
-                f"{error}\n\nSol menüdeki Müşteri Listesi modülünden ham FOM müşteri listesini "
-                "içe aktarın. Ardından bu ekrana dönüp işlemi tekrar başlatın.",
-            )
         except Exception as error:
             self.history.fail(operation_id, str(error))
             self.progress.setValue(0)

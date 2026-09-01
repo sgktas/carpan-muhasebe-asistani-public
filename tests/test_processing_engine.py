@@ -1,11 +1,7 @@
 import xlrd
 import pytest
 
-from app.core.processing_engine import (
-    CustomerListUpdateRequired,
-    ManualResolution,
-    ProcessingEngine,
-)
+from app.core.processing_engine import ManualResolution, ProcessingEngine
 from app.models.records import TahsilatRecord
 
 
@@ -376,7 +372,7 @@ def test_hic_hafiza_yokken_musteri_listesi_verilmezse_hata_verir(synthetic_proje
         assert "Musteri listesi bulunamadi" in str(exc)
 
 
-def test_hafizadaki_listede_yeni_musteri_yoksa_guncel_liste_istenir_ve_yenisi_saklanir(
+def test_hafizadaki_listede_yeni_musteri_yoksa_islem_durmaz_ve_yenisi_saklanir(
     synthetic_project,
     tmp_path,
 ):
@@ -394,11 +390,10 @@ def test_hafizadaki_listede_yeni_musteri_yoksa_guncel_liste_istenir_ve_yenisi_sa
         "Karşı Hesap Kodu": "NEW001",
     }]).to_excel(new_manim, index=False)
 
-    with pytest.raises(CustomerListUpdateRequired) as captured:
-        ProcessingEngine([new_manim, tahsilat_path], project_root).run()
-    assert captured.value.cached_list_used is True
-    assert captured.value.customer_codes == ("NEW001",)
-    assert "Hafızadaki son müşteri listesinde" in str(captured.value)
+    unresolved_result = ProcessingEngine([new_manim, tahsilat_path], project_root).run()
+    assert unresolved_result.unresolved == 1
+    assert unresolved_result.output_dir is not None
+    assert any("manuel eşleştirme ekranına gönderildi" in log for log in unresolved_result.logs)
 
     updated_customers = tmp_path / "input" / "guncel_musteri_listesi.xlsx"
     pd.DataFrame([
@@ -406,8 +401,16 @@ def test_hafizadaki_listede_yeni_musteri_yoksa_guncel_liste_istenir_ve_yenisi_sa
         {"Müşteri Kodu": "XYZ999", "Ünvan": "XYZ FIRMASI", "Vergi No": "1111111111", "Şube": "BODRUM"},
         {"Müşteri Kodu": "NEW001", "Ünvan": "YENI MUSTERI", "Vergi No": "3333333333", "Şube": "BODRUM"},
     ]).to_excel(updated_customers, index=False)
+    updated_manim = tmp_path / "input" / "TEST_BODRUM_YENI_MUSTERI_GUNCEL_Manim.xlsx"
+    pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123",
+        "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "YENI MUSTERI IKINCI ODEMESI", "Tutar": 1700.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "YENI MUSTERI",
+        "Karşı Hesap Kodu": "NEW001",
+    }]).to_excel(updated_manim, index=False)
     updated_result = ProcessingEngine(
-        [new_manim, tahsilat_path, updated_customers],
+        [updated_manim, tahsilat_path, updated_customers],
         project_root,
     ).run()
     assert updated_result.produced_netsis_records == 1
