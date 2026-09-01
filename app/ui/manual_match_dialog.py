@@ -333,26 +333,19 @@ class ManualMatchDialog(QDialog):
             return
 
         canonical_rows: list[tuple[str, float]] = []
-        unknown_codes: list[str] = []
         for code, amount in rows:
-            canonical_code = self.customer_codes.get(self._code_key(code))
-            if not canonical_code:
-                unknown_codes.append(code)
-                continue
+            raw_code = code.strip()
+            if not raw_code:
+                QMessageBox.warning(self, "Eksik bilgi", "Cari kod boş bırakılamaz.")
+                return
+            # Pasife alınmış bir cari, borç kapatma havalesi için tekrar
+            # kullanılabilir. Aktif müşteri listesinde görünmese de kullanıcı
+            # manuel olarak kodu girip aktarıma devam edebilmelidir.
+            canonical_code = self.customer_codes.get(self._code_key(raw_code), raw_code)
             if amount <= 0:
                 QMessageBox.warning(self, "Geçersiz tutar", "Tutar sıfırdan büyük olmalıdır.")
                 return
             canonical_rows.append((canonical_code, amount))
-
-        if unknown_codes:
-            QMessageBox.warning(
-                self,
-                "Cari kod bulunamadı",
-                "Şu cari kod(lar) müşteri listesinde yok:\n\n"
-                + "\n".join(sorted(set(unknown_codes)))
-                + "\n\nMüşteri listesindeki geçerli cari kodu girin.",
-            )
-            return
 
         rows = canonical_rows
         target = self.pending_items[self._current_index].record.tutar

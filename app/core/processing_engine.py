@@ -151,7 +151,6 @@ class ProcessingEngine:
         if customer_file_is_fresh:
             customer_cache.save(customer_file)
         customer_region_by_code, customer_region_by_name = self._customer_region_indexes(customers)
-        customer_codes = {self._customer_code_key(row.cari_kodu): row.cari_kodu for row in customers}
         mapping_store = MappingStore(self.data_root / "data" / "customer_mappings.json")
         region_branch_aliases = {
             region: self.region_config.customer_branch_aliases(region)
@@ -304,7 +303,6 @@ class ProcessingEngine:
 
                 validated_rows, validation_error = self._validate_manual_rows(
                     resolution.rows,
-                    customer_codes,
                     item.record.tutar,
                 )
                 if validation_error:
@@ -517,31 +515,28 @@ class ProcessingEngine:
     @staticmethod
     def _validate_manual_rows(
         rows: list[TahsilatRecord],
-        customer_codes: dict[str, str],
         target_amount: float,
     ) -> tuple[list[TahsilatRecord], str | None]:
         validated: list[TahsilatRecord] = []
-        unknown_codes: list[str] = []
 
         for row in rows:
             raw_code = str(row.musteri_kodu).strip()
-            canonical_code = customer_codes.get(ProcessingEngine._customer_code_key(raw_code))
-            if not canonical_code:
-                unknown_codes.append(raw_code or "(boş)")
-                continue
+            if not raw_code:
+                return [], "Cari kod boş bırakılamaz"
             if float(row.tutar) <= 0:
                 return [], f"Tutar pozitif olmalı: {row.tutar}"
             validated.append(
                 TahsilatRecord(
-                    musteri_kodu=canonical_code,
+                    # Pasif cari kodlar güncel aktif müşteri listesinde
+                    # görünmeyebilir. Manuel girilen kod Netsis'e aynen
+                    # gönderilir; doğrulanan tek mali kural toplam tutardır.
+                    musteri_kodu=raw_code,
                     musteri_ismi=row.musteri_ismi,
                     belge_tarihi=row.belge_tarihi,
                     tutar=float(row.tutar),
                 )
             )
 
-        if unknown_codes:
-            return [], "Müşteri listesinde bulunmayan cari kod: " + ", ".join(sorted(set(unknown_codes)))
         if not validated:
             return [], "Geçerli müşteri kodu ve tutar bulunamadı"
 

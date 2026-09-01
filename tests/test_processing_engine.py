@@ -216,7 +216,7 @@ def test_writer_hatasi_dosyayi_islenmis_olarak_isaretlemez(synthetic_project, mo
     assert not list(output_root.glob("20*")) if output_root.exists() else True
 
 
-def test_manuel_eslestirmede_bilinmeyen_cari_kod_reddedilir(synthetic_project):
+def test_manuel_eslestirmede_pasif_cari_kod_kabul_edilir(synthetic_project):
     import pandas as pd
 
     manim_path, tahsilat_path, customer_path, project_root = synthetic_project
@@ -245,14 +245,14 @@ def test_manuel_eslestirmede_bilinmeyen_cari_kod_reddedilir(synthetic_project):
     engine = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root)
     result = engine.run(resolver=resolver)
 
-    assert result.unresolved == 1
-    assert result.review_file is not None
-    review_df = pd.read_excel(result.review_file)
-    assert "Manuel eşleştirme reddedildi" in review_df.loc[0, "Neden"]
+    assert result.unresolved == 0
+    assert result.produced_netsis_records == 2
 
     from app.core.mapping_store import MappingStore
     store = MappingStore(project_root / "data" / "customer_mappings.json")
-    assert store.get("BILINMEYEN CARI TESTI") is None
+    assert store.get("BILINMEYEN CARI TESTI") == [
+        {"musteri_kodu": "LISTEDE_YOK", "tutar": 4242.0}
+    ]
 
 
 def test_kaynaklar_ile_kalici_veri_klasoru_ayri_kullanilabilir(synthetic_project, tmp_path):
