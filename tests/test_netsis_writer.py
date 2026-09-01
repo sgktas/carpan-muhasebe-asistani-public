@@ -45,6 +45,26 @@ def test_paketli_uygulama_sablonu_meipass_altindan_bulur(tmp_path, monkeypatch):
     assert _default_template_path(profile) == template_dir / "netsis_template.xlsx"
 
 
+def test_orijinal_netsis_biff8_sablonu_profilde_kullanilabilir(tmp_path, monkeypatch):
+    template_dir = tmp_path / "templates" / "local"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "netsis_template.xls"
+    template.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1"))
+    profile = OutputProfile(
+        profile_id="netsis",
+        name="Netsis",
+        description="",
+        template_file="netsis_template.xls",
+        columns=(),
+    )
+
+    monkeypatch.delenv("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG", raising=False)
+    monkeypatch.setattr("app.writers.netsis_writer.sys.frozen", True, raising=False)
+    monkeypatch.setattr("app.writers.netsis_writer.sys._MEIPASS", str(tmp_path), raising=False)
+
+    assert _default_template_path(profile) == template
+
+
 def test_gercek_excel_97_2003_biff8_ve_xls_uzantisi(tmp_path):
     output_path = NetsisWriter().write([_record()], tmp_path / "test.xlsx")
     assert output_path.suffix == ".xls"
@@ -191,3 +211,56 @@ def test_excel_com_kayit_yolu_xlexcel8_ve_orijinal_sablonu_kullanir(tmp_path, mo
     written = fake_workbook.sheet.ranges["A2:AA2"].Value2
     assert written[0][5] == "C001"
     assert written[0][12] == 1000.0
+
+
+def test_orijinal_xls_sablonu_donusturmeden_kopyalanir(tmp_path):
+    template = tmp_path / "netsis_template.xls"
+    template.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1"))
+    output = tmp_path / "netsis.xls"
+
+    class FakeWorkbook:
+        def __init__(self):
+            self.copy_path = None
+            self.save_as_called = False
+
+        def SaveCopyAs(self, filename):
+            self.copy_path = filename
+
+        def SaveAs(self, *_args, **_kwargs):
+            self.save_as_called = True
+
+    workbook = FakeWorkbook()
+    NetsisWriter(template)._save_workbook_as_netsis_xls(workbook, template, output)
+
+    assert workbook.copy_path == str(output)
+    assert not workbook.save_as_called
+
+
+def test_orijinal_xls_sablonuna_hucre_hucre_yazilir(tmp_path):
+    template = tmp_path / "netsis_template.xls"
+
+    class FakeCell:
+        def __init__(self):
+            self.Value2 = None
+
+    class FakeWorksheet:
+        def __init__(self):
+            self.cells = {}
+
+        def Cells(self, row, column):
+            return self.cells.setdefault((row, column), FakeCell())
+
+        def Range(self, _address):
+            raise AssertionError("Eski XLS şablonunda toplu Range.Value2 yazımı kullanılmamalı")
+
+    worksheet = FakeWorksheet()
+    NetsisWriter._write_excel_values(
+        worksheet,
+        [("C001", 1250.0), ("C002", 2500.0)],
+        template,
+        "B",
+    )
+
+    assert worksheet.cells[(2, 1)].Value2 == "C001"
+    assert worksheet.cells[(2, 2)].Value2 == 1250.0
+    assert worksheet.cells[(3, 1)].Value2 == "C002"

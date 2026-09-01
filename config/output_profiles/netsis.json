@@ -5,7 +5,7 @@
   "description": "Netsis'in 27 sütunluk havale aktarım şablonu.",
   "category": "havale",
   "grouping": "region_bank",
-  "template_file": "netsis_template.xlsx",
+  "template_file": "netsis_template.xls",
   "columns": [
     {"header": "Referans No(*)", "width": 19, "style": "centered", "source": "const", "value": null},
     {"header": "İşlem Tarihi(*)", "width": 16, "style": "date", "source": "field", "field": "islem_tarihi"},

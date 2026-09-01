@@ -241,17 +241,14 @@ class NetsisWriter:
                             worksheet.Range(range_str).NumberFormat = "#,##0.00"
                         except Exception:
                             pass
-                worksheet.Range(f"A2:{last_column_letter}{last_row}").Value2 = tuple(
-                    self._record_values_for_excel_value2(record) for record in records
+                self._write_excel_values(
+                    worksheet,
+                    [self._record_values_for_excel_value2(record) for record in records],
+                    template_path,
+                    last_column_letter,
                 )
 
-            # xlExcel8 = Microsoft Excel 97-2003 BIFF8.
-            workbook.SaveAs(
-                str(output_path),
-                FileFormat=self.XL_EXCEL_8,
-                ConflictResolution=2,
-                Local=True,
-            )
+            self._save_workbook_as_netsis_xls(workbook, template_path, output_path)
             workbook.Close(SaveChanges=False)
             workbook = None
         except ExcelAutomationUnavailable:
@@ -272,6 +269,52 @@ class NetsisWriter:
         if not output_path.is_file():
             raise OSError(f"Excel çıktısı oluşturulamadı: {output_path}")
         return ensure_writable(output_path)
+
+    @staticmethod
+    def _write_excel_values(
+        worksheet,
+        rows: list[tuple],
+        template_path: Path,
+        last_column_letter: str,
+    ) -> None:
+        """Verileri şablonun türüne göre Excel'e yazar.
+
+        Netsis'in verdiği eski BIFF8 şablonunda ``Range.Value2`` ile bütün
+        matrisi tek seferde atamak, Windows ACE/OLEDB sürücüsünün dosyayı
+        ``External table is not in the expected format`` diyerek reddettiği
+        bir SST akışı üretebiliyor. Aynı dosyaya hücre hücre yazmak ise
+        Netsis'in kabul ettiği yapıyı koruyor. XLSX tabanlı şablonlarda hızlı
+        toplu yazma yolunu kullanmaya devam ederiz.
+        """
+        if template_path.suffix.lower() == ".xls":
+            for row_index, values in enumerate(rows, start=2):
+                for column_index, value in enumerate(values, start=1):
+                    worksheet.Cells(row_index, column_index).Value2 = value
+            return
+
+        last_row = len(rows) + 1
+        worksheet.Range(f"A2:{last_column_letter}{last_row}").Value2 = tuple(rows)
+
+    def _save_workbook_as_netsis_xls(self, workbook, template_path: Path, output_path: Path) -> None:
+        """Netsis'in verdiği BIFF8 şablonundaki dosya yapısını korur.
+
+        Orijinal şablon zaten ``.xls`` ise ``SaveAs(..., FileFormat=56)``
+        Excel'in bazı eski tablo akışlarını yeniden oluşturmasına yol
+        açabiliyor. Ephesus bu dosyayı "External table" hatasıyla
+        reddedebildiği için, aynı BIFF8 dosyasından doğrudan bir kopya alırız.
+        XLSX tabanlı diğer profillerde ise standart BIFF8 dönüşümü sürer.
+        """
+        if template_path.suffix.lower() == ".xls":
+            workbook.SaveCopyAs(str(output_path))
+            return
+
+        # xlExcel8 = Microsoft Excel 97-2003 BIFF8.
+        workbook.SaveAs(
+            str(output_path),
+            FileFormat=self.XL_EXCEL_8,
+            ConflictResolution=2,
+            Local=True,
+        )
 
     def _get_excel_application(self):
         if self._excel is not None:
