@@ -99,7 +99,13 @@ class SubeliMatcher:
                 match = self._match_customer_groups(record, tax_groups)
                 if match:
                     return match
-                chain_match = self._match_via_tabela_chain(record, tax_groups)
+                # Bölgesel ilk deneme tutmazsa aynı VKN/TCKN'ye bağlı zincirin
+                # tüm şubelerini de dene. Banka hareketi farklı bir bölge
+                # hesabına yatmış olabilir; örneğin Denizli hareketinde Aydın
+                # ve Nazilli şubelerinin tahsilatları birlikte yer alabilir.
+                # Bu genişletme ancak tutar birebir ve tekil eşleşirse sonuç
+                # döndürdüğünden yanlış şubeye otomatik aktarım yapmaz.
+                chain_match = self._match_via_tabela_chain(record, global_tax_groups)
                 if chain_match:
                     return chain_match
                 self._set_amount_mismatch_reason(record, tax_groups)
@@ -177,6 +183,19 @@ class SubeliMatcher:
         if not anchor_customers:
             return None
 
+        # Aynı VKN/TCKN'li zincirin şubeleri farklı bölgelerde olsa bile önce
+        # yalnız bu hukuki grubu dene. Nokta, kısaltma ya da şube adındaki
+        # farklılıkları isimden çözmeye çalışmak yerine cari/VKN köprüsünü
+        # kullanırız. Tutar tam ve tekil eşleşmedikçe sonuç dönmez.
+        anchor_pool = self._tahsilat_rows_for_customers(anchor_customers)
+        dated_anchor_rows = self._same_date_rows(anchor_pool, record)
+        for candidate_pool in (dated_anchor_rows, anchor_pool):
+            if not candidate_pool:
+                continue
+            subset = self._find_reconciling_subset(record.tutar, candidate_pool)
+            if subset:
+                return subset
+
         anchor_tokens: set[str] = set()
         for customer in anchor_customers:
             for alias in self._customer_aliases(customer):
@@ -211,9 +230,6 @@ class SubeliMatcher:
                 continue
             if group_tokens_cache[key] & reliable_tokens:
                 chain_customers.extend(group)
-
-        if len(chain_customers) <= len(anchor_customers):
-            return None  # zincir genişlemedi, tekrar aramaya gerek yok
 
         pool = self._tahsilat_rows_for_customers(chain_customers)
         dated_rows = self._same_date_rows(pool, record)

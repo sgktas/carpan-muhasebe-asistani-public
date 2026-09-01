@@ -79,6 +79,38 @@ def test_zincir_tabela_adiyla_farkli_vknli_subeler_birlestirilir(tmp_path):
     assert "C-OTHER" not in codes
 
 
+def test_ayni_vknli_zincir_subeleri_bolgeler_arasinda_birlestirilir(tmp_path):
+    """Aynı şirketin farklı bölge şubeleri tek banka tahsilatında toplanabilir.
+
+    Denizli hareketi açıklamasında VKN bulunuyor; ancak tutar Aydın, Nazilli ve
+    Denizli şubelerinin toplamı. Bölgesel ilk deneme yetersiz kalınca tüm aynı
+    VKN kartları yalnız toplam tam tutuyorsa otomatik seçilmelidir.
+    """
+    from app.models.records import CustomerRecord
+
+    customers = [
+        CustomerRecord("C-AYDIN", "ORNEK ZINCIR GIDA LTD STI", "1000000001", "SIMSEK-AYDIN", ".ORNEK AYDIN"),
+        CustomerRecord("C-NAZILLI", "ORNEK ZINCIR GIDA LTD STI", "1000000001", "SIMSEK-NAZILLI", ".ORNEK NAZILLI"),
+        CustomerRecord("C-DENIZLI", "ORNEK ZINCIR GIDA LTD STI", "1000000001", "SIMSEK-DENIZLI", ".ORNEK DENIZLI"),
+    ]
+    tahsilat = [
+        TahsilatRecord("C-AYDIN", ".ORNEK AYDIN", None, 100.0),
+        TahsilatRecord("C-NAZILLI", ".ORNEK NAZILLI", None, 200.0),
+        TahsilatRecord("C-DENIZLI", ".ORNEK DENIZLI", None, 300.0),
+    ]
+    matcher = SubeliMatcher(
+        tahsilat, customers, MappingStore(tmp_path / "same_vkn_chain.json"),
+        region_branch_aliases={"DENIZLI": ("DENIZLI",)},
+    )
+
+    result = matcher.match(_manim("TED.CAR. - ORNEK ZINCIR 1000000001", 600.0), "DENIZLI")
+
+    assert result is not None
+    assert {(row.musteri_kodu, row.tutar) for row in result} == {
+        ("C-AYDIN", 100.0), ("C-NAZILLI", 200.0), ("C-DENIZLI", 300.0),
+    }
+
+
 def test_zincir_genel_kelime_alakasiz_musterileri_getirmez(tmp_path):
     """'TURZ' gibi onlarca şirkette geçen genel bir kelime zincir belirteci
     sayılmamalı; aksi halde alakasız şirketler yanlışlıkla havuza girer."""
