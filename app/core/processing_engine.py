@@ -236,6 +236,17 @@ class ProcessingEngine:
                 status = self._normalize(record.dekont_durumu)
 
                 if "ODEME ONAYLANDI" in status:
+                    if record.tutar < 0:
+                        pending.append(UnresolvedItem(
+                            record=record,
+                            region=region,
+                            reason=self._negative_payment_approval_reason(),
+                        ))
+                        result.logs.append(
+                            "UYARI: Negatif tutarlı kayıt Ödeme Onaylandı'ya yazılmadı; "
+                            "Referanslı kayıt olarak kontrol bekliyor."
+                        )
+                        continue
                     odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
                     result.skipped_payment += 1
                     continue
@@ -296,6 +307,13 @@ class ProcessingEngine:
                     continue
 
                 if resolution.route == "ODEME_ONAYLANDI":
+                    if item.record.tutar < 0:
+                        still_pending.append(item)
+                        result.logs.append(
+                            "UYARI: Negatif tutarlı kayıt manuel olarak da Ödeme Onaylandı'ya "
+                            "taşınamaz; inceleme listesinde bırakıldı."
+                        )
+                        continue
                     odeme_onaylandi_items.append((item.record, item.region, self._bank_key(item.record.banka)))
                     result.skipped_payment += 1
                     result.logs.append(f"Manuel olarak Ödeme Onaylandı'ya taşındı: {item.record.aciklama[:60]}...")
@@ -571,6 +589,13 @@ class ProcessingEngine:
             f"{region} bölgesi {bank} için BM banka hesap kodu tanımlı değil. "
             "Ayarlar > Bölge Yönetimi bölümünden bu banka için BM kodunu ekleyin; "
             "satır boş BM koduyla Netsis aktarımına yazılmadı."
+        )
+
+    @staticmethod
+    def _negative_payment_approval_reason() -> str:
+        return (
+            "Negatif tutarlı kayıt Ödeme Onaylandı olamaz. Bu işlem giden para "
+            "olduğu için Referanslı kayıt olarak kontrol edilmelidir."
         )
 
     def _with_region_codes(self, record, region: str, bank: str):

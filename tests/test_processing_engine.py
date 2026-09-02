@@ -219,6 +219,60 @@ def test_manuel_olarak_odeme_onaylandiya_tasinabiliyor(synthetic_project):
     assert len(referansli_files) == 1
 
 
+def test_negatif_odeme_onaylandi_kaydi_incelemeye_alinir(synthetic_project):
+    """Ödeme Onaylandı yalnız gelen havale içindir; eksi kayıt doğrudan
+    çıktıya yazılmamalı ve kullanıcıya Referanslı seçeneği sunulmalıdır."""
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+
+    import pandas as pd
+    dataframe = pd.read_excel(manim_path)
+    dataframe = pd.concat([dataframe, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "YANLISLIKLA ODEME ONAYLANDI", "Tutar": -2500.0,
+        "Dekont Durumu": "Ödeme Onaylandı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
+    dataframe.to_excel(manim_path, index=False)
+
+    def resolver(pending, _customers, _tahsilat):
+        assert len(pending) == 1
+        assert "Negatif tutarlı kayıt" in pending[0].reason
+        return {0: ManualResolution(route="REFERANSLI", rows=None)}
+
+    result = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root
+    ).run(resolver=resolver)
+
+    assert result.unresolved == 0
+    assert result.skipped_payment == 1
+    assert result.skipped_reference == 2
+    assert any("Ödeme Onaylandı'ya yazılmadı" in log for log in result.logs)
+
+
+def test_negatif_kayit_manuel_odeme_onaylandiya_tasinamaz(synthetic_project):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+
+    import pandas as pd
+    dataframe = pd.read_excel(manim_path)
+    dataframe = pd.concat([dataframe, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "EKSI BEKLEYEN KAYIT", "Tutar": -2500.0,
+        "Dekont Durumu": "Beklemede", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
+    dataframe.to_excel(manim_path, index=False)
+
+    def resolver(pending, _customers, _tahsilat):
+        assert len(pending) == 1
+        return {0: ManualResolution(route="ODEME_ONAYLANDI", rows=None)}
+
+    result = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root
+    ).run(resolver=resolver)
+
+    assert result.unresolved == 1
+    assert result.skipped_payment == 1
+    assert any("manuel olarak da Ödeme Onaylandı'ya taşınamaz" in log for log in result.logs)
+
+
 def test_cikti_klasoru_modul_adi_ve_islem_tarihini_tasir(synthetic_project):
     engine = ProcessingEngine(_files(synthetic_project), synthetic_project[3])
     result = engine.run()

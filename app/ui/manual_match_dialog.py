@@ -333,6 +333,15 @@ class ManualMatchDialog(QDialog):
             return
         route = self._current_route()
 
+        if route == "ODEME_ONAYLANDI" and self.pending_items[self._current_index].record.tutar < 0:
+            QMessageBox.warning(
+                self,
+                "Ödeme Onaylandı olamaz",
+                "Negatif tutarlı kayıt giden para işlemidir; Ödeme Onaylandı yalnız gelen "
+                "havale için kullanılabilir. Lütfen Referanslı kayıt olarak değerlendirin.",
+            )
+            return
+
         if route in ("ODEME_ONAYLANDI", "REFERANSLI", "ATLA"):
             self.resolutions[self._current_index] = (route, None, False)
             self._mark_done(route)
