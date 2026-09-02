@@ -60,7 +60,7 @@ class ReportEditingPage(QWidget):
         add_page_header(
             layout,
             "FOM Rapor Düzenleme",
-            "Ham müşteri, satış ve tahsilat raporlarını tek işlemde standartlaştırın; "
+            "Ham müşteri, satış veya tahsilat raporunu birlikte ya da tek başına standartlaştırın; "
             "satış ve tahsilat verilerini orijinal Excel 97–2003 şablonlarına da yazdırın.",
             "MODÜL 02",
         )
@@ -103,7 +103,7 @@ class ReportEditingPage(QWidget):
         title = QLabel("Ham rapor dosyaları")
         title.setObjectName("cardTitle")
         subtitle = QLabel(
-            "Aynı döneme ait ham müşteri listesi, satış raporu ve tahsilat raporu (.xlsx veya .xls)"
+            "Ham müşteri listesi, satış raporu veya tahsilat raporu — tek başına ya da birlikte (.xlsx veya .xls)"
         )
         subtitle.setObjectName("cardSubtitle")
         header_col.addWidget(title)
@@ -137,7 +137,7 @@ class ReportEditingPage(QWidget):
         icon.setAlignment(Qt.AlignCenter)
         hint_layout.addWidget(icon)
 
-        drop_title = QLabel("3 ham Excel raporunu buraya sürükleyin")
+        drop_title = QLabel("Ham Excel raporlarını buraya sürükleyin")
         drop_title.setObjectName("dropTitle")
         drop_title.setAlignment(Qt.AlignCenter)
         hint_layout.addWidget(drop_title)
@@ -316,8 +316,8 @@ class ReportEditingPage(QWidget):
         self.file_status.style().polish(self.file_status)
 
         self.loaded_label.setText(
-            "Müşteri listesi satış/tahsilat şube bilgisinin kaynağıdır. "
-            "Üç dosyayı birlikte çalıştırmanız önerilir."
+            "Satış veya tahsilat raporu tek başına da düzenlenebilir. "
+            "Müşteri listesi verilirse Şube sütunu otomatik doldurulur; verilmezse #N/A kalır."
         )
         self.progress.setValue(20 if all_ready else 0)
         self.progress_detail.setText(

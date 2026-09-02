@@ -176,7 +176,7 @@ def test_report_engine_applies_reference_rules(tmp_path):
     assert collection_wb["ŞUBELİLER"].max_row == 3
 
 
-def test_report_engine_requires_customer_for_branch_lookup(tmp_path):
+def test_report_engine_accepts_sales_without_customer_list(tmp_path):
     sales = _save(
         tmp_path / "sales.xlsx",
         [
@@ -187,7 +187,11 @@ def test_report_engine_requires_customer_for_branch_lookup(tmp_path):
             "NetFiyat", "İskonto1", "EklenenKDV", "ToplamKDV", "Vade",
             "TuketiciFiyati", "İskonto2",
         ],
-        [],
+        [[
+            "C001", "F001", "22.07.2026", "D", "P01", "AH", "U01", "S",
+            "TEST MÜŞTERİ", "MERKEZ", "1111111111", "M1", "F1", "I1", "IN1",
+            "22.07.2026", 1, 100, 0, 0, 2, 18, 0, 100, 118,
+        ]],
     )
 
     engine = ReportEditingEngine(
@@ -196,12 +200,46 @@ def test_report_engine_requires_customer_for_branch_lookup(tmp_path):
         output_root=tmp_path / "out",
         create_template_outputs=False,
     )
-    try:
-        engine.run()
-    except ValueError as error:
-        assert "müşteri listesi" in str(error).lower()
-    else:
-        raise AssertionError("Müşteri listesi olmadan satış raporu kabul edilmemeliydi.")
+    result = engine.run()
+
+    assert result.sales_rows == 1
+    assert result.customer_rows == 0
+    assert any("tek başına düzenleniyor" in entry for entry in result.logs)
+    sales_output = next(path for path in result.created_files if path.suffix == ".xlsx")
+    assert load_workbook(sales_output, data_only=True).active["Z2"].value == "#N/A"
+
+
+def test_report_engine_accepts_collections_without_customer_list(tmp_path):
+    collections = _save(
+        tmp_path / "collections.xlsx",
+        [
+            "MusteriKodu", "Musteriİsmi", "BelgeNo", "BelgeTarihi",
+            "TahsilatTipi", "TahsilatTuru", "SatisElemani", "Pesin/Diger",
+            "Personel", "Rota", "MusteriKayitTipi", "MusteriTipi",
+            "SahiplikTipi", "AltTip", "FiyatListesi", "BANKA", "Tutar",
+        ],
+        [[
+            "C001", "TEST MÜŞTERİ", "B001", "22.07.2026", "N", "1", "P01", 0,
+            "PERSONEL", "AYDIN-DD-01", "Müşteri", "Müşteri", "Bağımsız", "Market",
+            "Liste", "GARANTİ", 500,
+        ]],
+    )
+
+    result = ReportEditingEngine(
+        [collections],
+        resource_root=tmp_path,
+        output_root=tmp_path / "out",
+        create_template_outputs=False,
+    ).run()
+
+    assert result.collection_rows == 1
+    assert result.collection_main_rows == 1
+    assert result.unmatched_customer_codes == 1
+    assert any("tek başına düzenleniyor" in entry for entry in result.logs)
+    collection_output = next(path for path in result.created_files if path.suffix == ".xlsx")
+    workbook = load_workbook(collection_output, data_only=True)
+    assert workbook.sheetnames == ["Sheet", "ŞUBELİLER"]
+    assert workbook.active["R2"].value == "#N/A"
 
 
 def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tmp_path, monkeypatch):

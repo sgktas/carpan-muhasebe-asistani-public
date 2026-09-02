@@ -800,10 +800,6 @@ class ReportEditingEngine:
             raise ValueError("Rapor türü tanınamayan dosya(lar): " + ", ".join(unknown))
         if not recognized:
             raise ValueError("Düzenlenecek müşteri, satış veya tahsilat raporu bulunamadı.")
-        if ("sales" in recognized or "collections" in recognized) and "customer" not in recognized:
-            raise ValueError(
-                "Satış veya tahsilat raporuna şube bilgisi eklemek için ham müşteri listesi de seçilmelidir."
-            )
         return recognized
 
     @staticmethod
@@ -907,6 +903,11 @@ class ReportEditingEngine:
             result.logs.append(
                 f"Müşteri listesi düzenlendi: {result.customer_rows} kayıt. "
                 "AYDIN-DD-02 rotaları SIMSEK-NAZILLI şubesine ayrıldı."
+            )
+        elif "sales" in recognized or "collections" in recognized:
+            result.logs.append(
+                "Müşteri listesi seçilmedi: satış/tahsilat raporu tek başına düzenleniyor; "
+                "Şube sütunu '#N/A' bırakılacak."
             )
 
         sales_rows: list[dict] = []
