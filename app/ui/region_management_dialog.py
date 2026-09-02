@@ -64,9 +64,11 @@ class RegionEditorDialog(QDialog):
         self.garanti_edit = QLineEdit()
         self.ykb_edit = QLineEdit()
         self.ziraat_edit = QLineEdit()
+        self.akbank_edit = QLineEdit()
         self.manim_garanti_edit = QLineEdit()
         self.manim_ykb_edit = QLineEdit()
         self.manim_ziraat_edit = QLineEdit()
+        self.manim_akbank_edit = QLineEdit()
 
         form.addRow("Bölge adı", self.name_edit)
         form.addRow("Durum", self.active_check)
@@ -78,9 +80,11 @@ class RegionEditorDialog(QDialog):
         form.addRow("Garanti çıktı banka kodu", self.garanti_edit)
         form.addRow("Yapı Kredi çıktı banka kodu", self.ykb_edit)
         form.addRow("Ziraat çıktı banka kodu", self.ziraat_edit)
+        form.addRow("Akbank çıktı banka kodu", self.akbank_edit)
         form.addRow("MANİM Garanti hesap/IBAN sonu", self.manim_garanti_edit)
         form.addRow("MANİM Yapı Kredi hesap/IBAN sonu", self.manim_ykb_edit)
         form.addRow("MANİM Ziraat hesap/IBAN sonu", self.manim_ziraat_edit)
+        form.addRow("MANİM Akbank hesap/IBAN sonu", self.manim_akbank_edit)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -106,10 +110,12 @@ class RegionEditorDialog(QDialog):
         self.garanti_edit.setText(str(banks.get("GARANTI") or ""))
         self.ykb_edit.setText(str(banks.get("YKB") or ""))
         self.ziraat_edit.setText(str(banks.get("ZIRAAT") or ""))
+        self.akbank_edit.setText(str(banks.get("AKBANK") or ""))
         manim_accounts = entry.get("manim_hesap_kodlari", {})
         self.manim_garanti_edit.setText(str(manim_accounts.get("GARANTI") or ""))
         self.manim_ykb_edit.setText(str(manim_accounts.get("YKB") or ""))
         self.manim_ziraat_edit.setText(str(manim_accounts.get("ZIRAAT") or ""))
+        self.manim_akbank_edit.setText(str(manim_accounts.get("AKBANK") or ""))
 
     def _save(self) -> None:
         region = self.store.normalize_name(self.name_edit.text())
@@ -134,11 +140,13 @@ class RegionEditorDialog(QDialog):
                 "GARANTI": self.garanti_edit.text(),
                 "YKB": self.ykb_edit.text(),
                 "ZIRAAT": self.ziraat_edit.text(),
+                "AKBANK": self.akbank_edit.text(),
             },
             "manim_hesap_kodlari": {
                 "GARANTI": self.manim_garanti_edit.text(),
                 "YKB": self.manim_ykb_edit.text(),
                 "ZIRAAT": self.manim_ziraat_edit.text(),
+                "AKBANK": self.manim_akbank_edit.text(),
             },
             "musteri_sube_etiketleri": aliases or [region],
         }
@@ -172,12 +180,12 @@ class RegionManagementDialog(QDialog):
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        self.table = QTableWidget(0, 11)
+        self.table = QTableWidget(0, 13)
         self.table.setHorizontalHeaderLabels(
             [
                 "Sıra", "Bölge", "Durum", "Kasa", "Proje",
-                "Garanti çıktı", "YKB çıktı", "Ziraat çıktı",
-                "Garanti hesap sonu", "YKB hesap sonu", "Ziraat hesap sonu",
+                "Garanti çıktı", "YKB çıktı", "Ziraat çıktı", "Akbank çıktı",
+                "Garanti hesap sonu", "YKB hesap sonu", "Ziraat hesap sonu", "Akbank hesap sonu",
             ]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -218,9 +226,11 @@ class RegionManagementDialog(QDialog):
                 banks.get("GARANTI", ""),
                 banks.get("YKB", ""),
                 banks.get("ZIRAAT", ""),
+                banks.get("AKBANK", ""),
                 manim_accounts.get("GARANTI", ""),
                 manim_accounts.get("YKB", ""),
                 manim_accounts.get("ZIRAAT", ""),
+                manim_accounts.get("AKBANK", ""),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))

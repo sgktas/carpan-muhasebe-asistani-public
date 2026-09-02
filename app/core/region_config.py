@@ -198,6 +198,19 @@ def _merge_missing_region_defaults(source: Path, target: Path) -> None:
             if field not in existing:
                 existing[field] = value
                 changed = True
+                continue
+            # Banka listeleri zamanla genişleyebilir. Eski kullanıcı
+            # ayarlarında yeni bir banka (örn. ANTALYA / AKBANK) yoksa,
+            # bölgenin mevcut kodlarını değiştirmeden yalnız eksik anahtarı ekle.
+            if field in {"banka_kodlari", "manim_hesap_kodlari"}:
+                current_codes = existing.get(field)
+                default_codes = value
+                if not isinstance(current_codes, dict) or not isinstance(default_codes, dict):
+                    continue
+                for bank, code in default_codes.items():
+                    if bank not in current_codes:
+                        current_codes[bank] = code
+                        changed = True
 
     # Revize 20: Nazilli artık Aydın operasyonunun zorunlu ikinci aktif bölgesi.
     # Eski kullanıcı kopyalarında `aktif:false` bulunduğundan yalnız bu sürüm

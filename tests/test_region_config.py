@@ -160,3 +160,38 @@ def test_eski_kullanici_ayarina_hesap_kodlari_eklenir_ve_nazilli_aktif_edilir(tm
     assert "NAZILLI" in config.regions()
     assert config.kasa_kodu("NAZILLI") == 9999
     assert config.manim_hesap_kodu("NAZILLI", "GARANTI") == "1008"
+
+
+def test_eski_kullanici_ayarina_yeni_banka_kodlari_eklenir(tmp_path):
+    resource_config = tmp_path / "resource" / "config"
+    data_root = tmp_path / "user"
+    resource_config.mkdir(parents=True)
+    user_config = data_root / "config" / "bolge_kodlari.json"
+    user_config.parent.mkdir(parents=True)
+
+    defaults = {
+        "_config_surumu": 3,
+        "ANTALYA": {
+            "aktif": True,
+            "banka_kodlari": {"GARANTI": "TEST-GARANTI", "AKBANK": "TEST-AKBANK"},
+            "manim_hesap_kodlari": {"GARANTI": "TEST-2925", "AKBANK": "TEST-8738"},
+        },
+    }
+    old_user_values = {
+        "_config_surumu": 3,
+        "ANTALYA": {
+            "aktif": True,
+            "banka_kodlari": {"GARANTI": "KULLANICI-GARANTI"},
+            "manim_hesap_kodlari": {"GARANTI": "KULLANICI-2925"},
+        },
+    }
+    (resource_config / "bolge_kodlari.json").write_text(
+        json.dumps(defaults), encoding="utf-8"
+    )
+    user_config.write_text(json.dumps(old_user_values), encoding="utf-8")
+
+    config = RegionConfig(active_region_config_path(resource_config, data_root))
+    assert config.banka_kodu("ANTALYA", "GARANTI") == "KULLANICI-GARANTI"
+    assert config.banka_kodu("ANTALYA", "AKBANK") == "TEST-AKBANK"
+    assert config.manim_hesap_kodu("ANTALYA", "GARANTI") == "KULLANICI-2925"
+    assert config.manim_hesap_kodu("ANTALYA", "AKBANK") == "TEST-8738"
