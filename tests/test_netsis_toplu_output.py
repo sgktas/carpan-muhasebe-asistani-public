@@ -41,3 +41,23 @@ def test_toplu_netsis_sablonu_banka_kodlariyla_bolge_basina_tek_dosya_yazar(
     assert {sheet.cell_value(row, 18) for row in range(1, sheet.nrows)} == {""}
     assert {sheet.cell_value(row, 19) for row in range(1, sheet.nrows)} == {0.0}
     assert {sheet.cell_value(row, 20) for row in range(1, sheet.nrows)} == {"HV"}
+
+
+def test_toplu_sablonda_bm_kodu_tanimli_olmayan_banka_bos_kodla_yazilmaz(
+    synthetic_project,
+):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    rows = pd.read_excel(manim_path).iloc[:1].copy()
+    rows.loc[0, "Banka"] = "Akbank"
+    rows.loc[0, "Dekont Durumu"] = "Aktarıldı"
+    rows.loc[0, "Karşı Hesap Kodu"] = "ABC001"
+    rows.to_excel(manim_path, index=False)
+
+    ActiveProfileStore(project_root).set_output_profile_id("netsis_toplu")
+    result = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root).run()
+
+    assert result.produced_netsis_records == 0
+    assert result.unresolved == 1
+    assert result.review_file is not None
+    review = pd.read_excel(result.review_file)
+    assert "BM banka hesap kodu tanımlı değil" in review.loc[0, "Neden"]

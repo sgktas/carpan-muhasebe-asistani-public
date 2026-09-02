@@ -250,6 +250,15 @@ class ProcessingEngine:
                     result.skipped_reference += 1
                     continue
 
+                bank = self._bank_key(record.banka)
+                if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(region, bank):
+                    pending.append(UnresolvedItem(
+                        record=record,
+                        region=region,
+                        reason=self._missing_bank_account_code_reason(region, bank),
+                    ))
+                    continue
+
                 netsis_rows, reason = processor.process(record, region)
                 if reason:
                     pending.append(UnresolvedItem(
@@ -261,7 +270,6 @@ class ProcessingEngine:
                     continue
 
                 for netsis_row in netsis_rows:
-                    bank = self._bank_key(record.banka)
                     outputs[self._output_key(region, bank, output_profile)].append(
                         self._with_region_codes(netsis_row, region, bank)
                     )
@@ -303,6 +311,22 @@ class ProcessingEngine:
                     still_pending.append(item)
                     continue
 
+                bank = self._bank_key(item.record.banka)
+                if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(item.region, bank):
+                    still_pending.append(
+                        UnresolvedItem(
+                            record=item.record,
+                            region=item.region,
+                            reason=self._missing_bank_account_code_reason(item.region, bank),
+                            suggested_rows=item.suggested_rows,
+                        )
+                    )
+                    result.logs.append(
+                        f"UYARI: BM kodu olmadığı için manuel havale aktarımı bekletildi: "
+                        f"{item.record.aciklama[:60]}..."
+                    )
+                    continue
+
                 validated_rows, validation_error = self._validate_manual_rows(
                     resolution.rows,
                     item.record.tutar,
@@ -323,7 +347,6 @@ class ProcessingEngine:
                     )
                     continue
 
-                bank = self._bank_key(item.record.banka)
                 for row in validated_rows:
                     netsis_row = processor._netsis_record(
                         item.record,
@@ -533,6 +556,22 @@ class ProcessingEngine:
     @staticmethod
     def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
         return (region, bank if output_profile.grouping == "region_bank" else "TOPLU")
+
+    @staticmethod
+    def _requires_bank_account_code(output_profile) -> bool:
+        """Seçili çıktı şablonu BM/banka hesap kodu sütununu zorunlu tutuyor mu?"""
+        return any(
+            column.source_kind == "field" and column.field == "banka_hesap_kodu"
+            for column in output_profile.columns
+        )
+
+    @staticmethod
+    def _missing_bank_account_code_reason(region: str, bank: str) -> str:
+        return (
+            f"{region} bölgesi {bank} için BM banka hesap kodu tanımlı değil. "
+            "Ayarlar > Bölge Yönetimi bölümünden bu banka için BM kodunu ekleyin; "
+            "satır boş BM koduyla Netsis aktarımına yazılmadı."
+        )
 
     def _with_region_codes(self, record, region: str, bank: str):
         return replace(
