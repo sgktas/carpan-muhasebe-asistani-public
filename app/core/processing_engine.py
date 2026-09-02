@@ -247,6 +247,17 @@ class ProcessingEngine:
                             "Referanslı kayıt olarak kontrol bekliyor."
                         )
                         continue
+                    if not self._has_staff_route_marker(record.aciklama):
+                        pending.append(UnresolvedItem(
+                            record=record,
+                            region=region,
+                            reason=self._ambiguous_payment_approval_reason(),
+                        ))
+                        result.logs.append(
+                            "UYARI: Ödeme Onaylandı seçilmiş ancak açıklamada ROTA bilgisi "
+                            "bulunamadı; kullanıcı onayı bekliyor."
+                        )
+                        continue
                     odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
                     result.skipped_payment += 1
                     continue
@@ -597,6 +608,23 @@ class ProcessingEngine:
             "Negatif tutarlı kayıt Ödeme Onaylandı olamaz. Bu işlem giden para "
             "olduğu için Referanslı kayıt olarak kontrol edilmelidir."
         )
+
+    @staticmethod
+    def _ambiguous_payment_approval_reason() -> str:
+        return (
+            "Ödeme Onaylandı seçilmiş ancak açıklamada ROTA/personel yatırımı bilgisi "
+            "tespit edilemedi. Referanslı kayıt olma ihtimaline karşı onay gereklidir."
+        )
+
+    @staticmethod
+    def _has_staff_route_marker(description: str) -> bool:
+        """Personelin banka/ATM üzerinden yaptığı rota tahsilatlarını tanır.
+
+        MANİM açıklamalarında hem ``ROTA104`` hem de ``ROTA 104`` biçimi
+        görülebildiği için aradaki boşluk, nokta veya tire zorunlu değildir.
+        """
+        normalized = ProcessingEngine._normalize(description)
+        return bool(re.search(r"\bROTA[\s.-]*\d{1,4}\b", normalized))
 
     def _with_region_codes(self, record, region: str, bank: str):
         return replace(

@@ -273,6 +273,32 @@ def test_negatif_kayit_manuel_odeme_onaylandiya_tasinamaz(synthetic_project):
     assert any("manuel olarak da Ödeme Onaylandı'ya taşınamaz" in log for log in result.logs)
 
 
+def test_rota_bilgisi_olmayan_odeme_onaylandi_kaydi_onay_bekler(synthetic_project):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+
+    import pandas as pd
+    dataframe = pd.read_excel(manim_path)
+    dataframe = pd.concat([dataframe, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "PERSONEL YATIRIMI ACIKLAMASI BELIRSIZ", "Tutar": 2500.0,
+        "Dekont Durumu": "Ödeme Onaylandı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
+    dataframe.to_excel(manim_path, index=False)
+
+    def resolver(pending, _customers, _tahsilat):
+        assert len(pending) == 1
+        assert "ROTA/personel" in pending[0].reason
+        return {0: ManualResolution(route="ODEME_ONAYLANDI", rows=None)}
+
+    result = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root
+    ).run(resolver=resolver)
+
+    assert result.unresolved == 0
+    assert result.skipped_payment == 2
+    assert any("ROTA bilgisi bulunamadı" in log for log in result.logs)
+
+
 def test_cikti_klasoru_modul_adi_ve_islem_tarihini_tasir(synthetic_project):
     engine = ProcessingEngine(_files(synthetic_project), synthetic_project[3])
     result = engine.run()

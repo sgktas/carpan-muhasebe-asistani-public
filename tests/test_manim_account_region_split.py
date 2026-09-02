@@ -37,12 +37,12 @@ def test_aydin_dosyasi_kod_sube_ile_uc_akisi_nazilliden_ayirir(
         },
         {
             "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
-            "Açıklama": "AYDIN ODEME", "Tutar": 1200.0, "Dekont Durumu": "Ödeme Onaylandı",
+            "Açıklama": "ROTA 104 AYDIN ODEME", "Tutar": 1200.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
             "Banka": "YapıKredi", "Kod - Şube": "TEST-HESAP-2008-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
-            "Açıklama": "NAZILLI ODEME", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
+            "Açıklama": "ROTA106 NAZILLI ODEME", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
@@ -72,7 +72,7 @@ def test_aydin_dosyasi_kod_sube_ile_uc_akisi_nazilliden_ayirir(
     payment = xlrd.open_workbook(result.output_dir / "09_ODEME_ONAYLANDI_15072026.xls")
     payment_sheet = payment.sheet_by_index(0)
     assert [payment_sheet.cell_value(row, 5) for row in range(1, payment_sheet.nrows)] == [
-        "AYDIN ODEME", "NAZILLI ODEME"
+        "ROTA 104 AYDIN ODEME", "ROTA106 NAZILLI ODEME"
     ]
     assert [int(payment_sheet.cell_value(row, 0)) for row in range(1, payment_sheet.nrows)] == [
         1007, 1008
@@ -111,7 +111,7 @@ def test_hesap_bulunamazsa_guncel_musteri_kodu_ve_adi_bolgeyi_ayirir(
         },
         {
             "Banka": "Garanti", "Kod - Şube": "BILINMEYEN", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
-            "Açıklama": "ISIMDEN AYDIN", "Tutar": 1100.0, "Dekont Durumu": "Ödeme Onaylandı",
+            "Açıklama": "ROTA 104 ISIMDEN AYDIN", "Tutar": 1100.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "AYDIN TEST MARKET", "Karşı Hesap Kodu": "",
         },
         {
@@ -121,7 +121,7 @@ def test_hesap_bulunamazsa_guncel_musteri_kodu_ve_adi_bolgeyi_ayirir(
         },
         {
             "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1007-Vadesiz TRY", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
-            "Açıklama": "HESAP ONCELIKLI AYDIN", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
+            "Açıklama": "ROTA104 HESAP ONCELIKLI AYDIN", "Tutar": 1300.0, "Dekont Durumu": "Ödeme Onaylandı",
             "Karşı Hesap Adı": "NAZILLI TEST MARKET", "Karşı Hesap Kodu": "NAZ001",
         },
     ]).to_excel(manim_path, index=False)
@@ -137,7 +137,7 @@ def test_hesap_bulunamazsa_guncel_musteri_kodu_ve_adi_bolgeyi_ayirir(
     payment = xlrd.open_workbook(result.output_dir / "09_ODEME_ONAYLANDI_15072026.xls")
     payment_sheet = payment.sheet_by_index(0)
     assert [payment_sheet.cell_value(row, 5) for row in range(1, payment_sheet.nrows)] == [
-        "ISIMDEN AYDIN", "HESAP ONCELIKLI AYDIN"
+        "ROTA 104 ISIMDEN AYDIN", "ROTA104 HESAP ONCELIKLI AYDIN"
     ]
     assert [int(payment_sheet.cell_value(row, 0)) for row in range(1, payment_sheet.nrows)] == [
         1007, 1007

@@ -36,7 +36,7 @@ def synthetic_project(tmp_path):
         },
         {
             "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-15"),
-            "Açıklama": "ODEME ONAY TEST", "Tutar": 2500.0,
+            "Açıklama": "ROTA 104 ODEME ONAY TEST", "Tutar": 2500.0,
             "Dekont Durumu": "Ödeme Onaylandı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
         },
         {
