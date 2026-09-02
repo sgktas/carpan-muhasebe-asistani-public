@@ -111,6 +111,40 @@ def test_ayni_vknli_zincir_subeleri_bolgeler_arasinda_birlestirilir(tmp_path):
     }
 
 
+def test_zincir_odemesi_fazlaysa_tum_vkn_subeleri_manuel_oneriye_gelir(tmp_path):
+    """Banka tutarı borçtan yüksek olsa da hiçbir zincir şubesi gizlenmez.
+
+    Muğla hareketinde aynı VKN'li Bodrum satırı bölge filtresi nedeniyle
+    dışarıda kalıyordu. Otomatik aktarım yapılmaz, ancak manuel ekrana bütün
+    tahsilatlar önerilir ve kullanıcı yalnız borç kadarını onaylayabilir.
+    """
+    from app.models.records import CustomerRecord
+
+    customers = [
+        CustomerRecord("C-BODRUM", "MEYUS DENIZLI KURUYEMIS", "1000000009", "SIMSEK-BODRUM", "MEYUS BODRUM"),
+        CustomerRecord("C-MARMARIS-1", "MEYUS DENIZLI KURUYEMIS", "1000000009", "SIMSEK-MARMARIS", "MEYUS - 1"),
+        CustomerRecord("C-MARMARIS-2", "MEYUS DENIZLI KURUYEMIS", "1000000009", "SIMSEK-MARMARIS", "MEYUS - 2"),
+    ]
+    tahsilat = [
+        TahsilatRecord("C-BODRUM", "MEYUS BODRUM", None, 12410.00),
+        TahsilatRecord("C-MARMARIS-1", "MEYUS - 1", None, 100000.00),
+        TahsilatRecord("C-MARMARIS-2", "MEYUS - 2", None, 90005.68),
+    ]
+    matcher = SubeliMatcher(
+        tahsilat,
+        customers,
+        MappingStore(tmp_path / "meyus_candidates.json"),
+        region_branch_aliases={"MUGLA": ("MARMARIS", "MUGLA")},
+    )
+
+    assert matcher.match(_manim("FAST-MEYUS DENIZLI 1000000009", 272924.75), "MUGLA") is None
+    assert {(row.musteri_kodu, row.tutar) for row in matcher.last_candidate_rows} == {
+        ("C-BODRUM", 12410.00),
+        ("C-MARMARIS-1", 100000.00),
+        ("C-MARMARIS-2", 90005.68),
+    }
+
+
 def test_zincir_genel_kelime_alakasiz_musterileri_getirmez(tmp_path):
     """'TURZ' gibi onlarca şirkette geçen genel bir kelime zincir belirteci
     sayılmamalı; aksi halde alakasız şirketler yanlışlıkla havuza girer."""

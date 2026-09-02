@@ -61,6 +61,7 @@ class SubeliMatcher:
         self.customers = customers
         self.store = store or MappingStore()
         self.last_failure_reason = ""
+        self.last_candidate_rows: list[TahsilatRecord] = []
         self.region_branch_aliases = {
             self._normalize(key): tuple(self._normalize(alias) for alias in aliases if str(alias).strip())
             for key, aliases in (region_branch_aliases or {}).items()
@@ -79,6 +80,7 @@ class SubeliMatcher:
 
     def match(self, record: ManimRecord, region: str | None = None) -> list[TahsilatRecord] | None:
         self.last_failure_reason = ""
+        self.last_candidate_rows = []
         mapped = self.store.get(record.aciklama)
         if mapped:
             rows = self._rows_from_mapping(mapped, record.tutar)
@@ -108,7 +110,7 @@ class SubeliMatcher:
                 chain_match = self._match_via_tabela_chain(record, global_tax_groups)
                 if chain_match:
                     return chain_match
-                self._set_amount_mismatch_reason(record, tax_groups)
+                self._set_amount_mismatch_reason(record, global_tax_groups)
                 return None
 
             self.last_failure_reason = (
@@ -377,6 +379,7 @@ class SubeliMatcher:
 
         dated_rows = self._same_date_rows(candidate_rows, record)
         pool = dated_rows or candidate_rows
+        self.last_candidate_rows = list(pool)
         candidate_total = sum(float(row.tutar) for row in pool)
         difference = round(float(record.tutar) - candidate_total, 2)
         self.last_failure_reason = (

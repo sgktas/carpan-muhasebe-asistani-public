@@ -529,7 +529,7 @@ class ManimModulePage(QWidget):
         dialog = ManualMatchDialog(pending_items, customers, self)
         dialog.exec()
         resolutions: dict[int, ManualResolution] = {}
-        for index, (route, rows) in dialog.get_resolutions().items():
+        for index, (route, rows, allow_partial) in dialog.get_resolutions().items():
             if route == "HAVALE" and rows:
                 tahsilat_rows = [
                     TahsilatRecord(
@@ -540,7 +540,11 @@ class ManimModulePage(QWidget):
                     )
                     for code, amount in rows
                 ]
-                resolutions[index] = ManualResolution(route="HAVALE", rows=tahsilat_rows)
+                resolutions[index] = ManualResolution(
+                    route="HAVALE",
+                    rows=tahsilat_rows,
+                    allow_partial=allow_partial,
+                )
             else:
                 resolutions[index] = ManualResolution(route=route, rows=None)
         return resolutions

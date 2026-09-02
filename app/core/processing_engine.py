@@ -63,6 +63,7 @@ class UnresolvedItem:
     record: ManimRecord
     region: str
     reason: str
+    suggested_rows: list[TahsilatRecord] = field(default_factory=list)
 
 
 @dataclass
@@ -71,6 +72,7 @@ class ManualResolution:
 
     route: str
     rows: list[TahsilatRecord] | None = None
+    allow_partial: bool = False
 
 
 class ProcessingEngine:
@@ -250,7 +252,12 @@ class ProcessingEngine:
 
                 netsis_rows, reason = processor.process(record, region)
                 if reason:
-                    pending.append(UnresolvedItem(record=record, region=region, reason=reason))
+                    pending.append(UnresolvedItem(
+                        record=record,
+                        region=region,
+                        reason=reason,
+                        suggested_rows=list(processor.last_suggested_rows),
+                    ))
                     continue
 
                 for netsis_row in netsis_rows:
@@ -299,6 +306,7 @@ class ProcessingEngine:
                 validated_rows, validation_error = self._validate_manual_rows(
                     resolution.rows,
                     item.record.tutar,
+                    allow_partial=resolution.allow_partial,
                 )
                 if validation_error:
                     still_pending.append(
@@ -306,6 +314,7 @@ class ProcessingEngine:
                             record=item.record,
                             region=item.region,
                             reason=f"Manuel eşleştirme reddedildi: {validation_error}",
+                            suggested_rows=item.suggested_rows,
                         )
                     )
                     result.logs.append(
@@ -327,19 +336,30 @@ class ProcessingEngine:
                     )
                     result.produced_netsis_records += 1
 
-                mapping_updates.append(
-                    (
-                        item.record.aciklama,
-                        [
-                            {"musteri_kodu": row.musteri_kodu, "tutar": row.tutar}
-                            for row in validated_rows
-                        ],
+                manual_total = round(sum(row.tutar for row in validated_rows), 2)
+                remaining = round(float(item.record.tutar) - manual_total, 2)
+                if resolution.allow_partial and remaining > 0.01:
+                    # Eksik dağılım hafızaya alınmaz; aynı açıklama tekrar
+                    # geldiğinde kullanıcı bakiye durumunu yeniden görür.
+                    result.logs.append(
+                        f"Manuel kısmi eşleştirme: {manual_total:,.2f} TL Netsis'e aktarıldı, "
+                        f"{remaining:,.2f} TL bekleyen bakiye olarak bırakıldı: "
+                        f"{item.record.aciklama[:60]}..."
                     )
-                )
-                result.logs.append(
-                    f"Manuel eşleştirildi; çıktı başarıyla oluşunca hafızaya kaydedilecek: "
-                    f"{item.record.aciklama[:60]}..."
-                )
+                else:
+                    mapping_updates.append(
+                        (
+                            item.record.aciklama,
+                            [
+                                {"musteri_kodu": row.musteri_kodu, "tutar": row.tutar}
+                                for row in validated_rows
+                            ],
+                        )
+                    )
+                    result.logs.append(
+                        f"Manuel eşleştirildi; çıktı başarıyla oluşunca hafızaya kaydedilecek: "
+                        f"{item.record.aciklama[:60]}..."
+                    )
 
             pending = still_pending
 
@@ -531,6 +551,7 @@ class ProcessingEngine:
     def _validate_manual_rows(
         rows: list[TahsilatRecord],
         target_amount: float,
+        allow_partial: bool = False,
     ) -> tuple[list[TahsilatRecord], str | None]:
         validated: list[TahsilatRecord] = []
 
@@ -556,7 +577,10 @@ class ProcessingEngine:
             return [], "Geçerli müşteri kodu ve tutar bulunamadı"
 
         total = round(sum(row.tutar for row in validated), 2)
-        if abs(total - round(float(target_amount), 2)) > 0.01:
+        target = round(float(target_amount), 2)
+        if total > target + 0.01:
+            return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL'yi aşamaz"
+        if not allow_partial and abs(total - target) > 0.01:
             return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL ile eşleşmiyor"
 
         return validated, None

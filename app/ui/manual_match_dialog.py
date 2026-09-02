@@ -86,8 +86,8 @@ class ManualMatchDialog(QDialog):
 
     Kullanıcı önce bu kaydın GERÇEKTE ne olduğuna karar verir:
       - Netsis Havale Aktarımı: müşteri kodu + tutar girilir (şubeli/bölünmüş
-        kayıtlar için birden fazla satır eklenebilir; toplam tutar kaydın
-        MANİM tutarına tam eşit olmalı).
+        kayıtlar için birden fazla satır eklenebilir. Banka hareketi borçtan
+        yüksekse, kullanıcı borç kadarını aktararak kalanını bekletebilir).
       - Ödeme Onaylandı dosyasına taşı: müşteri kodu aranmadan doğrudan o
         dosyaya eklenir (örn. dekont durumu otomatik tanınamamışsa).
       - Referanslı kayıt dosyasına taşı: aynı şekilde doğrudan taşınır.
@@ -110,8 +110,9 @@ class ManualMatchDialog(QDialog):
         self.pending_items = pending_items
         self.customers = customers
         self.customer_codes = {self._code_key(row.cari_kodu): row.cari_kodu for row in customers}
-        # index -> (route, rows|None)  rows: [(musteri_kodu, tutar), ...] (sadece HAVALE icin)
-        self.resolutions: dict[int, tuple[str, list[tuple[str, float]] | None]] = {}
+        # index -> (route, rows|None, allow_partial). rows yalnız HAVALE için
+        # kullanılır; allow_partial yalnız fazla ödeme onayında True olur.
+        self.resolutions: dict[int, tuple[str, list[tuple[str, float]] | None, bool]] = {}
         self._current_index: int | None = None
 
         self.setWindowTitle("Eşleştirme Gerekiyor")
@@ -234,6 +235,9 @@ class ManualMatchDialog(QDialog):
         if existing and existing[1]:
             for code, amount in existing[1]:
                 self._append_row(code, f"{amount:.2f}")
+        elif item.suggested_rows:
+            for suggested in item.suggested_rows:
+                self._append_row(suggested.musteri_kodu, f"{suggested.tutar:.2f}")
         else:
             self._append_row("", f"{item.record.tutar:.2f}")
         self.table.blockSignals(False)
@@ -308,11 +312,20 @@ class ManualMatchDialog(QDialog):
             return
         target = self.pending_items[self._current_index].record.tutar
         total = sum(amount for _, amount in self._current_table_rows())
-        matches = abs(round(total, 2) - round(target, 2)) <= 0.01
-        color = "green" if matches else "red"
+        difference = round(target - total, 2)
+        matches = abs(difference) <= 0.01
+        if matches:
+            color = "green"
+            suffix = ""
+        elif difference > 0:
+            color = "#b26a00"
+            suffix = f" &nbsp;/&nbsp; Bekleyen bakiye: {difference:,.2f} TL"
+        else:
+            color = "red"
+            suffix = " &nbsp;/&nbsp; Hedef tutar aşıldı"
         self.total_label.setText(
             f"<span style='color:{color}; font-weight:bold'>"
-            f"Girilen toplam: {total:,.2f} TL &nbsp;/&nbsp; Hedef: {target:,.2f} TL</span>"
+            f"Girilen toplam: {total:,.2f} TL &nbsp;/&nbsp; Hedef: {target:,.2f} TL{suffix}</span>"
         )
 
     def _save_current(self) -> None:
@@ -321,7 +334,7 @@ class ManualMatchDialog(QDialog):
         route = self._current_route()
 
         if route in ("ODEME_ONAYLANDI", "REFERANSLI", "ATLA"):
-            self.resolutions[self._current_index] = (route, None)
+            self.resolutions[self._current_index] = (route, None, False)
             self._mark_done(route)
             self._go_to_next_unresolved()
             return
@@ -350,15 +363,29 @@ class ManualMatchDialog(QDialog):
         rows = canonical_rows
         target = self.pending_items[self._current_index].record.tutar
         total = sum(amount for _, amount in rows)
-        if abs(round(total, 2) - round(target, 2)) > 0.01:
+        if total > round(target, 2) + 0.01:
             QMessageBox.warning(
                 self,
                 "Tutar tutmuyor",
-                f"Girilen tutarların toplamı ({total:,.2f} TL) kayıt tutarıyla "
-                f"({target:,.2f} TL) eşleşmiyor. Lütfen kontrol edin.",
+                f"Girilen tutarların toplamı ({total:,.2f} TL), banka kaydını "
+                f"({target:,.2f} TL) aşamaz. Lütfen kontrol edin.",
             )
             return
-        self.resolutions[self._current_index] = ("HAVALE", rows)
+        allow_partial = total < round(target, 2) - 0.01
+        if allow_partial:
+            remaining = round(target - total, 2)
+            answer = QMessageBox.question(
+                self,
+                "Fazla ödeme bakiyesi",
+                f"Banka hareketi {target:,.2f} TL, girdiğiniz tahsilat ise {total:,.2f} TL.\n\n"
+                f"{remaining:,.2f} TL bu aktarımda bekleyen bakiye olarak bırakılacak; "
+                "yalnız tahsilat tutarı Netsis'e yazılacak. Onaylıyor musunuz?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.resolutions[self._current_index] = ("HAVALE", rows, allow_partial)
         self._mark_done("HAVALE")
         self._go_to_next_unresolved()
 
@@ -371,7 +398,7 @@ class ManualMatchDialog(QDialog):
     def _skip_current(self) -> None:
         if self._current_index is None:
             return
-        self.resolutions[self._current_index] = ("ATLA", None)
+        self.resolutions[self._current_index] = ("ATLA", None, False)
         self._mark_done("ATLA")
         self._go_to_next_unresolved()
 
@@ -381,6 +408,6 @@ class ManualMatchDialog(QDialog):
                 self.list_widget.setCurrentRow(index)
                 return
 
-    def get_resolutions(self) -> dict[int, tuple[str, list[tuple[str, float]] | None]]:
-        """{pending_items indeksi: (route, rows|None)} biçiminde onaylanan kararları döndürür."""
+    def get_resolutions(self) -> dict[int, tuple[str, list[tuple[str, float]] | None, bool]]:
+        """{pending_items indeksi: (route, rows|None, allow_partial)} kararlarını döndürür."""
         return self.resolutions

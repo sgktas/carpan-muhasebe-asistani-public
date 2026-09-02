@@ -329,6 +329,35 @@ def test_manuel_eslestirmede_pasif_cari_kod_kabul_edilir(synthetic_project):
     ]
 
 
+def test_manuel_eslestirmede_fazla_odemeden_borc_kadari_onaylanabilir(synthetic_project):
+    import pandas as pd
+
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    df = pd.read_excel(manim_path)
+    df = pd.concat([df, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123", "İşlem Tarihi": pd.Timestamp("2026-07-17"),
+        "Açıklama": "FAZLA ODEME MANUEL TEST", "Tutar": 1000.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
+    df.to_excel(manim_path, index=False)
+
+    def resolver(pending, _customers, _tahsilat):
+        return {0: ManualResolution(route="HAVALE", allow_partial=True, rows=[
+            TahsilatRecord("BORC001", "manuel", None, 825.50),
+        ])}
+
+    engine = ProcessingEngine([manim_path, tahsilat_path, customer_path], project_root)
+    result = engine.run(resolver=resolver)
+
+    assert result.unresolved == 0
+    assert result.produced_netsis_records == 2
+    assert any("174.50 TL bekleyen bakiye" in line for line in result.logs)
+
+    from app.core.mapping_store import MappingStore
+    store = MappingStore(project_root / "data" / "customer_mappings.json")
+    assert store.get("FAZLA ODEME MANUEL TEST") is None
+
+
 def test_kaynaklar_ile_kalici_veri_klasoru_ayri_kullanilabilir(synthetic_project, tmp_path):
     manim_path, tahsilat_path, customer_path, resource_root = synthetic_project
     data_root = tmp_path / "kalici_kullanici_verisi"
