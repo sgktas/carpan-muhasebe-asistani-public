@@ -637,13 +637,12 @@ class ProcessingEngine:
                 continue
             if left.record.islem_tarihi.date() != right.record.islem_tarihi.date():
                 continue
-            # Tek tahsilat adayı, iki hareketi güvenli biçimde aynı cari koda bağlar.
-            if len(left.suggested_rows) != 1 or len(right.suggested_rows) != 1:
+            # Zincir müşterilerde aynı tahsilat, birden fazla şube/cari satırından
+            # oluşabilir. Her iki banka hareketinde de aynı tahsilat havuzu
+            # önerildiyse bunlar tek bir müşteri hareketinin iki parçasıdır.
+            if not self._same_suggested_collection(left.suggested_rows, right.suggested_rows):
                 continue
-            left_candidate, right_candidate = left.suggested_rows[0], right.suggested_rows[0]
-            if str(left_candidate.musteri_kodu).strip() != str(right_candidate.musteri_kodu).strip():
-                continue
-            target = round(float(left_candidate.tutar), 2)
+            target = self._suggested_total(left.suggested_rows)
             total = round(float(left.record.tutar) + float(right.record.tutar), 2)
             if abs(total - target) > 0.01:
                 # Toplam farkı varsa kullanıcı iki banka hareketini aynı
@@ -655,13 +654,16 @@ class ProcessingEngine:
                 )
                 continue
 
-            for item in (left, right):
+            # Netsis'e banka hareketi toplamını değil, tahsilat raporundaki
+            # şube/cari dağılımını yazıyoruz. Böylece iki havale birleşse de
+            # her şubenin tahsilatı kendi cari kodunda kalır.
+            for candidate in left.suggested_rows:
                 netsis_record = processor._netsis_record(
-                    item.record, str(left_candidate.musteri_kodu).strip(),
-                    item.record.tutar, "BIRLESIK_BANKA_HAREKETI"
+                    left.record, str(candidate.musteri_kodu).strip(),
+                    candidate.tutar, "BIRLESIK_BANKA_HAREKETI"
                 )
-                netsis_record = self._with_region_codes(netsis_record, item.region, left_bank)
-                outputs[self._output_key(item.region, left_bank, output_profile)].append(netsis_record)
+                netsis_record = self._with_region_codes(netsis_record, left.region, left_bank)
+                outputs[self._output_key(left.region, left_bank, output_profile)].append(netsis_record)
                 result.produced_netsis_records += 1
             consumed.update({left_index, right_index})
             result.logs.append(
@@ -673,24 +675,44 @@ class ProcessingEngine:
             if left_index not in manual_group_indices or right_index not in manual_group_indices or left_index in used or right_index in used:
                 continue
             left, right = pending[left_index], pending[right_index]
-            if len(left.suggested_rows) != 1 or len(right.suggested_rows) != 1:
-                continue
-            if str(left.suggested_rows[0].musteri_kodu).strip() != str(right.suggested_rows[0].musteri_kodu).strip():
+            if not self._same_suggested_collection(left.suggested_rows, right.suggested_rows):
                 continue
             grouped.append(UnresolvedItem(
                 record=left.record,
                 region=left.region,
                 reason=("Aynı müşteri için iki havale bulundu. Tutarları düzenleyip "
                         "tahsilat hedefiyle eşitleyerek birlikte onaylayın."),
-                suggested_rows=[left.suggested_rows[0]],
+                suggested_rows=list(left.suggested_rows),
                 group_records=[left.record, right.record],
-                group_target_amount=float(left.suggested_rows[0].tutar),
+                group_target_amount=self._suggested_total(left.suggested_rows),
             ))
             used.update({left_index, right_index})
         return [
             item for index, item in enumerate(pending)
             if index not in consumed and index not in manual_group_indices
         ] + grouped
+
+    @staticmethod
+    def _suggested_total(rows: list[TahsilatRecord]) -> float:
+        return round(sum(float(row.tutar) for row in rows), 2)
+
+    @classmethod
+    def _same_suggested_collection(
+        cls,
+        left_rows: list[TahsilatRecord],
+        right_rows: list[TahsilatRecord],
+    ) -> bool:
+        """İki önerinin aynı şubeli tahsilat havuzu olduğunu doğrular."""
+        if not left_rows or not right_rows:
+            return False
+
+        def signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, float], ...]:
+            return tuple(sorted(
+                (str(row.musteri_kodu).strip(), round(float(row.tutar), 2))
+                for row in rows
+            ))
+
+        return signature(left_rows) == signature(right_rows)
 
     @staticmethod
     def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
