@@ -746,11 +746,13 @@ class ReportEditingEngine:
         *,
         resource_root: str | Path,
         output_root: str | Path,
+        customer_cache_path: str | Path | None = None,
         create_template_outputs: bool = True,
     ):
         self.files = [Path(path) for path in files]
         self.resource_root = Path(resource_root)
         self.output_root = Path(output_root)
+        self.customer_cache_path = Path(customer_cache_path) if customer_cache_path else None
         self.create_template_outputs = create_template_outputs
 
     @staticmethod
@@ -895,14 +897,20 @@ class ReportEditingEngine:
 
         customer_rows: list[dict] = []
         branch_lookup: dict[str, str] = {}
-        if "customer" in recognized:
+        customer_source = recognized.get("customer")
+        if customer_source:
             output = output_dir / CUSTOMER_CLEAN_OUTPUT_FILENAME
-            result.customer_rows = prepare_fom_customer_list(recognized["customer"], output)
-            _, customer_rows, branch_lookup = self._customer_rows(recognized["customer"])
+            result.customer_rows = prepare_fom_customer_list(customer_source, output)
+            _, customer_rows, branch_lookup = self._customer_rows(customer_source)
             result.created_files.append(output)
             result.logs.append(
                 f"Müşteri listesi düzenlendi: {result.customer_rows} kayıt. "
                 "AYDIN-DD-02 rotaları SIMSEK-NAZILLI şubesine ayrıldı."
+            )
+        elif self.customer_cache_path and self.customer_cache_path.is_file():
+            _, customer_rows, branch_lookup = self._customer_rows(self.customer_cache_path)
+            result.logs.append(
+                f"Hafızadaki müşteri listesi şube eşleştirmesi için kullanıldı: {len(customer_rows)} kayıt."
             )
         elif "sales" in recognized or "collections" in recognized:
             result.logs.append(

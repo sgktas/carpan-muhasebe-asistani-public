@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.app_paths import APP_PATHS
+from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
 from app.modules.report_editing.engine import (
@@ -365,6 +366,7 @@ class ReportEditingPage(QWidget):
                 self.files,
                 resource_root=APP_PATHS.resource_root,
                 output_root=resolve_output_dir(APP_PATHS),
+                customer_cache_path=CustomerListCache(APP_PATHS.data_root).get(),
                 create_template_outputs=True,
             )
             result = engine.run()
