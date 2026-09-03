@@ -65,6 +65,8 @@ class UnresolvedItem:
     region: str
     reason: str
     suggested_rows: list[TahsilatRecord] = field(default_factory=list)
+    group_records: list[ManimRecord] = field(default_factory=list)
+    group_target_amount: float | None = None
 
 
 @dataclass
@@ -348,6 +350,34 @@ class ProcessingEngine:
                     still_pending.append(item)
                     continue
 
+                if item.group_records:
+                    validated_rows, validation_error = self._validate_manual_rows(
+                        resolution.rows,
+                        item.group_target_amount or 0,
+                        allow_partial=False,
+                    )
+                    if validation_error or len(validated_rows) != len(item.group_records):
+                        still_pending.append(item)
+                        result.logs.append(
+                            "UYARI: Toplu havale manuel eşleştirmesi kabul edilmedi: "
+                            f"{validation_error or 'Her banka hareketi için bir tutar girin.'}"
+                        )
+                        continue
+                    bank = self._bank_key(item.record.banka)
+                    for source_record, row in zip(item.group_records, validated_rows):
+                        netsis_row = processor._netsis_record(
+                            source_record, row.musteri_kodu, row.tutar, "TOPLU_MANUEL_ESLESTIRME"
+                        )
+                        outputs[self._output_key(item.region, bank, output_profile)].append(
+                            self._with_region_codes(netsis_row, item.region, bank)
+                        )
+                        result.produced_netsis_records += 1
+                    result.logs.append(
+                        f"Toplu havale manuel onaylandı: {len(item.group_records)} hareket, "
+                        f"{item.group_target_amount:,.2f} TL."
+                    )
+                    continue
+
                 bank = self._bank_key(item.record.banka)
                 if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(item.region, bank):
                     still_pending.append(
@@ -592,6 +622,7 @@ class ProcessingEngine:
 
     def _match_combined_bank_movements(self, pending, outputs, result, output_profile, processor):
         consumed: set[int] = set()
+        manual_group_indices: set[int] = set()
         for left_index, right_index in combinations(range(len(pending)), 2):
             if left_index in consumed or right_index in consumed:
                 continue
@@ -615,6 +646,13 @@ class ProcessingEngine:
             target = round(float(left_candidate.tutar), 2)
             total = round(float(left.record.tutar) + float(right.record.tutar), 2)
             if abs(total - target) > 0.01:
+                # Toplam farkı varsa kullanıcı iki banka hareketini aynı
+                # ekranda düzenleyip tek tahsilat hedefiyle onaylayabilir.
+                manual_group_indices.update({left_index, right_index})
+                result.logs.append(
+                    f"Toplu havale kontrol bekliyor: {left.record.tutar:,.2f} + "
+                    f"{right.record.tutar:,.2f} TL; tahsilat hedefi {target:,.2f} TL."
+                )
                 continue
 
             for item in (left, right):
@@ -629,7 +667,30 @@ class ProcessingEngine:
             result.logs.append(
                 f"Birleşik havale eşleşti: {left.record.tutar:,.2f} + {right.record.tutar:,.2f} TL = {target:,.2f} TL."
             )
-        return [item for index, item in enumerate(pending) if index not in consumed]
+        grouped: list[UnresolvedItem] = []
+        used: set[int] = set()
+        for left_index, right_index in combinations(range(len(pending)), 2):
+            if left_index not in manual_group_indices or right_index not in manual_group_indices or left_index in used or right_index in used:
+                continue
+            left, right = pending[left_index], pending[right_index]
+            if len(left.suggested_rows) != 1 or len(right.suggested_rows) != 1:
+                continue
+            if str(left.suggested_rows[0].musteri_kodu).strip() != str(right.suggested_rows[0].musteri_kodu).strip():
+                continue
+            grouped.append(UnresolvedItem(
+                record=left.record,
+                region=left.region,
+                reason=("Aynı müşteri için iki havale bulundu. Tutarları düzenleyip "
+                        "tahsilat hedefiyle eşitleyerek birlikte onaylayın."),
+                suggested_rows=[left.suggested_rows[0]],
+                group_records=[left.record, right.record],
+                group_target_amount=float(left.suggested_rows[0].tutar),
+            ))
+            used.update({left_index, right_index})
+        return [
+            item for index, item in enumerate(pending)
+            if index not in consumed and index not in manual_group_indices
+        ] + grouped
 
     @staticmethod
     def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:

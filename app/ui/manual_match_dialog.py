@@ -201,6 +201,8 @@ class ManualMatchDialog(QDialog):
 
     @staticmethod
     def _list_label(item) -> str:
+        if item.group_records:
+            return f"{item.region} | {item.record.banka} | TOPLU {len(item.group_records)} havale"
         return f"{item.region} | {item.record.banka} | {item.record.tutar:,.2f} TL"
 
     def _on_select_row(self, index: int) -> None:
@@ -222,6 +224,17 @@ class ManualMatchDialog(QDialog):
             f"<b>Dekont Durumu:</b> {item.record.dekont_durumu}<br>"
             f"<b>Neden eşleşmedi:</b> {item.reason}"
         )
+        if item.group_records:
+            movements = "<br>".join(
+                f"• {record.islem_tarihi.strftime('%H:%M:%S') if record.islem_tarihi else '-'}: "
+                f"{record.tutar:,.2f} TL — {record.aciklama}"
+                for record in item.group_records
+            )
+            self.detail_label.setText(
+                self.detail_label.text()
+                + f"<br><br><b>Birleştirilecek banka hareketleri:</b><br>{movements}"
+                + f"<br><b>Tahsilat hedefi:</b> {item.group_target_amount:,.2f} TL"
+            )
 
         existing = self.resolutions.get(index)
         route = existing[0] if existing else "HAVALE"
@@ -232,14 +245,30 @@ class ManualMatchDialog(QDialog):
 
         self.table.blockSignals(True)
         self.table.setRowCount(0)
-        if existing and existing[1]:
-            for code, amount in existing[1]:
-                self._append_row(code, f"{amount:.2f}")
-        elif item.suggested_rows:
-            for suggested in item.suggested_rows:
-                self._append_row(suggested.musteri_kodu, f"{suggested.tutar:.2f}")
+        if item.group_records:
+            self.table.setColumnCount(len(item.group_records) + 1)
+            self.table.setHorizontalHeaderLabels(
+                ["Müşteri Kodu"] + [f"Havale {index + 1}" for index in range(len(item.group_records))]
+            )
+            code = item.suggested_rows[0].musteri_kodu if item.suggested_rows else ""
+            amounts = existing[1] if existing and existing[1] else [
+                (code, record.tutar) for record in item.group_records
+            ]
+            self.table.insertRow(0)
+            self.table.setItem(0, 0, QTableWidgetItem(str(code)))
+            for column, (_code, amount) in enumerate(amounts, start=1):
+                self.table.setItem(0, column, QTableWidgetItem(f"{amount:.2f}"))
         else:
-            self._append_row("", f"{item.record.tutar:.2f}")
+            self.table.setColumnCount(2)
+            self.table.setHorizontalHeaderLabels(["Müşteri Kodu", "Tutar"])
+            if existing and existing[1]:
+                for code, amount in existing[1]:
+                    self._append_row(code, f"{amount:.2f}")
+            elif item.suggested_rows:
+                for suggested in item.suggested_rows:
+                    self._append_row(suggested.musteri_kodu, f"{suggested.tutar:.2f}")
+            else:
+                self._append_row("", f"{item.record.tutar:.2f}")
         self.table.blockSignals(False)
         self._update_total_label()
 
@@ -275,6 +304,16 @@ class ManualMatchDialog(QDialog):
         self._update_total_label()
 
     def _current_table_rows(self) -> list[tuple[str, float]]:
+        if self._current_index is not None and self.pending_items[self._current_index].group_records:
+            code_item = self.table.item(0, 0)
+            code = code_item.text().strip() if code_item else ""
+            rows = []
+            for column in range(1, self.table.columnCount()):
+                item = self.table.item(0, column)
+                amount = self._parse_amount(item.text().strip()) if item else None
+                if code and amount is not None:
+                    rows.append((code, amount))
+            return rows
         rows: list[tuple[str, float]] = []
         for row_index in range(self.table.rowCount()):
             code_item = self.table.item(row_index, 0)
@@ -310,7 +349,8 @@ class ManualMatchDialog(QDialog):
         if self._current_index is None or self._current_route() != "HAVALE":
             self.total_label.setText("")
             return
-        target = self.pending_items[self._current_index].record.tutar
+        item = self.pending_items[self._current_index]
+        target = item.group_target_amount if item.group_records else item.record.tutar
         total = sum(amount for _, amount in self._current_table_rows())
         difference = round(target - total, 2)
         matches = abs(difference) <= 0.01
@@ -370,7 +410,8 @@ class ManualMatchDialog(QDialog):
             canonical_rows.append((canonical_code, amount))
 
         rows = canonical_rows
-        target = self.pending_items[self._current_index].record.tutar
+        item = self.pending_items[self._current_index]
+        target = item.group_target_amount if item.group_records else item.record.tutar
         total = sum(amount for _, amount in rows)
         if total > round(target, 2) + 0.01:
             QMessageBox.warning(
