@@ -4,6 +4,7 @@ import stat
 from pathlib import Path
 
 import xlrd
+import pytest
 
 from app.core.output_profile import OutputProfile
 from app.models.records import NetsisRecord
@@ -24,6 +25,16 @@ def _record(tutar=1000.0):
 
 def _open(path):
     return xlrd.open_workbook(path, formatting_info=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows production writer")
+def test_kaynak_paket_sablonsuzsa_sessizce_genel_excel_uretmez(tmp_path, monkeypatch):
+    monkeypatch.delenv("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG", raising=False)
+    monkeypatch.setattr("app.writers.netsis_writer.sys.frozen", False, raising=False)
+    output = tmp_path / "missing.xls"
+    with pytest.raises(FileNotFoundError, match="Genel Excel çıktısı üretilmedi"):
+        NetsisWriter(template_path=tmp_path / "olmayan_sablon.xls").write([_record()], output)
+    assert not output.exists()
 
 
 def test_paketli_uygulama_sablonu_meipass_altindan_bulur(tmp_path, monkeypatch):

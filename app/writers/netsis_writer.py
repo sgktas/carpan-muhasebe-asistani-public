@@ -87,7 +87,11 @@ class NetsisWriter:
 
     def write(self, records: list[NetsisRecord], output_path: str | Path) -> Path:
         records = sorted(records, key=self._sort_key)
-        if os.name == "nt" and getattr(sys, "frozen", False) and not self.template_path.is_file():
+        if (
+            os.name == "nt"
+            and os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
+            and not self.template_path.is_file()
+        ):
             raise FileNotFoundError(
                 f"'{self.profile.name}' için paket içi Netsis şablonu bulunamadı: "
                 f"{self.template_path}. Genel Excel çıktısı üretilmedi."
@@ -561,11 +565,25 @@ try {
                 $matrix.SetValue($value, $rowIndex, $column)
             }
         }
-        $worksheet.Range("A2:$lastColumnLetter$lastRow").Value2 = $matrix
+        if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls") {
+            for ($rowIndex = 0; $rowIndex -lt $rows.Count; $rowIndex++) {
+                for ($column = 0; $column -lt $columnCount; $column++) {
+                    $worksheet.Cells.Item($rowIndex + 2, $column + 1).Value2 = $matrix.GetValue($rowIndex, $column)
+                }
+            }
+        }
+        else {
+            $worksheet.Range("A2:$lastColumnLetter$lastRow").Value2 = $matrix
+        }
     }
 
     # 56 = xlExcel8 / gerçek Excel 97-2003 BIFF8
-    $workbook.SaveAs($OutputPath, 56)
+    if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls") {
+        $workbook.SaveCopyAs($OutputPath)
+    }
+    else {
+        $workbook.SaveAs($OutputPath, 56)
+    }
     $workbook.Close($false)
     $workbook = $null
 }
