@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from itertools import combinations
 from pathlib import Path
 import re
 import shutil
@@ -307,6 +308,14 @@ class ProcessingEngine:
                 )
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
 
+        # Aynı müşteri/tahsilat adayı için iki ayrı banka hareketi oluşabilir.
+        # Örn. 70.978 + 77.000 TL banka hareketi, tahsilat raporundaki tek
+        # 147.978 TL satırını kapatır. Her iki hareket aynı bölge/bankadaysa ve
+        # aynı TEK tahsilat adayına kuruşu kuruşuna eşitse güvenle birleştir.
+        pending = self._match_combined_bank_movements(
+            pending, outputs, result, output_profile, processor
+        )
+
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
             still_pending: list[UnresolvedItem] = []
@@ -581,6 +590,47 @@ class ProcessingEngine:
         )
 
         return result
+
+    def _match_combined_bank_movements(self, pending, outputs, result, output_profile, processor):
+        consumed: set[int] = set()
+        for left_index, right_index in combinations(range(len(pending)), 2):
+            if left_index in consumed or right_index in consumed:
+                continue
+            left, right = pending[left_index], pending[right_index]
+            if left.region != right.region:
+                continue
+            left_bank = self._bank_key(left.record.banka)
+            right_bank = self._bank_key(right.record.banka)
+            if left_bank != right_bank:
+                continue
+            if not left.record.islem_tarihi or not right.record.islem_tarihi:
+                continue
+            if left.record.islem_tarihi.date() != right.record.islem_tarihi.date():
+                continue
+            # Tek tahsilat adayı, iki hareketi güvenli biçimde aynı cari koda bağlar.
+            if len(left.suggested_rows) != 1 or len(right.suggested_rows) != 1:
+                continue
+            left_candidate, right_candidate = left.suggested_rows[0], right.suggested_rows[0]
+            if str(left_candidate.musteri_kodu).strip() != str(right_candidate.musteri_kodu).strip():
+                continue
+            target = round(float(left_candidate.tutar), 2)
+            total = round(float(left.record.tutar) + float(right.record.tutar), 2)
+            if abs(total - target) > 0.01:
+                continue
+
+            for item in (left, right):
+                netsis_record = processor._netsis_record(
+                    item.record, str(left_candidate.musteri_kodu).strip(),
+                    item.record.tutar, "BIRLESIK_BANKA_HAREKETI"
+                )
+                netsis_record = self._with_region_codes(netsis_record, item.region, left_bank)
+                outputs[self._output_key(item.region, left_bank, output_profile)].append(netsis_record)
+                result.produced_netsis_records += 1
+            consumed.update({left_index, right_index})
+            result.logs.append(
+                f"Birleşik havale eşleşti: {left.record.tutar:,.2f} + {right.record.tutar:,.2f} TL = {target:,.2f} TL."
+            )
+        return [item for index, item in enumerate(pending) if index not in consumed]
 
     @staticmethod
     def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
