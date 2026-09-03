@@ -16,6 +16,7 @@ import zipfile
 LOCAL_ASSETS = (
     "config/local/bolge_kodlari.json",
     "config/local/output_profiles/netsis.json",
+    "config/local/template_checksums.json",
     "templates/local/netsis_template.xls",
     "templates/local/netsis_template.xlsx",
     "templates/local/netsis_toplu_template.xlsx",
@@ -32,6 +33,10 @@ def package_source(root: Path, destination: Path) -> None:
     for name in paths:
         if not (root / name).is_file():
             raise FileNotFoundError(f"Paket dosyasi eksik: {name}")
+    original = root / "templates/local/netsis_template.xls"
+    checksums = json.loads((root / "config/local/template_checksums.json").read_text(encoding="utf-8"))
+    if hashlib.sha256(original.read_bytes()).hexdigest() != checksums["netsis_template.xls"]:
+        raise ValueError("Netsis sablonu kullanicinin verdigi orijinal dosyayla ayni degil.")
 
     # Validate the effective profile, including local overrides, before zipping.
     profiles = {}

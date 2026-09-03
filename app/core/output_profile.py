@@ -64,7 +64,8 @@ class OutputProfile:
             OutputColumn(
                 header=col["header"],
                 width=col.get("width", 12),
-                style=col.get("style", "text"),
+                style=("amount" if "tutar" in col["header"].casefold()
+                       else col.get("style", "text")),
                 source_kind=col["source"],
                 field=col.get("field"),
                 value=col.get("value"),

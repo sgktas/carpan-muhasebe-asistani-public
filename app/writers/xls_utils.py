@@ -164,7 +164,9 @@ def write_table_xls(
     if len(rows) + 1 > EXCEL_97_2003_MAX_ROWS:
         raise ValueError("Excel 97-2003 en fazla 65.536 satır destekler.")
 
-    amount_set = set(amount_columns)
+    amount_set = set(amount_columns) | {
+        column for column in resolved_columns if "tutar" in column.casefold()
+    }
     date_set = set(date_columns)
     widths = dict(column_widths or {})
     styles = make_styles()

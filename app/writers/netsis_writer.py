@@ -217,6 +217,12 @@ class NetsisWriter:
 
             if records:
                 last_row = len(records) + 1
+                if template_path.suffix.lower() == ".xls" and len(records) > 1:
+                    # Orijinal örnek satırın yazı, kenarlık ve sayı biçimini
+                    # yeni satırlara da taşı; yalnız biçimleri kopyala.
+                    worksheet.Range(f"A2:{last_column_letter}2").Copy()
+                    worksheet.Range(f"A3:{last_column_letter}{last_row}").PasteSpecial(Paste=-4122)
+                    excel.CutCopyMode = False
                 # Cari kodu Excel tarafından sayıya çevrilmemeli. Excel COM
                 # biçim dizeleri kurulu Office diline bağlı olduğundan önce
                 # Türkçe yerel biçim, ardından invariant biçim denenir. Biçim
@@ -515,6 +521,11 @@ try {
 
     if ($rows.Count -gt 0) {
         $lastRow = $rows.Count + 1
+        if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls" -and $rows.Count -gt 1) {
+            $worksheet.Range("A2:$lastColumnLetter" + "2").Copy()
+            $worksheet.Range("A3:$lastColumnLetter$lastRow").PasteSpecial(-4122)
+            $excel.CutCopyMode = $false
+        }
         # Excel'in NumberFormat özelliği yerel dile bağlıdır. Türkçe Excel,
         # İngilizce "m/d/yy" biçimini COMException ile reddedebildiği için
         # önce yerel biçimler denenir. Biçimlendirme başarısız olsa bile veri

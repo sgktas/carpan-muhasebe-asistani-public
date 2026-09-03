@@ -19,6 +19,12 @@ from openpyxl.utils import get_column_letter
 
 from app.core.customer_list_cache import CustomerListCache
 
+AMOUNT_FORMAT = "#,##0.00"
+AMOUNT_HEADERS = {
+    "Tutar", "Fiyat", "ToplamKDV", "EklenenKDV", "TuketiciFiyati", "NetFiyat",
+    "Risk Limiti", "Kredi Limiti",
+}
+
 CUSTOMER_OUTPUT_COLUMNS = [
     "Müşteri Sayısı", "Müşteri Kodu", "Şube", "Tabela Adi", "Ünvan",
     "Vergi Dairesi", "Vergi Numarası", "Tekel No", "SR-Rota", "Banka",
@@ -292,6 +298,11 @@ def _write_clean_xlsx(
             if number_formats_by_sheet and sheet_index < len(number_formats_by_sheet)
             else {}
         )
+        sheet_number_formats = dict(sheet_number_formats)
+        sheet_number_formats.update({
+            header: AMOUNT_FORMAT for header in headers
+            if header in AMOUNT_HEADERS or "tutar" in header.casefold()
+        })
         for header_name, number_format in sheet_number_formats.items():
             if header_name not in headers:
                 continue
@@ -375,6 +386,12 @@ class ExcelTemplateWriter:
         template_path = Path(template_path)
         output_path = Path(output_path).with_suffix(".xls")
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        number_formats = dict(number_formats or {})
+        for sheet_index, sheet_headers in enumerate(headers or (), start=1):
+            for column_index, header in enumerate(sheet_headers, start=1):
+                if header in AMOUNT_HEADERS or "tutar" in header.casefold():
+                    number_formats[(sheet_index, column_index)] = (AMOUNT_FORMAT, "#.##0,00")
 
         if not template_path.is_file():
             return self._write_xlwt(output_path, sheets, headers=headers)
