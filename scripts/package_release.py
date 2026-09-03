@@ -25,18 +25,18 @@ LOCAL_ASSETS = (
 )
 
 
-def package_source(root: Path, destination: Path) -> None:
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z"], cwd=root
-    ).decode("utf-8").split("\0")
-    paths = sorted(set(filter(None, tracked)) | set(LOCAL_ASSETS))
-    for name in paths:
+def validate_templates(root: Path) -> None:
+    """Shared gate for both source releases and EXE builds."""
+    for name in LOCAL_ASSETS:
         if not (root / name).is_file():
             raise FileNotFoundError(f"Paket dosyasi eksik: {name}")
-    original = root / "templates/local/netsis_template.xls"
     checksums = json.loads((root / "config/local/template_checksums.json").read_text(encoding="utf-8"))
-    if hashlib.sha256(original.read_bytes()).hexdigest() != checksums["netsis_template.xls"]:
-        raise ValueError("Netsis sablonu kullanicinin verdigi orijinal dosyayla ayni degil.")
+    for name in LOCAL_ASSETS:
+        if not name.startswith("templates/local/"):
+            continue
+        key = name.removeprefix("templates/local/")
+        if hashlib.sha256((root / name).read_bytes()).hexdigest() != checksums.get(key):
+            raise ValueError(f"Onayli orijinal sablon degismis veya kontrol degeri eksik: {key}")
 
     # Validate the effective profile, including local overrides, before zipping.
     profiles = {}
@@ -46,10 +46,21 @@ def package_source(root: Path, destination: Path) -> None:
             profiles[profile["id"]] = profile
     for profile in profiles.values():
         name = profile["template_file"]
-        if not any(f"templates/{prefix}{name}" in paths for prefix in ("local/", "")):
+        if not any(f"templates/{prefix}{name}" in LOCAL_ASSETS for prefix in ("local/", "")):
             raise ValueError(f"Cikti sablonu pakette yok: {name}")
     if profiles["netsis"]["template_file"] != "netsis_template.xls":
         raise ValueError("Normal havale orijinal Netsis XLS sablonunu kullanmali.")
+
+
+def package_source(root: Path, destination: Path) -> None:
+    validate_templates(root)
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=root
+    ).decode("utf-8").split("\0")
+    paths = sorted(set(filter(None, tracked)) | set(LOCAL_ASSETS))
+    for name in paths:
+        if not (root / name).is_file():
+            raise FileNotFoundError(f"Paket dosyasi eksik: {name}")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(destination, "x", zipfile.ZIP_DEFLATED) as archive:

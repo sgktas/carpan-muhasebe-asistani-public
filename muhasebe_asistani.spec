@@ -9,6 +9,13 @@
 # yavaşlıyordu). Dağıtım için dist/MuhasebeAsistani klasörünü zip'leyip
 # kullanıcının Masaüstü/Belgeler gibi yazılabilir bir yere çıkarması yeterli.
 
+from pathlib import Path
+import runpy
+
+# Kaynak ZIP ile aynı kontrol: değiştirilmiş/eksik şablonla EXE üretme.
+_release_root = Path(SPECPATH)
+runpy.run_path(str(_release_root / "scripts" / "package_release.py"))["validate_templates"](_release_root)
+
 block_cipher = None
 
 hiddenimports = ["xlrd", "xlwt"]
