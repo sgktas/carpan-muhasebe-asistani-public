@@ -308,9 +308,12 @@ class ProcessingEngine:
                 )
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
 
-        # Birden fazla banka hareketinin tek tahsilata toplamı tutsa bile
-        # kullanıcı kontrolü olmadan otomatik aktarım yapılmaz. Bu kayıtlar
-        # eşleştirme ekranında toplu onay önerisi olarak ele alınır.
+        # Aynı müşteri/tahsilat adayı için iki ayrı banka hareketi oluşabilir.
+        # Toplam tahsilatla kuruşu kuruşuna tutarsa otomatik aktar; fark varsa
+        # kayıtlar manuel toplu eşleştirme için inceleme ekranında kalır.
+        pending = self._match_combined_bank_movements(
+            pending, outputs, result, output_profile, processor
+        )
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
