@@ -308,13 +308,9 @@ class ProcessingEngine:
                 )
                 result.logs.append(f"  Satır bölge dağılımı: {distribution}")
 
-        # Aynı müşteri/tahsilat adayı için iki ayrı banka hareketi oluşabilir.
-        # Örn. 70.978 + 77.000 TL banka hareketi, tahsilat raporundaki tek
-        # 147.978 TL satırını kapatır. Her iki hareket aynı bölge/bankadaysa ve
-        # aynı TEK tahsilat adayına kuruşu kuruşuna eşitse güvenle birleştir.
-        pending = self._match_combined_bank_movements(
-            pending, outputs, result, output_profile, processor
-        )
+        # Birden fazla banka hareketinin tek tahsilata toplamı tutsa bile
+        # kullanıcı kontrolü olmadan otomatik aktarım yapılmaz. Bu kayıtlar
+        # eşleştirme ekranında toplu onay önerisi olarak ele alınır.
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
