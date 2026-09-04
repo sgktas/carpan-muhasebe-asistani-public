@@ -1,8 +1,55 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import pandas as pd
+
+
+_TURKISH_HEADER_TRANSLATION = str.maketrans(
+    {"Ç": "C", "Ğ": "G", "İ": "I", "Ö": "O", "Ş": "S", "Ü": "U"}
+)
+
+# Banka ve Netsis dışa aktarımlarında aynı alan farklı görünen başlıklarla
+# gelebiliyor. Profildeki anlamı koruyup yalnız yaygın başlık karşılıklarını
+# eşdeğer sayıyoruz; sütun sırasına bağlı tahmin yapılmıyor.
+_HEADER_EQUIVALENCE_GROUPS = (
+    {"TARIH", "ISLEM TARIHI", "ISLEM TARIH SAAT", "ISLEM TARIHI SAATI", "HAREKET TARIHI"},
+    {"ACIKLAMA", "ISLEM ACIKLAMASI", "ISLEM ACIKLAMA", "HAREKET ACIKLAMASI"},
+    {"TUTAR", "ISLEM TUTARI", "HAREKET TUTARI"},
+    {"BAKIYE", "HESAP BAKIYESI", "GUNCEL BAKIYE"},
+    {"BORC", "BORC TUTARI"},
+    {"ALACAK", "ALACAK TUTARI"},
+)
+
+
+def normalize_excel_header(value: object) -> str:
+    text = " ".join(str(value).replace("\n", " ").split()).upper()
+    text = text.translate(_TURKISH_HEADER_TRANSLATION)
+    return " ".join(re.findall(r"[A-Z0-9]+", text))
+
+
+def headers_are_equivalent(actual: object, expected: object) -> bool:
+    actual_key = normalize_excel_header(actual)
+    expected_key = normalize_excel_header(expected)
+    if actual_key == expected_key:
+        return True
+    return any(
+        actual_key in group and expected_key in group
+        for group in _HEADER_EQUIVALENCE_GROUPS
+    )
+
+
+def _canonical_header(actual: object, expected_headers: set[str]) -> str:
+    # Önce birebir normalize edilmiş eşleşmeyi seç; ardından anlam eşdeğerine
+    # düş. Böylece birden fazla profil alanı olduğunda en kesin başlık kazanır.
+    for expected in expected_headers:
+        if normalize_excel_header(actual) == normalize_excel_header(expected):
+            return expected
+    for expected in expected_headers:
+        if headers_are_equivalent(actual, expected):
+            return expected
+    return " ".join(str(actual).replace("\n", " ").split())
 
 
 def read_excel_raw(path: str | Path) -> pd.DataFrame:
@@ -27,8 +74,11 @@ def extract_letterhead_text(path, header_row_index: int | None) -> str:
 
 def find_header_row(raw: pd.DataFrame, expected_headers: set[str], max_scan_rows: int = 40) -> int | None:
     for i in range(min(max_scan_rows, len(raw))):
-        row_values = {str(v).strip() for v in raw.iloc[i].values if pd.notna(v)}
-        if expected_headers.issubset(row_values):
+        row_values = [v for v in raw.iloc[i].values if pd.notna(v)]
+        if all(
+            any(headers_are_equivalent(actual, expected) for actual in row_values)
+            for expected in expected_headers
+        ):
             return i
     return None
 
@@ -52,5 +102,8 @@ def read_excel_with_auto_header(path, expected_headers: set[str], max_scan_rows:
         return raw.iloc[1:].reset_index(drop=True)
 
     dataframe = raw.iloc[header_row_index + 1:].reset_index(drop=True)
-    dataframe.columns = [str(c).strip() for c in raw.iloc[header_row_index]]
+    dataframe.columns = [
+        _canonical_header(column, expected_headers)
+        for column in raw.iloc[header_row_index]
+    ]
     return dataframe

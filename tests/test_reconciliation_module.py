@@ -1,4 +1,5 @@
 import pandas as pd
+from openpyxl import load_workbook
 
 from app.core.bank_statement_parser import BankStatementParser
 from app.core.netsis_report_parser import NetsisReportParser
@@ -33,6 +34,26 @@ def test_bank_statement_parser_okur(tmp_path):
     assert len(records) == 4
     assert records[0].tutar == 10000.0
     assert records[-1].bakiye == 11285.0
+
+
+def test_manim_islem_tarihi_basligi_banka_ekstresi_olarak_okunur(tmp_path):
+    path = tmp_path / "manim_ekstresi.xlsx"
+    pd.DataFrame([
+        {
+            "Banka": "Ziraat Bankası",
+            "İşlem Tarihi": "03.09.2026 22:21:55",
+            "Açıklama": "Gelen havale",
+            "Tutar": "11.680,10",
+            "Bakiye": "174.025,42",
+        }
+    ]).to_excel(path, index=False)
+
+    records = BankStatementParser(path).load()
+
+    assert len(records) == 1
+    assert records[0].tarih.strftime("%d.%m.%Y %H:%M:%S") == "03.09.2026 22:21:55"
+    assert records[0].tutar == 11680.10
+    assert records[0].bakiye == 174025.42
 
 
 def test_netsis_report_parser_okur(tmp_path):
@@ -126,3 +147,10 @@ def test_ucdan_uca_eksik_kayit_tespit_edilir(tmp_path):
     output_path = tmp_path / "mutabakat_raporu.xlsx"
     ReconciliationReportWriter().write(result, output_path)
     assert output_path.is_file()
+
+    workbook = load_workbook(output_path, data_only=False)
+    assert workbook["Özet"]["B1"].number_format == "#,##0.00"
+    assert workbook["Özet"].column_dimensions["A"].width == 42
+    assert workbook["Sadece Bankada"]["C2"].number_format == "#,##0.00"
+    assert workbook["Sadece Bankada"].column_dimensions["B"].width == 90
+    assert workbook["Sadece Bankada"].freeze_panes == "A2"

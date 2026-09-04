@@ -116,3 +116,21 @@ def test_bos_listeler_bakiyesiz_sonuc_verir():
     assert result.netsis_bakiyesi is None
     assert result.fark is None
     assert result.mutabik is False
+
+
+def test_manim_yeni_kayit_ustteyse_en_guncel_bakiye_tarihten_bulunur():
+    bank = [
+        _bank(datetime(2026, 9, 3, 22, 21), 100.0, 174025.42, 2),
+        _bank(datetime(2026, 9, 3, 6, 23), 200.0, 8880278.72, 3),
+    ]
+    netsis = [
+        _netsis(datetime(2026, 9, 3), 200.0, 173925.42, 2),
+        _netsis(datetime(2026, 9, 3), 100.0, 174025.42, 3),
+    ]
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.banka_bakiyesi == 174025.42
+    assert result.netsis_bakiyesi == 174025.42
+    assert result.fark == 0
+    assert result.mutabik is True

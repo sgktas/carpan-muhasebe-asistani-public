@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date as _date_cls
+from datetime import datetime as _datetime_cls
 from itertools import combinations
 import re
 
 from app.models.records import BankStatementRecord, NetsisReportRecord
 
-_MIN_DATE = _date_cls.min
+_MIN_DATE = _datetime_cls.min
 AMOUNT_TOLERANCE_CENTS = 0  # kuruşuna kadar tutmalı; tolerans gerçek hataları gizler
 MAX_SUBSET_SEARCH_CANDIDATES = 20  # asiri kombinasyon aramasini onler (subeli_matcher ile ayni sinir)
 
@@ -62,9 +62,10 @@ class ReconciliationEngine:
        TEK bir kombinasyon tutarlıysa eşleştirilir; birden fazla olası
        kombinasyon varsa belirsizlik riski nedeniyle eşleştirilmez.
 
-    Bakiye karşılaştırması, her iki dosyanın da SATIR SIRASINA göre en son
-    kaydındaki kümülatif bakiye değeri üzerinden yapılır (dosyalar zaten
-    kronolojik sırada geldiği varsayılır).
+    Bakiye karşılaştırması tarih/saat bakımından en yeni kaydın kümülatif
+    bakiyesi üzerinden yapılır. Bazı MANİM raporları en yeni hareketi üstte
+    verdiği için yalnız dosyadaki son satıra güvenilmez. Aynı tarih/saatteki
+    kayıtlarda dosya sırası korunur.
     """
 
     ROUNDING = 2
@@ -113,8 +114,8 @@ class ReconciliationEngine:
         sadece_bankada.sort(key=lambda r: (r.tarih or _MIN_DATE, r.kaynak_satir))
         sadece_netposte.sort(key=lambda r: (r.tarih or _MIN_DATE, r.kaynak_satir))
 
-        banka_bakiyesi = bank_records[-1].bakiye if bank_records else None
-        netsis_bakiyesi = netsis_records[-1].bakiye if netsis_records else None
+        banka_bakiyesi = self._closing_balance(bank_records)
+        netsis_bakiyesi = self._closing_balance(netsis_records)
 
         fark = None
         mutabik = False
@@ -132,6 +133,16 @@ class ReconciliationEngine:
             sadece_bankada=sadece_bankada,
             sadece_netposte=sadece_netposte,
         )
+
+    @staticmethod
+    def _closing_balance(records: list) -> float | None:
+        if not records:
+            return None
+        _, closing_record = max(
+            enumerate(records),
+            key=lambda item: (item[1].tarih or _MIN_DATE, item[0]),
+        )
+        return closing_record.bakiye
 
     # ------------------------------------------------------------------ #
     # 2. asama: aciklama bazli (onemli kelime ortusmesi) eslestirme

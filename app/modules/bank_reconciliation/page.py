@@ -420,8 +420,13 @@ class BankReconciliationPage(QWidget):
             self.log.append(f"Durum: {durum}")
 
             devir_bakiyesi = None
-            if bank_records and bank_records[0].bakiye is not None:
-                devir_bakiyesi = round(bank_records[0].bakiye - bank_records[0].tutar, 2)
+            if bank_records:
+                _, first_record = min(
+                    enumerate(bank_records),
+                    key=lambda item: (item[1].tarih or datetime.max, item[0]),
+                )
+                if first_record.bakiye is not None:
+                    devir_bakiyesi = round(first_record.bakiye - first_record.tutar, 2)
             self.log.append(
                 f"Önceki aydan devreden bakiye: {devir_bakiyesi:,.2f} TL" if devir_bakiyesi is not None
                 else "Önceki aydan devreden bakiye bulunamadı"

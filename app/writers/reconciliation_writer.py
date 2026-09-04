@@ -63,10 +63,12 @@ class ReconciliationReportWriter:
         for row_index, (label, value) in enumerate(rows, start=1):
             sheet.cell(row=row_index, column=1, value=label).font = Font(bold=True)
             sheet.cell(row=row_index, column=2, value=value)
+        for row_index in range(1, 4):
+            sheet.cell(row=row_index, column=2).number_format = "#,##0.00"
         status_cell = sheet.cell(row=len(rows), column=2)
         status_cell.fill = self.OK_FILL if (result.mutabik and kalan_sayisi == 0) else self.WARN_FILL
-        sheet.column_dimensions["A"].width = 28
-        sheet.column_dimensions["B"].width = 30
+        sheet.column_dimensions["A"].width = 42
+        sheet.column_dimensions["B"].width = 52
 
     def _write_diff_sheet(self, sheet, headers: list[str], rows: list[list]) -> None:
         for col_index, header in enumerate(headers, start=1):
@@ -77,5 +79,11 @@ class ReconciliationReportWriter:
         for row_index, row in enumerate(rows, start=2):
             for col_index, value in enumerate(row, start=1):
                 sheet.cell(row=row_index, column=col_index, value=value)
-        for col_index in range(1, len(headers) + 1):
-            sheet.column_dimensions[chr(64 + col_index)].width = 22
+            sheet.cell(row=row_index, column=1).number_format = "dd.mm.yyyy hh:mm:ss"
+            sheet.cell(row=row_index, column=3).number_format = "#,##0.00"
+        sheet.column_dimensions["A"].width = 22
+        sheet.column_dimensions["B"].width = 90
+        sheet.column_dimensions["C"].width = 18
+        sheet.column_dimensions["D"].width = 28
+        sheet.column_dimensions["E"].width = 14
+        sheet.freeze_panes = "A2"
