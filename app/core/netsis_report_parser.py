@@ -31,6 +31,7 @@ class NetsisReportParser:
 
         h = self._header_for
         uses_borc_alacak = self.profile.uses_borc_alacak()
+        excel_header_row_index = int(dataframe.attrs.get("excel_header_row_index", 0))
         records: list[NetsisReportRecord] = []
         for index, row in dataframe.iterrows():
             tarih = self._date(row[h["tarih"]])
@@ -55,7 +56,7 @@ class NetsisReportParser:
                 tutar=tutar,
                 bakiye=bakiye,
                 kaynak_dosya=self.file_path.name,
-                kaynak_satir=int(index) + 2,
+                kaynak_satir=int(index) + excel_header_row_index + 2,
             ))
         return records
 

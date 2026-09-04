@@ -99,11 +99,14 @@ def read_excel_with_auto_header(path, expected_headers: set[str], max_scan_rows:
         # normal davranışa geri dön — çağıran taraf zaten eksik sütun
         # hatasını üretecek, bu da kullanıcıya daha anlaşılır bir mesaj verir.
         raw.columns = [str(c) for c in raw.iloc[0]]
-        return raw.iloc[1:].reset_index(drop=True)
+        dataframe = raw.iloc[1:].reset_index(drop=True)
+        dataframe.attrs["excel_header_row_index"] = 0
+        return dataframe
 
     dataframe = raw.iloc[header_row_index + 1:].reset_index(drop=True)
     dataframe.columns = [
         _canonical_header(column, expected_headers)
         for column in raw.iloc[header_row_index]
     ]
+    dataframe.attrs["excel_header_row_index"] = header_row_index
     return dataframe

@@ -108,6 +108,8 @@ def test_netsis_report_parser_borc_alacak_ve_devir_satirini_dogru_isler(tmp_path
     assert records[0].tutar == 1000.0  # Borc - Alacak = 1000 - 0
     assert records[1].tutar == -500.0  # Borc - Alacak = 0 - 500
     assert records[-1].bakiye == 5500.0
+    assert records[0].kaynak_satir == 3
+    assert records[1].kaynak_satir == 4
 
 
 def test_ucdan_uca_mutabik_senaryo(tmp_path):
