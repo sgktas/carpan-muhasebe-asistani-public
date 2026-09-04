@@ -185,7 +185,23 @@ class NetsisWriter:
         records: list[NetsisRecord],
         output_path: str | Path,
     ) -> Path:
-        template_path = self._validate_template()
+        source_template = self._validate_template()
+        # Excel bazı eski BIFF8 dosyalarını SaveCopyAs/Close(false) akışında
+        # dahi bileşik dosya düzeyinde değiştirebiliyor. Onaylı kaynak şablonu
+        # Excel'e hiç açtırma; bütün işlemleri geçici birebir kopyada yap.
+        with tempfile.TemporaryDirectory(prefix="carpan_netsis_template_") as temp_dir:
+            working_template = Path(temp_dir) / source_template.name
+            shutil.copy2(source_template, working_template)
+            return self._write_with_microsoft_excel_working_copy(
+                records, output_path, working_template
+            )
+
+    def _write_with_microsoft_excel_working_copy(
+        self,
+        records: list[NetsisRecord],
+        output_path: str | Path,
+        template_path: Path,
+    ) -> Path:
         output_path = self._prepare_output_path(output_path)
         headers = self.profile.headers()
         last_column_letter = self._excel_column_letter(len(headers) - 1)
@@ -400,6 +416,8 @@ class NetsisWriter:
 
         with tempfile.TemporaryDirectory(prefix="carpan_netsis_") as temp_dir:
             temp_dir_path = Path(temp_dir)
+            working_template_path = temp_dir_path / template_path.name
+            shutil.copy2(template_path, working_template_path)
             data_path = temp_dir_path / "netsis_data.json"
             script_path = temp_dir_path / "save_netsis_excel.ps1"
             data_path.write_text(
@@ -418,7 +436,7 @@ class NetsisWriter:
                 "-File",
                 str(script_path),
                 "-TemplatePath",
-                str(template_path),
+                str(working_template_path),
                 "-OutputPath",
                 str(output_path),
                 "-DataPath",

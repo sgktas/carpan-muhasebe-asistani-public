@@ -27,6 +27,28 @@ def _open(path):
     return xlrd.open_workbook(path, formatting_info=True)
 
 
+def test_excel_yazicisi_onayli_kaynak_sablonu_gecici_kopyada_korur(tmp_path, monkeypatch):
+    template = tmp_path / "approved_template.xls"
+    template.write_bytes(b"approved original bytes")
+    writer = NetsisWriter(template_path=template)
+    captured = {}
+
+    def fake_working_copy(_records, output_path, working_template):
+        captured["working_template"] = working_template
+        assert working_template != template
+        assert working_template.read_bytes() == template.read_bytes()
+        working_template.write_bytes(b"excel changed working copy")
+        output = Path(output_path)
+        output.write_bytes(b"output")
+        return output
+
+    monkeypatch.setattr(writer, "_write_with_microsoft_excel_working_copy", fake_working_copy)
+    writer._write_with_microsoft_excel([], tmp_path / "output.xls")
+
+    assert template.read_bytes() == b"approved original bytes"
+    assert not captured["working_template"].exists()
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows production writer")
 def test_kaynak_paket_sablonsuzsa_sessizce_genel_excel_uretmez(tmp_path, monkeypatch):
     monkeypatch.delenv("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG", raising=False)

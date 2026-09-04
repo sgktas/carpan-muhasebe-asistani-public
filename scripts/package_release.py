@@ -19,7 +19,7 @@ LOCAL_ASSETS = (
     "config/local/template_checksums.json",
     "templates/local/netsis_template.xls",
     "templates/local/netsis_template.xlsx",
-    "templates/local/netsis_toplu_template.xlsx",
+    "templates/local/netsis_toplu_template.xls",
     "templates/local/report_editing/collections_template.xls",
     "templates/local/report_editing/sales_template.xls",
 )
