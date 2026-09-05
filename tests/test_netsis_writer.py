@@ -6,7 +6,7 @@ from pathlib import Path
 import xlrd
 import pytest
 
-from app.core.output_profile import OutputProfile
+from app.core.output_profile import OutputProfile, OutputProfileStore
 from app.models.records import NetsisRecord
 from app.writers.netsis_writer import NetsisWriter, _default_template_path
 
@@ -308,3 +308,32 @@ def test_orijinal_xls_sablonuna_hucre_hucre_yazilir(tmp_path):
     assert worksheet.cells[(2, 1)].Value2 == "C001"
     assert worksheet.cells[(2, 2)].Value2 == 1250.0
     assert worksheet.cells[(3, 1)].Value2 == "C002"
+
+
+def test_toplu_banka_kodu_sablon_biciminde_kalir():
+    profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get("netsis_toplu")
+    columns = list(profile.columns)
+    bank_column = columns[0]
+    columns[0] = type(bank_column)(
+        header=bank_column.header,
+        width=bank_column.width,
+        style=bank_column.style,
+        source_kind=bank_column.source_kind,
+        field=bank_column.field,
+        value=bank_column.value,
+        force_text=True,
+    )
+    defensive_profile = OutputProfile(
+        profile_id=profile.profile_id,
+        name=profile.name,
+        description=profile.description,
+        template_file=profile.template_file,
+        columns=tuple(columns),
+        category=profile.category,
+        grouping=profile.grouping,
+    )
+
+    force_text_columns = NetsisWriter(profile=defensive_profile)._force_text_column_indexes()
+
+    assert 0 not in force_text_columns
+    assert 7 in force_text_columns

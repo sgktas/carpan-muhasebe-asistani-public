@@ -180,6 +180,24 @@ class NetsisWriter:
             letters = chr(65 + remainder) + letters
         return letters
 
+    def _force_text_column_indexes(self) -> list[int]:
+        """Metin biçimi uygulanacak sütunları döndürür.
+
+        Onaylı toplu Netsis şablonunda ``Banka Hes.Kodu(*)`` hücreleri
+        metin (``@``) değil, şablonun kendi ``0.00`` biçimindedir. Bu
+        sütuna profil ayarından yanlışlıkla ``force_text`` verilse bile
+        şablon biçimini bozma; Netsis metin biçimli BM kodlarını geçersiz
+        banka kodu olarak işaretleyebiliyor.
+        """
+        indexes = self.profile.column_index(force_text=True)
+        if self.profile.profile_id != "netsis_toplu":
+            return indexes
+        return [
+            index
+            for index in indexes
+            if self.profile.columns[index].field != "banka_hesap_kodu"
+        ]
+
     def _write_with_microsoft_excel(
         self,
         records: list[NetsisRecord],
@@ -243,7 +261,7 @@ class NetsisWriter:
                 # biçim dizeleri kurulu Office diline bağlı olduğundan önce
                 # Türkçe yerel biçim, ardından invariant biçim denenir. Biçim
                 # ataması veri üretimini tek başına durdurmaz.
-                for start, end in self._contiguous_ranges(self.profile.column_index(force_text=True)):
+                for start, end in self._contiguous_ranges(self._force_text_column_indexes()):
                     range_str = f"{self._excel_column_letter(start)}2:{self._excel_column_letter(end)}{last_row}"
                     try:
                         worksheet.Range(range_str).NumberFormat = "@"
@@ -393,7 +411,7 @@ class NetsisWriter:
         amount_columns = self.profile.column_index(style="amount")
         double_columns = self.profile.column_index(style="integer")
         string_columns = sorted(set(
-            self.profile.column_index(force_text=True)
+            self._force_text_column_indexes()
             + [
                 i for i, column in enumerate(self.profile.columns)
                 if column.source_kind == "const" and isinstance(column.value, str)
