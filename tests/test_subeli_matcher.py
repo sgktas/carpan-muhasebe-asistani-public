@@ -145,6 +145,41 @@ def test_zincir_odemesi_fazlaysa_tum_vkn_subeleri_manuel_oneriye_gelir(tmp_path)
     }
 
 
+def test_tutar_farkinda_manuel_oneri_yalniz_islem_bolgesinden_gelir(tmp_path):
+    """Aynı VKN Fethiye ve Marmaris'te olsa da Fethiye kontrol ekranına
+    yalnız Fethiye tahsilatları gelmelidir."""
+    from app.models.records import CustomerRecord
+
+    customers = [
+        CustomerRecord("F-1", "ORNEK ZINCIR GIDA", "1000000001", "SIMSEK-FETHIYE", "ORTACA 1"),
+        CustomerRecord("F-2", "ORNEK ZINCIR GIDA", "1000000001", "SIMSEK-FETHIYE", "DALAMAN 1"),
+        CustomerRecord("M-1", "ORNEK ZINCIR GIDA MUGLA", "1000000001", "SIMSEK-MARMARIS", "MUGLA 1"),
+    ]
+    tahsilat = [
+        TahsilatRecord("F-1", "ORTACA 1", None, 100.00),
+        TahsilatRecord("F-2", "DALAMAN 1", None, 200.00),
+        TahsilatRecord("M-1", "MUGLA 1", None, 150.00),
+    ]
+    matcher = SubeliMatcher(
+        tahsilat,
+        customers,
+        MappingStore(tmp_path / "regional_manual_candidates.json"),
+        region_branch_aliases={"FETHIYE": ("FETHIYE",), "MUGLA": ("MARMARIS", "MUGLA")},
+    )
+
+    result = matcher.match(
+        _manim("HESAPTAN HESABA ORNEK ZINCIR 1000000001", 299.85),
+        "FETHIYE",
+    )
+
+    assert result is None
+    assert {(row.musteri_kodu, row.tutar) for row in matcher.last_candidate_rows} == {
+        ("F-1", 100.00),
+        ("F-2", 200.00),
+    }
+    assert "tahsilat 300.00 TL" in matcher.last_failure_reason
+
+
 def test_zincir_genel_kelime_alakasiz_musterileri_getirmez(tmp_path):
     """'TURZ' gibi onlarca şirkette geçen genel bir kelime zincir belirteci
     sayılmamalı; aksi halde alakasız şirketler yanlışlıkla havuza girer."""

@@ -110,7 +110,16 @@ class SubeliMatcher:
                 chain_match = self._match_via_tabela_chain(record, global_tax_groups)
                 if chain_match:
                     return chain_match
-                self._set_amount_mismatch_reason(record, global_tax_groups)
+                # Otomatik, tekil ve tam tutan zincir eşleşmesi bulunamadığında
+                # manuel ekrana yalnız işlem bölgesinin tahsilatlarını öner.
+                # Aynı VKN'nin başka bölgelerdeki şubelerini burada yeniden
+                # eklemek, Fethiye kaydında Marmaris tutarlarını da göstererek
+                # bölgesel hedef toplamını yanlış büyütüyordu.
+                self._set_amount_mismatch_reason(
+                    record,
+                    tax_groups,
+                    fallback_groups=global_tax_groups,
+                )
                 return None
 
             self.last_failure_reason = (
@@ -360,15 +369,39 @@ class SubeliMatcher:
         self,
         record: ManimRecord,
         groups: list[list[CustomerRecord]],
+        fallback_groups: list[list[CustomerRecord]] | None = None,
     ) -> None:
-        candidate_rows: list[TahsilatRecord] = []
-        seen: set[int] = set()
-        for group in groups:
-            for row in self._tahsilat_rows_for_customers(group):
-                marker = id(row)
-                if marker not in seen:
-                    seen.add(marker)
-                    candidate_rows.append(row)
+        def rows_for(candidate_groups: list[list[CustomerRecord]]) -> list[TahsilatRecord]:
+            rows: list[TahsilatRecord] = []
+            seen: set[int] = set()
+            for group in candidate_groups:
+                for row in self._tahsilat_rows_for_customers(group):
+                    marker = id(row)
+                    if marker not in seen:
+                        seen.add(marker)
+                        rows.append(row)
+            dated = self._same_date_rows(rows, record)
+            return dated or rows
+
+        regional_rows = rows_for(groups)
+        candidate_pools = [regional_rows] if regional_rows else []
+        if fallback_groups:
+            global_rows = rows_for(fallback_groups)
+            if global_rows and self._rows_signature(global_rows) != self._rows_signature(regional_rows):
+                candidate_pools.append(global_rows)
+
+        # Manuel ekrana hedef banka tutarına en yakın tahsilat havuzunu ver.
+        # Bölgesel toplam zaten hedefe yakınsa diğer bölgeler eklenmez; ancak
+        # önceki MEYUS senaryosundaki gibi global zincir havuzu gerçekten daha
+        # yakınsa kullanıcıya geniş aday listesi gösterilmeye devam eder.
+        candidate_rows = min(
+            candidate_pools,
+            key=lambda rows: abs(
+                self._to_cents(record.tutar)
+                - sum(self._to_cents(row.tutar) for row in rows)
+            ),
+            default=[],
+        )
 
         if not candidate_rows:
             self.last_failure_reason = (
@@ -377,10 +410,8 @@ class SubeliMatcher:
             )
             return
 
-        dated_rows = self._same_date_rows(candidate_rows, record)
-        pool = dated_rows or candidate_rows
-        self.last_candidate_rows = list(pool)
-        candidate_total = sum(float(row.tutar) for row in pool)
+        self.last_candidate_rows = list(candidate_rows)
+        candidate_total = sum(float(row.tutar) for row in candidate_rows)
         difference = round(float(record.tutar) - candidate_total, 2)
         self.last_failure_reason = (
             "Vergi/T.C. numarası ve müşteri şubeleri bulundu ancak tutarlar mutabık değil: "
