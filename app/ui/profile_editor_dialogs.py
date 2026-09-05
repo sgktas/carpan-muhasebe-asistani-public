@@ -531,7 +531,9 @@ class OutputProfileEditorDialog(QDialog):
         if self._selected_template_source:
             self.templates_dir.mkdir(parents=True, exist_ok=True)
             template_file = f"{profile_id}_template{self._selected_template_source.suffix}"
-            shutil.copy2(self._selected_template_source, self.templates_dir / template_file)
+            destination = self.templates_dir / template_file
+            shutil.copy2(self._selected_template_source, destination)
+            template_file = str(destination.resolve())
 
         target_path.write_text(
             json.dumps(

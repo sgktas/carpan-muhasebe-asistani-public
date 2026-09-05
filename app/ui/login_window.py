@@ -60,7 +60,7 @@ class LoginWindow(QWidget):
         card_layout.addWidget(logo_label)
         card_layout.addSpacing(12)
 
-        eyebrow = QLabel("MASAÜSTÜ OPERASYON UYGULAMASI")
+        eyebrow = QLabel("YEREL MASAÜSTÜ OPERASYON UYGULAMASI")
         eyebrow.setObjectName("loginEyebrow")
         eyebrow.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(eyebrow)
@@ -72,14 +72,16 @@ class LoginWindow(QWidget):
         card_layout.addWidget(title)
         card_layout.addSpacing(6)
 
-        subtitle = QLabel("Aktarım ve muhasebe operasyonlarınızı güvenle yönetin.")
+        subtitle = QLabel(
+            "İşlem geçmişinde görünecek kullanıcı adıyla yerel çalışma alanını açın."
+        )
         subtitle.setObjectName("loginSubtitle")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setWordWrap(True)
         card_layout.addWidget(subtitle)
         card_layout.addSpacing(30)
 
-        user_label = QLabel("Kullanıcı adı")
+        user_label = QLabel("İşlem yapan kullanıcı")
         user_label.setProperty("class", "fieldLabel")
         card_layout.addWidget(user_label)
         card_layout.addSpacing(6)
@@ -89,26 +91,17 @@ class LoginWindow(QWidget):
         card_layout.addWidget(self.username_input)
         card_layout.addSpacing(16)
 
-        password_label = QLabel("Parola")
-        password_label.setProperty("class", "fieldLabel")
-        card_layout.addWidget(password_label)
-        card_layout.addSpacing(6)
-
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setPlaceholderText("İsteğe bağlı")
-        self.password_input.returnPressed.connect(self._try_login)
-        card_layout.addWidget(self.password_input)
+        self.username_input.returnPressed.connect(self._try_login)
         card_layout.addSpacing(24)
 
-        login_button = QPushButton("Giriş yap")
+        login_button = QPushButton("Çalışma alanını aç")
         login_button.setObjectName("loginButton")
         login_button.setCursor(Qt.PointingHandCursor)
         login_button.clicked.connect(self._try_login)
         card_layout.addWidget(login_button)
         card_layout.addSpacing(24)
 
-        version = QLabel("v1.0 · Çarpan Muhasebe Asistanı")
+        version = QLabel("Çarpan Muhasebe Asistanı · Yerel çalışma")
         version.setObjectName("versionLabel")
         version.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(version)

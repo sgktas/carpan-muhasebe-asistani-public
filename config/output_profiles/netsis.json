@@ -4,6 +4,7 @@
   "name": "Netsis (Logo)",
   "description": "Netsis'in 27 sütunluk havale aktarım şablonu.",
   "category": "havale",
+  "protected": true,
   "grouping": "region_bank",
   "template_file": "netsis_template.xls",
   "columns": [

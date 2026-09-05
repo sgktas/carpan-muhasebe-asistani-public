@@ -7,7 +7,7 @@ def test_requirements_installs_pywin32_only_on_windows():
     requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(
         encoding="utf-8"
     )
-    assert 'pywin32; sys_platform == "win32"' in requirements
+    assert 'pywin32==312; sys_platform == "win32"' in requirements
 
 
 def test_powershell_fallback_uses_local_number_formats_and_oa_dates():

@@ -51,16 +51,19 @@ class InputProfile:
 class InputProfileStore:
     """``config/input_profiles/`` klasöründeki profil dosyalarını yönetir."""
 
-    def __init__(self, config_dir: Path):
+    def __init__(self, config_dir: Path, user_config_dir: Path | None = None):
         self._dir = config_dir / "input_profiles"
+        self._user_dir = Path(user_config_dir) / "input_profiles" if user_config_dir else None
 
     def list_profiles(self) -> list[InputProfile]:
-        if not self._dir.is_dir():
-            return []
-        return [
-            InputProfile.from_json(path)
-            for path in sorted(self._dir.glob("*.json"))
-        ]
+        profiles: dict[str, InputProfile] = {}
+        for directory in (self._dir, self._user_dir):
+            if directory is None or not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*.json")):
+                profile = InputProfile.from_json(path)
+                profiles[profile.profile_id] = profile
+        return [profiles[key] for key in sorted(profiles)]
 
     def get(self, profile_id: str) -> InputProfile:
         for profile in self.list_profiles():

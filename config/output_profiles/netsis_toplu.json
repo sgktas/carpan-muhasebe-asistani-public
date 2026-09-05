@@ -4,6 +4,7 @@
   "name": "Netsis — Toplu Banka Kodlu Havale",
   "description": "Her bölge için tek dosya üretir; Garanti, Yapı Kredi ve Ziraat satırları kendi BM kodlarıyla aynı dosyada yer alır.",
   "category": "havale",
+  "protected": true,
   "grouping": "region",
   "template_file": "netsis_toplu_template.xls",
   "columns": [

@@ -27,7 +27,8 @@ class MainWindow(QWidget):
         super().__init__()
         self.username = username
         self.history = OperationHistory(
-            APP_PATHS.state_dir / "operations.sqlite3"
+            APP_PATHS.state_dir / "operations.sqlite3",
+            actor=username,
         )
         all_modules = build_module_registry(self.history)
         entitlements = local_development_entitlements(

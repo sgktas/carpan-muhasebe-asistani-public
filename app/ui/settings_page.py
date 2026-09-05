@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -17,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from app.core.active_profile_store import ActiveProfileStore
 from app.core.app_paths import APP_PATHS
+from app.core.backup_service import BackupError, create_local_backup
 from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
 from app.core.output_location import OutputLocationStore, resolve_output_dir
@@ -35,9 +39,13 @@ class SettingsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
-        self._input_profile_store = InputProfileStore(APP_PATHS.config_dir)
-        self._output_profile_store = OutputProfileStore(APP_PATHS.config_dir)
-        self._customer_list_profile_store = CustomerListProfileStore(APP_PATHS.config_dir)
+        self._user_config_dir = APP_PATHS.data_root / "config"
+        self._user_templates_dir = APP_PATHS.data_root / "templates"
+        self._input_profile_store = InputProfileStore(APP_PATHS.config_dir, self._user_config_dir)
+        self._output_profile_store = OutputProfileStore(APP_PATHS.config_dir, self._user_config_dir)
+        self._customer_list_profile_store = CustomerListProfileStore(
+            APP_PATHS.config_dir, self._user_config_dir
+        )
         self._output_location_store = OutputLocationStore(APP_PATHS.data_root)
         self._region_store = RegionConfigStore(
             active_region_config_path(APP_PATHS.config_dir, APP_PATHS.data_root)
@@ -71,6 +79,11 @@ class SettingsPage(QWidget):
         button.clicked.connect(callback)
         layout.addWidget(button)
         return frame
+
+    @staticmethod
+    def _open_directory(path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _output_folder_row(self) -> QFrame:
         frame = QFrame()
@@ -119,6 +132,30 @@ class SettingsPage(QWidget):
     def _reset_output_folder(self) -> None:
         self._output_location_store.clear_override()
         self._output_value_label.setText(str(resolve_output_dir(APP_PATHS)))
+
+    def _create_backup(self) -> None:
+        default_name = f"carpan-muhasebe-yedek-{datetime.now():%Y%m%d-%H%M}.zip"
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Yerel veri yedeğini kaydet",
+            str(Path.home() / "Documents" / default_name),
+            "ZIP arşivi (*.zip)",
+        )
+        if not selected:
+            return
+        destination = Path(selected)
+        if destination.suffix.casefold() != ".zip":
+            destination = destination.with_suffix(".zip")
+        try:
+            created = create_local_backup(APP_PATHS.data_root, destination)
+        except BackupError as error:
+            QMessageBox.critical(self, "Yedek oluşturulamadı", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Yedek oluşturuldu",
+            f"Yerel ayarlar, eşleştirme hafızası ve işlem geçmişi yedeklendi.\n\n{created}",
+        )
 
     def _region_management_card(self) -> QFrame:
         card = QFrame()
@@ -216,7 +253,7 @@ class SettingsPage(QWidget):
         open_folder_button = QPushButton("Profil klasörünü aç")
         open_folder_button.setObjectName("secondary")
         open_folder_button.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder_path)))
+            lambda: self._open_directory(Path(folder_path))
         )
         button_col.addWidget(edit_button)
         button_col.addWidget(new_button)
@@ -228,9 +265,17 @@ class SettingsPage(QWidget):
             if index < 0 or index >= len(profiles):
                 return
             description_label.setText(profiles[index].description)
+            protected = kind == "output" and bool(getattr(profiles[index], "protected", False))
+            edit_button.setEnabled(not protected)
+            edit_button.setText("Onaylı profil • Kilitli" if protected else "Düzenle")
+            edit_button.setToolTip(
+                "Onaylı Netsis profilleri değiştirilemez. Farklı bir şablon için yeni profil ekleyin."
+                if protected else ""
+            )
             on_change(combo.itemData(index))
 
         combo.currentIndexChanged.connect(_handle_change)
+        _handle_change(active_index if profiles else -1)
         return frame
 
     def _open_editor(self, kind: str, edit: bool, combo: QComboBox, profiles_ref: list) -> None:
@@ -240,15 +285,23 @@ class SettingsPage(QWidget):
                 return
             index = combo.currentIndex()
             selected_profile = profiles_ref[index] if 0 <= index < len(profiles_ref) else None
+            if kind == "output" and bool(getattr(selected_profile, "protected", False)):
+                QMessageBox.information(
+                    self,
+                    "Onaylı profil kilitli",
+                    "Bu profil onaylı Netsis şablonuna bağlıdır ve değiştirilemez. "
+                    "Farklı bir şablon için Yeni Profil Ekle'yi kullanın.",
+                )
+                return
 
         if kind == "input":
-            dialog = InputProfileEditorDialog(APP_PATHS.config_dir, selected_profile, self)
+            dialog = InputProfileEditorDialog(self._user_config_dir, selected_profile, self)
         elif kind == "output":
             dialog = OutputProfileEditorDialog(
-                APP_PATHS.config_dir, APP_PATHS.templates_dir, selected_profile, self
+                self._user_config_dir, self._user_templates_dir, selected_profile, self
             )
         elif kind == "customer_list":
-            dialog = CustomerListProfileEditorDialog(APP_PATHS.config_dir, selected_profile, self)
+            dialog = CustomerListProfileEditorDialog(self._user_config_dir, selected_profile, self)
         else:
             return
 
@@ -280,7 +333,7 @@ class SettingsPage(QWidget):
                 input_profiles,
                 self._active_profiles.get_input_profile_id(),
                 self._active_profiles.set_input_profile_id,
-                APP_PATHS.config_dir / "input_profiles",
+                self._user_config_dir / "input_profiles",
                 kind="input",
             ),
             self._profile_row(
@@ -288,7 +341,7 @@ class SettingsPage(QWidget):
                 output_profiles,
                 self._active_profiles.get_output_profile_id(),
                 self._active_profiles.set_output_profile_id,
-                APP_PATHS.config_dir / "output_profiles",
+                self._user_config_dir / "output_profiles",
                 kind="output",
             ),
             self._profile_row(
@@ -296,7 +349,7 @@ class SettingsPage(QWidget):
                 customer_list_profiles,
                 self._active_profiles.get_customer_list_profile_id(),
                 self._active_profiles.set_customer_list_profile_id,
-                APP_PATHS.config_dir / "customer_list_profiles",
+                self._user_config_dir / "customer_list_profiles",
                 kind="customer_list",
             ),
         ]
@@ -354,6 +407,28 @@ class SettingsPage(QWidget):
                 ),
             )
         )
+
+        backup_row = QFrame()
+        backup_row.setObjectName("settingsRow")
+        backup_layout = QHBoxLayout(backup_row)
+        backup_layout.setContentsMargins(16, 13, 16, 13)
+        backup_text = QVBoxLayout()
+        backup_title = QLabel("Yerel veri yedeği")
+        backup_title.setObjectName("miniInfoTitle")
+        backup_description = QLabel(
+            "Eşleştirme hafızasını, işlem geçmişini, bölge ayarlarını ve kullanıcı profillerini "
+            "tek bir ZIP dosyasında saklar. Çıktı Excel dosyaları ve günlükler yedeğe alınmaz."
+        )
+        backup_description.setObjectName("miniInfoText")
+        backup_description.setWordWrap(True)
+        backup_text.addWidget(backup_title)
+        backup_text.addWidget(backup_description)
+        backup_button = QPushButton("Yedek oluştur...")
+        backup_button.setObjectName("secondary")
+        backup_button.clicked.connect(self._create_backup)
+        backup_layout.addLayout(backup_text, 1)
+        backup_layout.addWidget(backup_button)
+        card_layout.addWidget(backup_row)
         layout.addWidget(card)
 
         layout.addWidget(self._region_management_card())

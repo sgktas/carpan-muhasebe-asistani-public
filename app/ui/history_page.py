@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -73,6 +75,12 @@ class HistoryPage(QWidget):
         refresh_button.clicked.connect(self.refresh)
         header.addWidget(refresh_button)
 
+        self.detail_button = QPushButton("Ayrıntıları göster")
+        self.detail_button.setObjectName("secondary")
+        self.detail_button.setEnabled(False)
+        self.detail_button.clicked.connect(self.show_selected_details)
+        header.addWidget(self.detail_button)
+
         self.open_button = QPushButton("Çıktı klasörünü aç")
         self.open_button.setObjectName("primary")
         self.open_button.setEnabled(False)
@@ -80,10 +88,10 @@ class HistoryPage(QWidget):
         header.addWidget(self.open_button)
         card_layout.addLayout(header)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setObjectName("historyTable")
         self.table.setHorizontalHeaderLabels(
-            ["Tarih", "Modül", "Durum", "Girdi", "Çıktı", "Özet"]
+            ["Tarih", "Kullanıcı", "Modül", "Durum", "Girdi", "Çıktı", "Özet"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -92,10 +100,11 @@ class HistoryPage(QWidget):
         self.table.itemSelectionChanged.connect(self._update_actions)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 150)
-        self.table.setColumnWidth(1, 155)
-        self.table.setColumnWidth(2, 90)
-        self.table.setColumnWidth(3, 70)
+        self.table.setColumnWidth(1, 110)
+        self.table.setColumnWidth(2, 155)
+        self.table.setColumnWidth(3, 90)
         self.table.setColumnWidth(4, 70)
+        self.table.setColumnWidth(5, 70)
         card_layout.addWidget(self.table, 1)
 
         layout.addWidget(card, 1)
@@ -117,6 +126,7 @@ class HistoryPage(QWidget):
             "PARTIAL": "Kısmi",
             "FAILED": "Hatalı",
             "RUNNING": "Devam ediyor",
+            "INTERRUPTED": "Yarım kaldı",
         }.get(status, status)
 
     @staticmethod
@@ -148,6 +158,7 @@ class HistoryPage(QWidget):
         for row_index, record in enumerate(self._records):
             values = [
                 self._display_date(record.started_at),
+                record.actor or "-",
                 record.module_name,
                 self._status_text(record.status),
                 str(len(record.input_files)),
@@ -156,7 +167,7 @@ class HistoryPage(QWidget):
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if column in (2, 3, 4):
+                if column in (3, 4, 5):
                     item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_index, column, item)
         self._update_actions()
@@ -168,6 +179,48 @@ class HistoryPage(QWidget):
             and bool(self._records[row].output_files)
         )
         self.open_button.setEnabled(enabled)
+        self.detail_button.setEnabled(0 <= row < len(self._records))
+
+    def show_selected_details(self) -> None:
+        row = self.table.currentRow()
+        if not (0 <= row < len(self._records)):
+            return
+        record = self._records[row]
+        events = self.history.events(record.id)
+        lines = [
+            f"İşlem #{record.id}",
+            f"Kullanıcı: {record.actor or '-'}",
+            f"Modül: {record.module_name}",
+            f"Durum: {self._status_text(record.status)}",
+            "",
+            "Girdiler:",
+            *[f"  • {path}" for path in record.input_files],
+            "",
+            "Çıktılar:",
+            *([f"  • {path}" for path in record.output_files] or ["  • -"]),
+            "",
+            "Olay günlüğü:",
+            *[
+                f"  • {self._display_date(event.created_at)} [{event.level}] "
+                f"{event.code}: {event.message}"
+                for event in events
+            ],
+        ]
+        if record.error_message:
+            lines.extend(["", f"Hata: {record.error_message}"])
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"İşlem ayrıntıları • #{record.id}")
+        dialog.resize(820, 560)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText("\n".join(lines))
+        layout.addWidget(text)
+        close_button = QPushButton("Kapat")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        dialog.exec()
 
     def open_selected_output(self) -> None:
         row = self.table.currentRow()

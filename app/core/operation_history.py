@@ -13,6 +13,7 @@ class OperationRecord:
     id: int
     module_id: str
     module_name: str
+    actor: str
     status: str
     started_at: str
     completed_at: str | None
@@ -20,6 +21,17 @@ class OperationRecord:
     output_files: list[str]
     summary: dict
     error_message: str | None
+
+
+@dataclass(frozen=True)
+class OperationEvent:
+    id: int
+    operation_id: int
+    created_at: str
+    level: str
+    code: str
+    message: str
+    details: dict
 
 
 class OperationHistory:
@@ -30,8 +42,9 @@ class OperationHistory:
     kayıt bırakır.
     """
 
-    def __init__(self, database_path: str | Path):
+    def __init__(self, database_path: str | Path, actor: str = ""):
         self.database_path = Path(database_path)
+        self.actor = str(actor).strip()
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -57,6 +70,47 @@ class OperationHistory:
                     error_message TEXT
                 )
                 """
+            )
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(operations)").fetchall()
+            }
+            if "actor" not in columns:
+                connection.execute(
+                    "ALTER TABLE operations ADD COLUMN actor TEXT NOT NULL DEFAULT ''"
+                )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS operation_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(operation_id) REFERENCES operations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_operation_events_operation
+                ON operation_events(operation_id, id)
+                """
+            )
+            # Uygulama elektrik kesintisi veya zorla kapatma nedeniyle yarım
+            # kaldıysa eski RUNNING kayıtları sonsuza kadar devam ediyor
+            # görünmesin.
+            now = self._now()
+            connection.execute(
+                """
+                UPDATE operations
+                SET status = 'INTERRUPTED', completed_at = ?,
+                    error_message = COALESCE(error_message, 'Uygulama beklenmeden kapandı.')
+                WHERE status = 'RUNNING'
+                """,
+                (now,),
             )
             connection.execute(
                 """
@@ -86,17 +140,27 @@ class OperationHistory:
             cursor = connection.execute(
                 """
                 INSERT INTO operations (
-                    module_id, module_name, status, started_at, input_files_json
-                ) VALUES (?, ?, 'RUNNING', ?, ?)
+                    module_id, module_name, actor, status, started_at, input_files_json
+                ) VALUES (?, ?, ?, 'RUNNING', ?, ?)
                 """,
                 (
                     module_id,
                     module_name,
+                    self.actor,
                     self._now(),
                     json.dumps(inputs, ensure_ascii=False),
                 ),
             )
-            return int(cursor.lastrowid)
+            operation_id = int(cursor.lastrowid)
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, 'INFO', 'OPERATION_STARTED', 'İşlem başlatıldı.', '{}')
+                """,
+                (operation_id, self._now()),
+            )
+            return operation_id
 
     def complete(
         self,
@@ -122,6 +186,18 @@ class OperationHistory:
                     operation_id,
                 ),
             )
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, 'INFO', 'OPERATION_COMPLETED', 'İşlem tamamlandı.', ?)
+                """,
+                (
+                    operation_id,
+                    self._now(),
+                    json.dumps({"status": status, "output_count": len(outputs)}, ensure_ascii=False),
+                ),
+            )
 
     def fail(self, operation_id: int, error_message: str) -> None:
         with self._connect() as connection:
@@ -133,6 +209,63 @@ class OperationHistory:
                 """,
                 (self._now(), str(error_message), operation_id),
             )
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, 'ERROR', 'OPERATION_FAILED', ?, '{}')
+                """,
+                (operation_id, self._now(), str(error_message)),
+            )
+
+    def add_event(
+        self,
+        operation_id: int,
+        code: str,
+        message: str,
+        *,
+        level: str = "INFO",
+        details: dict | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(operation_id),
+                    self._now(),
+                    str(level).upper(),
+                    str(code).strip().upper(),
+                    str(message),
+                    json.dumps(details or {}, ensure_ascii=False),
+                ),
+            )
+
+    def events(self, operation_id: int) -> list[OperationEvent]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM operation_events
+                WHERE operation_id = ?
+                ORDER BY id
+                """,
+                (int(operation_id),),
+            ).fetchall()
+        return [
+            OperationEvent(
+                id=int(row["id"]),
+                operation_id=int(row["operation_id"]),
+                created_at=str(row["created_at"]),
+                level=str(row["level"]),
+                code=str(row["code"]),
+                message=str(row["message"]),
+                details=json.loads(row["details_json"] or "{}"),
+            )
+            for row in rows
+        ]
 
     def recent(self, limit: int = 100) -> list[OperationRecord]:
         with self._connect() as connection:
@@ -153,6 +286,7 @@ class OperationHistory:
                     id=int(row["id"]),
                     module_id=str(row["module_id"]),
                     module_name=str(row["module_name"]),
+                    actor=str(row["actor"] or ""),
                     status=str(row["status"]),
                     started_at=str(row["started_at"]),
                     completed_at=row["completed_at"],

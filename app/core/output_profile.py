@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -39,6 +39,7 @@ class OutputProfile:
     columns: tuple[OutputColumn, ...]
     category: str = "havale"
     grouping: str = "region_bank"
+    protected: bool = False
 
     def headers(self) -> list[str]:
         return [column.header for column in self.columns]
@@ -81,27 +82,37 @@ class OutputProfile:
             columns=columns,
             category=data.get("category", "havale"),
             grouping=data.get("grouping", "region_bank"),
+            protected=bool(data.get("protected", False)),
         )
 
 
 class OutputProfileStore:
     """``config/output_profiles/`` klasöründeki profil dosyalarını yönetir."""
 
-    def __init__(self, config_dir: Path):
+    def __init__(self, config_dir: Path, user_config_dir: Path | None = None):
         self._config_dir = config_dir
         self._dir = config_dir / "output_profiles"
         self._local_dir = config_dir / "local" / "output_profiles"
+        self._user_dir = Path(user_config_dir) / "output_profiles" if user_config_dir else None
 
     def list_profiles(self) -> list[OutputProfile]:
         profiles: dict[str, OutputProfile] = {}
         directories = [self._dir]
         if os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1":
             directories.append(self._local_dir)
+            if self._user_dir is not None:
+                directories.append(self._user_dir)
         for directory in directories:
             if not directory.is_dir():
                 continue
             for path in sorted(directory.glob("*.json")):
                 profile = OutputProfile.from_json(path)
+                existing = profiles.get(profile.profile_id)
+                if existing is not None and existing.protected and not profile.protected:
+                    # Yerel şirket ayarları aynı profil kimliğiyle alan/sabit
+                    # değerleri güncelleyebilir; ancak onaylı profil kilidi
+                    # hiçbir katmanda kaldırılamaz.
+                    profile = replace(profile, protected=True)
                 profiles[profile.profile_id] = profile
         return [profiles[key] for key in sorted(profiles)]
 

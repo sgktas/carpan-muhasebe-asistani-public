@@ -11,6 +11,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from app.core.app_logging import configure_logging, install_exception_logging
 from app.core.app_paths import APP_PATHS
 from app.ui.login_window import LoginWindow
 from app.ui.main_window import MainWindow
@@ -40,6 +41,9 @@ def _load_app_icon() -> QIcon:
 
 
 def main():
+    logger = configure_logging(APP_PATHS.data_root)
+    install_exception_logging(logger)
+    logger.info("Uygulama başlatılıyor")
     _set_windows_app_id()
     app = QApplication(sys.argv)
     app_icon = _load_app_icon()

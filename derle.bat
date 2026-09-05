@@ -35,13 +35,13 @@ echo .exe dosyasi derleniyor ^(birkac dakika surebilir^)...
 "%PYTHON%" -m PyInstaller muhasebe_asistani.spec --noconfirm --clean
 if errorlevel 1 goto :error
 
-if not exist "dist\MuhasebeAsistani.exe" (
+if not exist "dist\MuhasebeAsistani\MuhasebeAsistani.exe" (
     echo HATA: Derleme tamamlandi ancak EXE bulunamadi.
     goto :error
 )
 
 echo.
-echo Bitti! Program "dist\MuhasebeAsistani.exe" konumunda olusturuldu.
+echo Bitti! Program "dist\MuhasebeAsistani\MuhasebeAsistani.exe" konumunda olusturuldu.
 echo Program pywin32 olmasa bile Windows PowerShell ve Microsoft Excel ile cikti uretebilir.
 pause
 exit /b 0

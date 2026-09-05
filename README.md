@@ -69,13 +69,15 @@ $env:MUHASEBE_ASISTANI_OUTPUT_DIR="C:\MuhasebeAsistaniCiktilari"
 - MANİM dosyaları, bütün çıktılar başarıyla üretildikten sonra işlenmiş olarak kaydedilir.
 - Çıktılar önce geçici klasörde hazırlanır; writer hatasında yarım çıktı klasörü bırakılmaz.
 - Eksik/geçersiz MANİM satırları müşteri eşleştirmesine girmez ve `GECERSIZ_MANIM_SATIRLARI_*.xls` raporuna yazılır.
-- Manuel girilen cari kodlar müşteri listesine karşı hem arayüzde hem işleme motorunda doğrulanır.
+- Pasif müşterilerin borç kapatma havaleleri için cari kod manuel girilebilir ve kullanıcı onayıyla aktarılabilir.
+- Onaylı Netsis profilleri arayüzden değiştirilemez; özel formatlar ayrı kullanıcı profili olarak saklanır.
+- Oluşan Netsis dosyası başlık, sayfa, satır sayısı, tutar toplamı, banka kodu ve kritik hücre biçimleri açısından otomatik doğrulanır.
 
 ## Excel çıktı biçimi
 
 - Netsis havale çıktıları 27 sütunlu profil tanımından gerçek Excel 97–2003 biçiminde üretilir.
 - Git dışında `templates/local/` altında şirket şablonu varsa Windows'ta Microsoft Excel COM motoru kullanılır.
-- Yerel şablon yoksa veri içermeyen BIFF8 çıktısı doğrudan oluşturulur.
+- Windows üretim ortamında onaylı yerel şablon eksikse işlem durur; genel bir Excel dosyasına sessizce geçilmez.
 - Çıktılar kaydedildikten sonra Windows salt-okunur niteliği açıkça temizlenir.
 - Netsis'e aktarırken `.xls` dosyasını ZIP/sıkıştırılmış klasör içinden seçmeyin; önce normal klasöre ayıklayın.
 
@@ -223,13 +225,24 @@ Bütün modül işlemleri aşağıdaki SQLite veritabanına kaydedilir:
 
 Geçmiş İşlemler ekranı son 100 işlemin:
 
+- işlemi yapan yerel kullanıcıyı,
 - modülünü,
 - başlangıç zamanını,
 - durumunu,
 - girdi/çıktı sayısını,
 - temel işlem özetini
 
-gösterir ve seçili işlemin çıktı klasörünü açar.
+gösterir ve seçili işlemin çıktı klasörünü açar. Ayrıntı ekranında işlem olayları,
+girdiler, çıktılar ve hata bilgisi izlenebilir. Uygulama beklenmeden kapanırsa yarım
+kalan işlem bir sonraki açılışta ayrıca işaretlenir.
+
+### Profesyonel çalışma temelleri
+
+- Parasal karşılaştırmalar iki ondalıklı kesin değerlerle yapılır; çoklu havaleler yalnız toplamlar birebir eşitse otomatik birleşir.
+- Uzun süren MANİM işlemleri arka planda çalışır; arayüz işlem sırasında kilitlenmez.
+- Ayarlar ekranından eşleştirme hafızası, işlem geçmişi, bölge ayarları ve kullanıcı profilleri için yerel ZIP yedeği alınabilir.
+- Uygulama hataları `%LOCALAPPDATA%\Carpan\MuhasebeAsistani\logs\uygulama.log` dosyasına dönüşümlü olarak kaydedilir.
+- Bağımlılık sürümleri sabitlenmiştir; GitHub üzerinde her gönderimde testler ve veri güvenliği taraması otomatik çalışır.
 
 
 ## Rapor Düzenleme ile MANİM entegrasyonu

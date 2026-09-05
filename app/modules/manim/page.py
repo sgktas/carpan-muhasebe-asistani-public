@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+import logging
 from pathlib import Path
+from threading import Event
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QObject, QSize, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -24,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from app.core.app_paths import APP_PATHS
 from app.core.active_profile_store import ActiveProfileStore
+from app.core.app_logging import LOGGER_NAME
 from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
@@ -41,6 +45,46 @@ from app.ui.theme import asset_icon, crisp_pixmap
 MODULE_ID = "manim_transfer"
 MODULE_NAME = "MANİM Aktarma"
 
+logger = logging.getLogger(LOGGER_NAME)
+
+
+@dataclass
+class _ManualReviewRequest:
+    pending_items: list
+    customers: list
+    tahsilat: list
+    completed: Event = field(default_factory=Event)
+    resolutions: dict | None = None
+
+
+class _ProcessingWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+    manual_review_requested = Signal(object)
+
+    def __init__(self, engine: ProcessingEngine, allow_duplicate_files: set[str]):
+        super().__init__()
+        self.engine = engine
+        self.allow_duplicate_files = allow_duplicate_files
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            result = self.engine.run(
+                resolver=self._request_manual_review,
+                allow_duplicate_files=self.allow_duplicate_files,
+            )
+        except Exception as error:
+            self.failed.emit(str(error))
+            return
+        self.finished.emit(result)
+
+    def _request_manual_review(self, pending_items, customers, tahsilat):
+        request = _ManualReviewRequest(pending_items, customers, tahsilat)
+        self.manual_review_requested.emit(request)
+        request.completed.wait()
+        return request.resolutions or {}
+
 
 class ManimModulePage(QWidget):
     def __init__(self, history: OperationHistory, parent=None):
@@ -50,8 +94,13 @@ class ManimModulePage(QWidget):
         self.last_output_dir: Path | None = None
         self.last_odeme_onaylandi_items: list = []
         self.last_odeme_onaylandi_path: Path | None = None
+        self._processing_thread: QThread | None = None
+        self._processing_worker: _ProcessingWorker | None = None
+        self._operation_id: int | None = None
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
-        self._output_profile_store = OutputProfileStore(APP_PATHS.config_dir)
+        self._output_profile_store = OutputProfileStore(
+            APP_PATHS.config_dir, APP_PATHS.data_root / "config"
+        )
         self.setAcceptDrops(True)
         self._build_ui()
 
@@ -186,6 +235,11 @@ class ManimModulePage(QWidget):
         progress_col.addWidget(progress_title)
         progress_col.addWidget(self.progress_detail)
         progress_col.addWidget(self.progress)
+        self.result_summary = QLabel()
+        self.result_summary.setObjectName("cardSubtitle")
+        self.result_summary.setWordWrap(True)
+        self.result_summary.setVisible(False)
+        progress_col.addWidget(self.result_summary)
         process_layout.addLayout(progress_col, 1)
 
         self.open_output_button = QPushButton("Çıktı klasörünü aç")
@@ -382,7 +436,7 @@ class ManimModulePage(QWidget):
             f"{count} Excel dosyası seçildi. İşleme başlamadan önce listeyi kontrol edin."
         )
         self.progress.setValue(20)
-        self.progress_detail.setText("Dosyalar yüklendi ve işlem için hazır.")
+        self.progress_detail.setText("1/4 • Dosyalar yüklendi ve ön kontrol için hazır.")
         self.start_button.setEnabled(True)
         self.clear_button.setEnabled(True)
         self.log.append(f"{count} Excel dosyası yüklendi.")
@@ -403,6 +457,7 @@ class ManimModulePage(QWidget):
         self.loaded_files_label.setText("Henüz dosya seçilmedi")
         self.progress.setValue(0)
         self.progress_detail.setText("Dosyaları yükleyerek işleme başlayın.")
+        self.result_summary.setVisible(False)
         self.start_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
@@ -410,15 +465,18 @@ class ManimModulePage(QWidget):
         self.log.clear()
 
     def start_process(self) -> None:
+        if self._processing_thread is not None:
+            return
         self.start_button.setEnabled(False)
         self.select_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
         self.review_odeme_button.setVisible(False)
-        self.progress_detail.setText("Dosyalar doğrulanıyor ve kayıtlar işleniyor...")
+        self.progress_detail.setText("2/4 • Dosyalar doğrulanıyor ve kayıtlar sınıflandırılıyor...")
+        self.result_summary.setVisible(False)
         self.log.append("\nİşlem başlatıldı...")
-        self.progress.setValue(40)
-        operation_id = self.history.start(MODULE_ID, MODULE_NAME, self.files)
+        self.progress.setRange(0, 0)
+        self._operation_id = self.history.start(MODULE_ID, MODULE_NAME, self.files)
 
         try:
             engine = ProcessingEngine(
@@ -445,26 +503,62 @@ class ManimModulePage(QWidget):
                 )
                 if answer == QMessageBox.Yes:
                     allow_duplicate_files = {info["hash"] for info in duplicates.values()}
+        except Exception as error:
+            self._process_failed(str(error))
+            self._processing_finished()
+            return
 
-            result = engine.run(
-                resolver=self._resolve_pending_manually,
-                allow_duplicate_files=allow_duplicate_files,
+        self._processing_thread = QThread(self)
+        self._processing_worker = _ProcessingWorker(engine, allow_duplicate_files)
+        self._processing_worker.moveToThread(self._processing_thread)
+        self._processing_thread.started.connect(self._processing_worker.run)
+        self._processing_worker.manual_review_requested.connect(self._handle_manual_review)
+        self._processing_worker.finished.connect(self._process_succeeded)
+        self._processing_worker.failed.connect(self._process_failed)
+        self._processing_worker.finished.connect(self._processing_thread.quit)
+        self._processing_worker.failed.connect(self._processing_thread.quit)
+        self._processing_thread.finished.connect(self._processing_worker.deleteLater)
+        self._processing_thread.finished.connect(self._processing_thread.deleteLater)
+        self._processing_thread.finished.connect(self._processing_finished)
+        self._processing_thread.start()
+
+    @Slot(object)
+    def _handle_manual_review(self, request: _ManualReviewRequest) -> None:
+        self.progress_detail.setText("3/4 • Belirsiz kayıtlar kullanıcı onayı bekliyor.")
+        try:
+            request.resolutions = self._resolve_pending_manually(
+                request.pending_items,
+                request.customers,
+                request.tahsilat,
             )
-            for message in result.logs:
-                self.log.append(message)
-            self.log.append(f"\nToplam MANİM satırı: {result.total_manim_records}")
-            self.log.append(f"Geçersiz kaynak satırı: {result.invalid_manim_records}")
-            self.log.append(f"Oluşturulan Netsis satırı: {result.produced_netsis_records}")
-            self.log.append(f"Ödeme Onaylandı: {result.skipped_payment}")
-            self.log.append(f"Referanslı: {result.skipped_reference}")
-            self.log.append(f"Kural Çalıştı: {result.skipped_rule}")
-            self.log.append(f"İnceleme gereken: {result.unresolved}")
-            if result.output_dir:
-                self.log.append(f"Çıktı klasörü: {result.output_dir}")
+        finally:
+            request.completed.set()
 
-            status = "SUCCESS" if result.unresolved == 0 else "PARTIAL"
+    @Slot(object)
+    def _process_succeeded(self, result) -> None:
+        for message in result.logs:
+            self.log.append(message)
+        self.log.append(f"\nToplam MANİM satırı: {result.total_manim_records}")
+        self.log.append(f"Geçersiz kaynak satırı: {result.invalid_manim_records}")
+        self.log.append(f"Oluşturulan Netsis satırı: {result.produced_netsis_records}")
+        self.log.append(f"Ödeme Onaylandı: {result.skipped_payment}")
+        self.log.append(f"Referanslı: {result.skipped_reference}")
+        self.log.append(f"Kural Çalıştı: {result.skipped_rule}")
+        self.log.append(f"İnceleme gereken: {result.unresolved}")
+        if result.output_dir:
+            self.log.append(f"Çıktı klasörü: {result.output_dir}")
+
+        status = "SUCCESS" if result.unresolved == 0 else "PARTIAL"
+        if self._operation_id is not None:
+            for message in result.logs:
+                self.history.add_event(
+                    self._operation_id,
+                    "PROCESS_LOG",
+                    message,
+                    level="WARNING" if message.startswith("UYARI") else "INFO",
+                )
             self.history.complete(
-                operation_id,
+                self._operation_id,
                 result.created_files,
                 {
                     "total_manim_records": result.total_manim_records,
@@ -477,24 +571,45 @@ class ManimModulePage(QWidget):
                 },
                 status=status,
             )
-            self.last_output_dir = result.output_dir
-            self.last_odeme_onaylandi_items = result.odeme_onaylandi_items
-            self.last_odeme_onaylandi_path = result.odeme_onaylandi_path
-            self.progress.setValue(100)
-            self.progress_detail.setText("İşlem başarıyla tamamlandı.")
-            self.open_output_button.setVisible(bool(result.output_dir))
-            self.review_odeme_button.setVisible(bool(result.odeme_onaylandi_items))
-            self.upload_subtitle.setText(self._input_files_description())
-        except Exception as error:
-            self.history.fail(operation_id, str(error))
-            self.progress.setValue(0)
-            self.progress_detail.setText("İşlem tamamlanamadı. Hata ayrıntısını inceleyin.")
-            self.log.append(f"HATA: {error}")
-            QMessageBox.critical(self, "İşlem hatası", str(error))
-        finally:
-            self.start_button.setEnabled(bool(self.files))
-            self.select_button.setEnabled(True)
-            self.clear_button.setEnabled(bool(self.files))
+        self.last_output_dir = result.output_dir
+        self.last_odeme_onaylandi_items = result.odeme_onaylandi_items
+        self.last_odeme_onaylandi_path = result.odeme_onaylandi_path
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.progress_detail.setText("4/4 • İşlem başarıyla tamamlandı.")
+        self.result_summary.setText(
+            f"Netsis: {result.produced_netsis_records:,} • "
+            f"Ödeme Onaylandı: {result.skipped_payment:,} • "
+            f"Referanslı: {result.skipped_reference:,} • "
+            f"Kural Çalıştı: {result.skipped_rule:,} • "
+            f"İnceleme: {result.unresolved:,}"
+        )
+        self.result_summary.setVisible(True)
+        self.open_output_button.setVisible(bool(result.output_dir))
+        self.review_odeme_button.setVisible(bool(result.odeme_onaylandi_items))
+        self.upload_subtitle.setText(self._input_files_description())
+
+    @Slot(str)
+    def _process_failed(self, error: str) -> None:
+        logger.error("MANİM aktarımı tamamlanamadı: %s", error)
+        if self._operation_id is not None:
+            self.history.fail(self._operation_id, error)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress_detail.setText("İşlem tamamlanamadı. Hata ayrıntısını inceleyin.")
+        self.result_summary.setText("Çıktı oluşturulmadı; kaynak dosyalar işlenmiş olarak işaretlenmedi.")
+        self.result_summary.setVisible(True)
+        self.log.append(f"HATA: {error}")
+        QMessageBox.critical(self, "İşlem hatası", error)
+
+    @Slot()
+    def _processing_finished(self) -> None:
+        self._processing_thread = None
+        self._processing_worker = None
+        self._operation_id = None
+        self.start_button.setEnabled(bool(self.files))
+        self.select_button.setEnabled(True)
+        self.clear_button.setEnabled(bool(self.files))
 
     @staticmethod
     def _input_files_description() -> str:

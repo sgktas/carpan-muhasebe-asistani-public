@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
 import re
 
 from app.core.mapping_store import MappingStore
+from app.core.money import CENT, money, money_sum
 from app.core.subeli_matcher import SubeliMatcher
 from app.models.records import CustomerRecord, ManimRecord, NetsisRecord, TahsilatRecord
 
@@ -88,22 +88,18 @@ class HavaleProcessor:
         if not rows:
             return rows
 
-        cent = Decimal("0.01")
-        target = Decimal(str(target_amount)).quantize(cent, rounding=ROUND_HALF_UP)
-        total = sum(
-            (Decimal(str(row.tutar)).quantize(cent, rounding=ROUND_HALF_UP) for row in rows),
-            Decimal("0.00"),
-        )
+        target = money(target_amount)
+        total = money_sum(row.tutar for row in rows)
         difference = target - total
         if difference == 0:
             return rows
-        if abs(difference) > cent:
+        if abs(difference) > CENT:
             return rows
 
         largest_index = max(range(len(rows)), key=lambda index: float(rows[index].tutar))
         balanced: list[TahsilatRecord] = []
         for index, row in enumerate(rows):
-            amount = Decimal(str(row.tutar)).quantize(cent, rounding=ROUND_HALF_UP)
+            amount = money(row.tutar)
             if index == largest_index:
                 amount += difference
             balanced.append(TahsilatRecord(

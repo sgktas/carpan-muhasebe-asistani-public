@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
-from itertools import combinations
 from pathlib import Path
 import re
 import shutil
@@ -19,6 +18,8 @@ from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
 from app.core.output_profile import OutputProfileStore
 from app.core.mapping_store import MappingStore
+from app.core.money import money, money_sum
+from app.core.movement_classifier import MovementClassifier, MovementRoute
 from app.core.output_order import (
     bank_sort_key,
     chronological_key,
@@ -126,13 +127,20 @@ class ProcessingEngine:
             raise ValueError("Tahsilat raporu bulunamadi. Dosyayi da surukleyip birakin.")
 
         active_profiles = ActiveProfileStore(self.data_root)
-        input_profile = InputProfileStore(self.resource_root / "config").get_or_default(
+        user_config_dir = self.data_root / "config"
+        input_profile = InputProfileStore(
+            self.resource_root / "config", user_config_dir
+        ).get_or_default(
             active_profiles.get_input_profile_id()
         )
-        output_profile = OutputProfileStore(self.resource_root / "config").get_or_default(
+        output_profile = OutputProfileStore(
+            self.resource_root / "config", user_config_dir
+        ).get_or_default(
             active_profiles.get_output_profile_id()
         )
-        customer_list_profile = CustomerListProfileStore(self.resource_root / "config").get_or_default(
+        customer_list_profile = CustomerListProfileStore(
+            self.resource_root / "config", user_config_dir
+        ).get_or_default(
             active_profiles.get_customer_list_profile_id()
         )
 
@@ -168,6 +176,7 @@ class ProcessingEngine:
             mapping_store,
             region_branch_aliases=region_branch_aliases,
         )
+        movement_classifier = MovementClassifier()
 
         outputs: dict[tuple[str, str], list] = defaultdict(list)
         pending: list[UnresolvedItem] = []
@@ -236,41 +245,41 @@ class ProcessingEngine:
                     customer_region_by_name,
                 )
                 row_region_counts[region] += 1
-                status = self._normalize(record.dekont_durumu)
+                classification = movement_classifier.classify(record)
 
-                if "ODEME ONAYLANDI" in status:
-                    if record.tutar < 0:
-                        pending.append(UnresolvedItem(
-                            record=record,
-                            region=region,
-                            reason=self._negative_payment_approval_reason(),
-                        ))
+                if classification.route == MovementRoute.REVIEW:
+                    pending.append(UnresolvedItem(
+                        record=record,
+                        region=region,
+                        reason=classification.reason,
+                    ))
+                    if classification.code == "NEGATIVE_PAYMENT_APPROVAL":
                         result.logs.append(
                             "UYARI: Negatif tutarlı kayıt Ödeme Onaylandı'ya yazılmadı; "
                             "Referanslı kayıt olarak kontrol bekliyor."
                         )
-                        continue
-                    odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
-                    result.skipped_payment += 1
-                    continue
-
-                if "KURAL CALISTI" in status:
-                    kural_calisti_by_region[region].append(record)
-                    result.skipped_rule += 1
-                    continue
-
-                if "REFERANSLI" in status:
-                    if record.tutar > 0 and self._has_staff_route_marker(record.aciklama):
-                        pending.append(UnresolvedItem(
-                            record=record,
-                            region=region,
-                            reason=self._ambiguous_reference_reason(),
-                        ))
+                    elif classification.code == "AMBIGUOUS_STAFF_DEPOSIT":
                         result.logs.append(
                             "UYARI: Referanslı seçilmiş ancak açıklamada ROTA/YATAN PARA "
                             "bilgisi var; Ödeme Onaylandı olma ihtimali için kullanıcı onayı bekliyor."
                         )
-                        continue
+                    else:
+                        result.logs.append(
+                            f"UYARI [{classification.code}]: {classification.reason}"
+                        )
+                    continue
+
+                if classification.route == MovementRoute.ODEME_ONAYLANDI:
+                    odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
+                    result.skipped_payment += 1
+                    continue
+
+                if classification.route == MovementRoute.KURAL_CALISTI:
+                    kural_calisti_by_region[region].append(record)
+                    result.skipped_rule += 1
+                    continue
+
+                if classification.route == MovementRoute.REFERANSLI:
                     referansli_by_region[region].append(record)
                     result.skipped_reference += 1
                     continue
@@ -356,17 +365,20 @@ class ProcessingEngine:
                         item.group_target_amount or 0,
                         allow_partial=False,
                     )
-                    if validation_error or len(validated_rows) != len(item.group_records):
+                    if validation_error:
                         still_pending.append(item)
                         result.logs.append(
                             "UYARI: Toplu havale manuel eşleştirmesi kabul edilmedi: "
-                            f"{validation_error or 'Her banka hareketi için bir tutar girin.'}"
+                            f"{validation_error}"
                         )
                         continue
                     bank = self._bank_key(item.record.banka)
-                    for source_record, row in zip(item.group_records, validated_rows):
+                    for row in validated_rows:
                         netsis_row = processor._netsis_record(
-                            source_record, row.musteri_kodu, row.tutar, "TOPLU_MANUEL_ESLESTIRME"
+                            item.group_records[0],
+                            row.musteri_kodu,
+                            row.tutar,
+                            "TOPLU_MANUEL_ESLESTIRME",
                         )
                         outputs[self._output_key(item.region, bank, output_profile)].append(
                             self._with_region_codes(netsis_row, item.region, bank)
@@ -374,7 +386,7 @@ class ProcessingEngine:
                         result.produced_netsis_records += 1
                     result.logs.append(
                         f"Toplu havale manuel onaylandı: {len(item.group_records)} hareket, "
-                        f"{item.group_target_amount:,.2f} TL."
+                        f"{len(validated_rows)} cari dağılımı, {item.group_target_amount:,.2f} TL."
                     )
                     continue
 
@@ -621,80 +633,74 @@ class ProcessingEngine:
         return result
 
     def _match_combined_bank_movements(self, pending, outputs, result, output_profile, processor):
+        candidate_groups: dict[tuple, list[tuple[int, UnresolvedItem]]] = defaultdict(list)
+        for index, item in enumerate(pending):
+            if not item.suggested_rows or not item.record.islem_tarihi:
+                continue
+            bank = self._bank_key(item.record.banka)
+            key = (
+                item.region,
+                bank,
+                item.record.islem_tarihi.date(),
+                self._suggested_signature(item.suggested_rows),
+            )
+            candidate_groups[key].append((index, item))
+
         consumed: set[int] = set()
-        manual_group_indices: set[int] = set()
-        for left_index, right_index in combinations(range(len(pending)), 2):
-            if left_index in consumed or right_index in consumed:
+        manual_groups: list[UnresolvedItem] = []
+        for (region, bank, _day, _signature), indexed_items in candidate_groups.items():
+            if len(indexed_items) < 2:
                 continue
-            left, right = pending[left_index], pending[right_index]
-            if left.region != right.region:
-                continue
-            left_bank = self._bank_key(left.record.banka)
-            right_bank = self._bank_key(right.record.banka)
-            if left_bank != right_bank:
-                continue
-            if not left.record.islem_tarihi or not right.record.islem_tarihi:
-                continue
-            if left.record.islem_tarihi.date() != right.record.islem_tarihi.date():
-                continue
-            # Zincir müşterilerde aynı tahsilat, birden fazla şube/cari satırından
-            # oluşabilir. Her iki banka hareketinde de aynı tahsilat havuzu
-            # önerildiyse bunlar tek bir müşteri hareketinin iki parçasıdır.
-            if not self._same_suggested_collection(left.suggested_rows, right.suggested_rows):
-                continue
-            target = self._suggested_total(left.suggested_rows)
-            total = round(float(left.record.tutar) + float(right.record.tutar), 2)
-            if abs(total - target) > 0.01:
-                # Toplam farkı varsa kullanıcı iki banka hareketini aynı
-                # ekranda düzenleyip tek tahsilat hedefiyle onaylayabilir.
-                manual_group_indices.update({left_index, right_index})
+            items = [item for _index, item in indexed_items]
+            indexes = [index for index, _item in indexed_items]
+            target = money(self._suggested_total(items[0].suggested_rows))
+            total = money_sum(item.record.tutar for item in items)
+            movements = " + ".join(f"{money(item.record.tutar):,.2f}" for item in items)
+
+            if total == target:
+                # Netsis'e banka hareketlerinin parça toplamlarını değil,
+                # tahsilat raporundaki cari/şube dağılımını bir kez yaz.
+                for candidate in items[0].suggested_rows:
+                    netsis_record = processor._netsis_record(
+                        items[0].record,
+                        str(candidate.musteri_kodu).strip(),
+                        candidate.tutar,
+                        "BIRLESIK_BANKA_HAREKETI",
+                    )
+                    netsis_record = self._with_region_codes(netsis_record, region, bank)
+                    outputs[self._output_key(region, bank, output_profile)].append(netsis_record)
+                    result.produced_netsis_records += 1
+                consumed.update(indexes)
                 result.logs.append(
-                    f"Toplu havale kontrol bekliyor: {left.record.tutar:,.2f} + "
-                    f"{right.record.tutar:,.2f} TL; tahsilat hedefi {target:,.2f} TL."
+                    f"Birleşik havale eşleşti: {movements} TL = {target:,.2f} TL "
+                    f"({len(items)} banka hareketi)."
                 )
                 continue
 
-            # Netsis'e banka hareketi toplamını değil, tahsilat raporundaki
-            # şube/cari dağılımını yazıyoruz. Böylece iki havale birleşse de
-            # her şubenin tahsilatı kendi cari kodunda kalır.
-            for candidate in left.suggested_rows:
-                netsis_record = processor._netsis_record(
-                    left.record, str(candidate.musteri_kodu).strip(),
-                    candidate.tutar, "BIRLESIK_BANKA_HAREKETI"
-                )
-                netsis_record = self._with_region_codes(netsis_record, left.region, left_bank)
-                outputs[self._output_key(left.region, left_bank, output_profile)].append(netsis_record)
-                result.produced_netsis_records += 1
-            consumed.update({left_index, right_index})
-            result.logs.append(
-                f"Birleşik havale eşleşti: {left.record.tutar:,.2f} + {right.record.tutar:,.2f} TL = {target:,.2f} TL."
-            )
-        grouped: list[UnresolvedItem] = []
-        used: set[int] = set()
-        for left_index, right_index in combinations(range(len(pending)), 2):
-            if left_index not in manual_group_indices or right_index not in manual_group_indices or left_index in used or right_index in used:
-                continue
-            left, right = pending[left_index], pending[right_index]
-            if not self._same_suggested_collection(left.suggested_rows, right.suggested_rows):
-                continue
-            grouped.append(UnresolvedItem(
-                record=left.record,
-                region=left.region,
-                reason=("Aynı müşteri için iki havale bulundu. Tutarları düzenleyip "
-                        "tahsilat hedefiyle eşitleyerek birlikte onaylayın."),
-                suggested_rows=list(left.suggested_rows),
-                group_records=[left.record, right.record],
-                group_target_amount=self._suggested_total(left.suggested_rows),
+            consumed.update(indexes)
+            manual_groups.append(UnresolvedItem(
+                record=items[0].record,
+                region=region,
+                reason=(
+                    f"Aynı müşteri için {len(items)} havale bulundu. Tutarları düzenleyip "
+                    "tahsilat hedefiyle eşitleyerek birlikte onaylayın."
+                ),
+                suggested_rows=list(items[0].suggested_rows),
+                group_records=[item.record for item in items],
+                group_target_amount=float(target),
             ))
-            used.update({left_index, right_index})
+            result.logs.append(
+                f"Toplu havale kontrol bekliyor: {movements} TL; "
+                f"tahsilat hedefi {target:,.2f} TL ({len(items)} banka hareketi)."
+            )
+
         return [
-            item for index, item in enumerate(pending)
-            if index not in consumed and index not in manual_group_indices
-        ] + grouped
+            item for index, item in enumerate(pending) if index not in consumed
+        ] + manual_groups
 
     @staticmethod
     def _suggested_total(rows: list[TahsilatRecord]) -> float:
-        return round(sum(float(row.tutar) for row in rows), 2)
+        return float(money_sum(row.tutar for row in rows))
 
     @classmethod
     def _same_suggested_collection(
@@ -706,13 +712,20 @@ class ProcessingEngine:
         if not left_rows or not right_rows:
             return False
 
-        def signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, float], ...]:
+        def signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, object], ...]:
             return tuple(sorted(
-                (str(row.musteri_kodu).strip(), round(float(row.tutar), 2))
+                (str(row.musteri_kodu).strip(), money(row.tutar))
                 for row in rows
             ))
 
         return signature(left_rows) == signature(right_rows)
+
+    @staticmethod
+    def _suggested_signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, object], ...]:
+        return tuple(sorted(
+            (str(row.musteri_kodu).strip(), money(row.tutar))
+            for row in rows
+        ))
 
     @staticmethod
     def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
@@ -733,30 +746,6 @@ class ProcessingEngine:
             "Ayarlar > Bölge Yönetimi bölümünden bu banka için BM kodunu ekleyin; "
             "satır boş BM koduyla Netsis aktarımına yazılmadı."
         )
-
-    @staticmethod
-    def _negative_payment_approval_reason() -> str:
-        return (
-            "Negatif tutarlı kayıt Ödeme Onaylandı olamaz. Bu işlem giden para "
-            "olduğu için Referanslı kayıt olarak kontrol edilmelidir."
-        )
-
-    @staticmethod
-    def _ambiguous_reference_reason() -> str:
-        return (
-            "Referanslı seçilmiş ancak açıklamada ROTA veya YATAN PARA bilgisi tespit edildi. "
-            "Ödeme Onaylandı olma ihtimaline karşı onay gereklidir."
-        )
-
-    @staticmethod
-    def _has_staff_route_marker(description: str) -> bool:
-        """Personelin banka/ATM üzerinden yaptığı rota tahsilatlarını tanır.
-
-        MANİM açıklamalarında hem ``ROTA104`` hem de ``ROTA 104`` biçimi
-        görülebildiği için aradaki boşluk, nokta veya tire zorunlu değildir.
-        """
-        normalized = ProcessingEngine._normalize(description)
-        return bool(re.search(r"\bROTA[\s.-]*\d{1,4}\b", normalized) or "YATAN PARA" in normalized)
 
     def _with_region_codes(self, record, region: str, bank: str):
         return replace(
@@ -800,11 +789,11 @@ class ProcessingEngine:
         if not validated:
             return [], "Geçerli müşteri kodu ve tutar bulunamadı"
 
-        total = round(sum(row.tutar for row in validated), 2)
-        target = round(float(target_amount), 2)
-        if total > target + 0.01:
+        total = money_sum(row.tutar for row in validated)
+        target = money(target_amount)
+        if total > target:
             return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL'yi aşamaz"
-        if not allow_partial and abs(total - target) > 0.01:
+        if not allow_partial and total != target:
             return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL ile eşleşmiyor"
 
         return validated, None

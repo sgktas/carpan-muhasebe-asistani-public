@@ -13,6 +13,7 @@ from typing import Iterable
 import xlwt
 
 from app.core.output_profile import OutputProfile, OutputProfileStore
+from app.core.output_contract import validate_netsis_output
 from app.models.records import NetsisRecord
 from app.writers.xls_utils import ensure_writable, make_styles, save_xls, write_cell, xls_path
 
@@ -30,6 +31,10 @@ def _default_template_path(profile: OutputProfile) -> Path:
     # PyInstaller uygulamasında kaynak dosyaların konumu yerine `_MEIPASS`
     # altındaki paket klasörü kullanılmalıdır. Aksi durumda şablon bulunamaz
     # ve Netsis'in kabul etmediği genel xlwt çıktısına düşülebiliyordu.
+    configured_path = Path(profile.template_file)
+    if configured_path.is_absolute():
+        return configured_path
+
     roots: list[Path] = []
     if getattr(sys, "frozen", False):
         bundled_root = getattr(sys, "_MEIPASS", None)
@@ -98,15 +103,24 @@ class NetsisWriter:
             )
         if os.name == "nt" and self.template_path.is_file():
             try:
-                return self._write_with_microsoft_excel(records, output_path)
+                written_path = self._write_with_microsoft_excel(records, output_path)
             except ExcelAutomationUnavailable:
                 # pywin32 yoksa veya Python COM köprüsü başlatılamıyorsa,
                 # Windows'un yerleşik PowerShell COM yoluna otomatik geç.
-                return self._write_with_powershell_excel(records, output_path)
-        # Public kaynak paketi gerçek şirket şablonu içermez. Yerel şablon
-        # bulunmadığında aynı 27 sütunlu BIFF8 dosyası güvenli biçimde koddan
-        # üretilir.
-        return self._write_with_xlwt(records, output_path)
+                written_path = self._write_with_powershell_excel(records, output_path)
+        else:
+            # Public kaynak paketi gerçek şirket şablonu içermez. Yerel şablon
+            # bulunmadığında aynı 27 sütunlu BIFF8 dosyası güvenli biçimde koddan
+            # üretilir.
+            written_path = self._write_with_xlwt(records, output_path)
+
+        validate_netsis_output(
+            written_path,
+            self.profile,
+            records,
+            self.template_path if self.template_path.is_file() else None,
+        )
+        return written_path
 
     def close(self) -> None:
         if self._excel is not None:

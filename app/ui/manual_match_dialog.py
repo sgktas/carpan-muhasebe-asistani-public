@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.money import money, money_sum
+
 
 class _PasteableTableWidget(QTableWidget):
     """Tek tıkla yazmaya/yapıştırmaya izin veren, Excel'den kopyala-yapıştırı
@@ -245,30 +247,17 @@ class ManualMatchDialog(QDialog):
 
         self.table.blockSignals(True)
         self.table.setRowCount(0)
-        if item.group_records:
-            self.table.setColumnCount(len(item.group_records) + 1)
-            self.table.setHorizontalHeaderLabels(
-                ["Müşteri Kodu"] + [f"Havale {index + 1}" for index in range(len(item.group_records))]
-            )
-            code = item.suggested_rows[0].musteri_kodu if item.suggested_rows else ""
-            amounts = existing[1] if existing and existing[1] else [
-                (code, record.tutar) for record in item.group_records
-            ]
-            self.table.insertRow(0)
-            self.table.setItem(0, 0, QTableWidgetItem(str(code)))
-            for column, (_code, amount) in enumerate(amounts, start=1):
-                self.table.setItem(0, column, QTableWidgetItem(f"{amount:.2f}"))
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Müşteri Kodu", "Tutar"])
+        if existing and existing[1]:
+            for code, amount in existing[1]:
+                self._append_row(code, f"{amount:.2f}")
+        elif item.suggested_rows:
+            for suggested in item.suggested_rows:
+                self._append_row(suggested.musteri_kodu, f"{suggested.tutar:.2f}")
         else:
-            self.table.setColumnCount(2)
-            self.table.setHorizontalHeaderLabels(["Müşteri Kodu", "Tutar"])
-            if existing and existing[1]:
-                for code, amount in existing[1]:
-                    self._append_row(code, f"{amount:.2f}")
-            elif item.suggested_rows:
-                for suggested in item.suggested_rows:
-                    self._append_row(suggested.musteri_kodu, f"{suggested.tutar:.2f}")
-            else:
-                self._append_row("", f"{item.record.tutar:.2f}")
+            target = item.group_target_amount if item.group_records else item.record.tutar
+            self._append_row("", f"{target:.2f}")
         self.table.blockSignals(False)
         self._update_total_label()
 
@@ -304,16 +293,6 @@ class ManualMatchDialog(QDialog):
         self._update_total_label()
 
     def _current_table_rows(self) -> list[tuple[str, float]]:
-        if self._current_index is not None and self.pending_items[self._current_index].group_records:
-            code_item = self.table.item(0, 0)
-            code = code_item.text().strip() if code_item else ""
-            rows = []
-            for column in range(1, self.table.columnCount()):
-                item = self.table.item(0, column)
-                amount = self._parse_amount(item.text().strip()) if item else None
-                if code and amount is not None:
-                    rows.append((code, amount))
-            return rows
         rows: list[tuple[str, float]] = []
         for row_index in range(self.table.rowCount()):
             code_item = self.table.item(row_index, 0)
@@ -351,9 +330,10 @@ class ManualMatchDialog(QDialog):
             return
         item = self.pending_items[self._current_index]
         target = item.group_target_amount if item.group_records else item.record.tutar
-        total = sum(amount for _, amount in self._current_table_rows())
-        difference = round(target - total, 2)
-        matches = abs(difference) <= 0.01
+        total = money_sum(amount for _, amount in self._current_table_rows())
+        target = money(target)
+        difference = target - total
+        matches = difference == 0
         if matches:
             color = "green"
             suffix = ""
@@ -412,8 +392,9 @@ class ManualMatchDialog(QDialog):
         rows = canonical_rows
         item = self.pending_items[self._current_index]
         target = item.group_target_amount if item.group_records else item.record.tutar
-        total = sum(amount for _, amount in rows)
-        if total > round(target, 2) + 0.01:
+        total = money_sum(amount for _, amount in rows)
+        target = money(target)
+        if total > target:
             QMessageBox.warning(
                 self,
                 "Tutar tutmuyor",
@@ -421,9 +402,9 @@ class ManualMatchDialog(QDialog):
                 f"({target:,.2f} TL) aşamaz. Lütfen kontrol edin.",
             )
             return
-        allow_partial = total < round(target, 2) - 0.01
+        allow_partial = total < target
         if allow_partial:
-            remaining = round(target - total, 2)
+            remaining = target - total
             answer = QMessageBox.question(
                 self,
                 "Fazla ödeme bakiyesi",
