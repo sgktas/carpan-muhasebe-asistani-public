@@ -14,6 +14,7 @@ class ActiveProfileStore:
 
     DEFAULT_INPUT_PROFILE_ID = "manim"
     DEFAULT_OUTPUT_PROFILE_ID = "netsis"
+    DEFAULT_REFERENCE_OUTPUT_PROFILE_ID = "netsis_virman_toplu"
     DEFAULT_CUSTOMER_LIST_PROFILE_ID = "f1_fom"
 
     def __init__(self, data_root: Path):
@@ -40,6 +41,12 @@ class ActiveProfileStore:
     def get_customer_list_profile_id(self) -> str:
         return self._read().get("customer_list_profile_id") or self.DEFAULT_CUSTOMER_LIST_PROFILE_ID
 
+    def get_reference_output_profile_id(self) -> str:
+        return (
+            self._read().get("reference_output_profile_id")
+            or self.DEFAULT_REFERENCE_OUTPUT_PROFILE_ID
+        )
+
     def set_customer_list_profile_id(self, profile_id: str) -> None:
         data = self._read()
         data["customer_list_profile_id"] = profile_id
@@ -53,4 +60,9 @@ class ActiveProfileStore:
     def set_output_profile_id(self, profile_id: str) -> None:
         data = self._read()
         data["output_profile_id"] = profile_id
+        self._write(data)
+
+    def set_reference_output_profile_id(self, profile_id: str) -> None:
+        data = self._read()
+        data["reference_output_profile_id"] = profile_id
         self._write(data)

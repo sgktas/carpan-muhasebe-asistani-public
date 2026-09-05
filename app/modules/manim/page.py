@@ -343,19 +343,44 @@ class ManimModulePage(QWidget):
         self._update_havale_template_detail()
         layout.addWidget(card)
 
-        future_card = QFrame()
-        future_card.setObjectName("surfaceCard")
-        future_layout = QVBoxLayout(future_card)
-        future_layout.setContentsMargins(22, 18, 22, 18)
-        future_title = QLabel("Referanslı kayıt şablonları")
-        future_title.setObjectName("cardTitle")
-        future_text = QLabel(
-            "Referanslı kayıtların ayrı şablon seçenekleri bu bölüme eklenecek."
+        reference_card = QFrame()
+        reference_card.setObjectName("surfaceCard")
+        reference_layout = QVBoxLayout(reference_card)
+        reference_layout.setContentsMargins(22, 18, 22, 18)
+        reference_layout.setSpacing(10)
+        reference_title = QLabel("Referanslı kayıt çıktı şablonu")
+        reference_title.setObjectName("cardTitle")
+        reference_text = QLabel(
+            "Negatif Referanslı hareketlerden hedef şirket hesabı kesin bulunan virmanlar "
+            "bölge bazında, tüm bankalar aynı dosyada olacak şekilde hazırlanır. Diğer "
+            "Referanslı kayıtlar mevcut inceleme dosyasında kalır."
         )
-        future_text.setObjectName("cardSubtitle")
-        future_layout.addWidget(future_title)
-        future_layout.addWidget(future_text)
-        layout.addWidget(future_card)
+        reference_text.setObjectName("cardSubtitle")
+        reference_text.setWordWrap(True)
+        reference_layout.addWidget(reference_title)
+        reference_layout.addWidget(reference_text)
+
+        self.reference_template_combo = QComboBox()
+        self._reference_profiles = [
+            profile for profile in self._output_profile_store.list_profiles()
+            if profile.category == "referansli"
+        ]
+        for profile in self._reference_profiles:
+            self.reference_template_combo.addItem(profile.name, profile.profile_id)
+        active_reference_id = self._active_profiles.get_reference_output_profile_id()
+        reference_index = self.reference_template_combo.findData(active_reference_id)
+        self.reference_template_combo.setCurrentIndex(max(0, reference_index))
+        self.reference_template_combo.currentIndexChanged.connect(
+            self._change_reference_template
+        )
+        reference_layout.addWidget(self.reference_template_combo)
+
+        self.reference_template_detail = QLabel()
+        self.reference_template_detail.setObjectName("cardSubtitle")
+        self.reference_template_detail.setWordWrap(True)
+        reference_layout.addWidget(self.reference_template_detail)
+        self._update_reference_template_detail()
+        layout.addWidget(reference_card)
         layout.addStretch()
         return page
 
@@ -375,6 +400,22 @@ class ManimModulePage(QWidget):
         )
         if profile:
             self.havale_template_detail.setText(profile.description)
+
+    def _change_reference_template(self, index: int) -> None:
+        if index < 0:
+            return
+        profile_id = self.reference_template_combo.itemData(index)
+        if profile_id:
+            self._active_profiles.set_reference_output_profile_id(str(profile_id))
+        self._update_reference_template_detail()
+
+    def _update_reference_template_detail(self) -> None:
+        profile_id = self.reference_template_combo.currentData()
+        profile = next(
+            (item for item in self._reference_profiles if item.profile_id == profile_id),
+            None,
+        )
+        self.reference_template_detail.setText(profile.description if profile else "")
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls() and any(
@@ -543,6 +584,7 @@ class ManimModulePage(QWidget):
         self.log.append(f"Oluşturulan Netsis satırı: {result.produced_netsis_records}")
         self.log.append(f"Ödeme Onaylandı: {result.skipped_payment}")
         self.log.append(f"Referanslı: {result.skipped_reference}")
+        self.log.append(f"Hesaplar arası virman: {result.virman_records}")
         self.log.append(f"Kural Çalıştı: {result.skipped_rule}")
         self.log.append(f"İnceleme gereken: {result.unresolved}")
         if result.output_dir:
@@ -566,6 +608,7 @@ class ManimModulePage(QWidget):
                     "produced_netsis_records": result.produced_netsis_records,
                     "skipped_payment": result.skipped_payment,
                     "skipped_reference": result.skipped_reference,
+                    "virman_records": result.virman_records,
                     "skipped_rule": result.skipped_rule,
                     "unresolved": result.unresolved,
                 },
@@ -581,6 +624,7 @@ class ManimModulePage(QWidget):
             f"Netsis: {result.produced_netsis_records:,} • "
             f"Ödeme Onaylandı: {result.skipped_payment:,} • "
             f"Referanslı: {result.skipped_reference:,} • "
+            f"Virman: {result.virman_records:,} • "
             f"Kural Çalıştı: {result.skipped_rule:,} • "
             f"İnceleme: {result.unresolved:,}"
         )

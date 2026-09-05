@@ -47,6 +47,25 @@ class NetsisRecord:
 
 
 @dataclass(frozen=True)
+class VirmanRecord:
+    """Netsis hesaplar arası virman toplu aktarımındaki tek satır."""
+
+    islem_tarihi: datetime | None
+    islem_tarihi_metni: str
+    tutar: float
+    aciklama: str
+    bolge: str
+    kaynak_banka: str
+    hedef_banka: str
+    kaynak_banka_hesap_kodu: str
+    hedef_banka_hesap_kodu: str
+    muh_ref_kodu: str
+    proje_kodu: int
+    plasiyer_kodu: str
+    kaynak: str
+
+
+@dataclass(frozen=True)
 class BankStatementRecord:
     """Banka ekstresindeki tek bir satır (Modül 03 - Banka Mutabakatı).
 

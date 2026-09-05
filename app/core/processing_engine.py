@@ -31,6 +31,7 @@ from app.core.manim_parser import InvalidManimRow, ManimParser
 from app.core.processed_files_log import ProcessedFilesLog
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.core.tahsilat_parser import TahsilatParser
+from app.core.virman_detector import VirmanDetector
 from app.models.records import CustomerRecord, ManimRecord, TahsilatRecord
 from app.processors.havale_processor import HavaleProcessor
 from app.writers.netsis_writer import NetsisWriter
@@ -52,6 +53,7 @@ class ProcessingResult:
     skipped_payment: int = 0
     skipped_reference: int = 0
     skipped_rule: int = 0
+    virman_records: int = 0
     unresolved: int = 0
     duplicate_files: list[str] = field(default_factory=list)
     odeme_onaylandi_items: list[tuple] = field(default_factory=list)
@@ -133,10 +135,15 @@ class ProcessingEngine:
         ).get_or_default(
             active_profiles.get_input_profile_id()
         )
-        output_profile = OutputProfileStore(
+        output_profile_store = OutputProfileStore(
             self.resource_root / "config", user_config_dir
-        ).get_or_default(
+        )
+        output_profile = output_profile_store.get_or_default(
             active_profiles.get_output_profile_id()
+        )
+        reference_output_profile = output_profile_store.get_or_default(
+            active_profiles.get_reference_output_profile_id(),
+            default_id="netsis_virman_toplu",
         )
         customer_list_profile = CustomerListProfileStore(
             self.resource_root / "config", user_config_dir
@@ -177,6 +184,7 @@ class ProcessingEngine:
             region_branch_aliases=region_branch_aliases,
         )
         movement_classifier = MovementClassifier()
+        virman_detector = VirmanDetector(self.region_config)
 
         outputs: dict[tuple[str, str], list] = defaultdict(list)
         pending: list[UnresolvedItem] = []
@@ -184,6 +192,7 @@ class ProcessingEngine:
         odeme_onaylandi_items: list[tuple[ManimRecord, str, str]] = []
         referansli_by_region: dict[str, list[ManimRecord]] = defaultdict(list)
         kural_calisti_by_region: dict[str, list[ManimRecord]] = defaultdict(list)
+        virman_by_region: dict[str, list] = defaultdict(list)
         islem_tarihleri: set[date] = set()
         processed_candidates: list[tuple[str, str, int]] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
@@ -192,6 +201,7 @@ class ProcessingEngine:
             f"Girdi profili: {input_profile.name} | Çıktı profili: {output_profile.name} | "
             f"Müşteri listesi profili: {customer_list_profile.name}"
         )
+        result.logs.append(f"Referanslı çıktı profili: {reference_output_profile.name}")
         result.logs.append(f"Tahsilat raporu: {tahsilat_file.name}")
         if tahsilat_parser.selected_sheet_name != 0:
             result.logs.append(
@@ -465,6 +475,29 @@ class ProcessingEngine:
 
             pending = still_pending
 
+        # Referanslı kayıtların yalnız negatif, kendi hesaplarımıza giden ve
+        # hedefi kesin belirlenen virmanlarını yeni Netsis çıktısına ayır.
+        for region, records in list(referansli_by_region.items()):
+            remaining_reference: list[ManimRecord] = []
+            for record in records:
+                detection = virman_detector.detect(record, region)
+                if detection.record is not None:
+                    virman_by_region[region].append(detection.record)
+                    result.logs.append(
+                        f"Virman ayrıldı: {region}/{detection.record.kaynak_banka} -> "
+                        f"{detection.record.hedef_banka}, {detection.record.tutar:,.2f} TL."
+                    )
+                    continue
+                remaining_reference.append(record)
+                if detection.candidate and detection.reason:
+                    result.logs.append(
+                        f"UYARI: Virman otomatik ayrılamadı; Referanslı listede bırakıldı: "
+                        f"{detection.reason} ({record.aciklama[:60]}...)"
+                    )
+            referansli_by_region[region] = remaining_reference
+
+        result.virman_records = sum(len(records) for records in virman_by_region.values())
+        result.skipped_reference = sum(len(records) for records in referansli_by_region.values())
         result.unresolved = len(pending)
         review_rows = [self._review_row(item.region, item.record, item.reason) for item in pending]
 
@@ -504,6 +537,14 @@ class ProcessingEngine:
             records.sort(key=self._manim_sort_key)
         for records in kural_calisti_by_region.values():
             records.sort(key=self._manim_sort_key)
+        for records in virman_by_region.values():
+            records.sort(
+                key=lambda record: (
+                    record.islem_tarihi or datetime.max,
+                    record.kaynak_banka,
+                    record.hedef_banka,
+                )
+            )
 
         output_base = self.output_root
         output_base.mkdir(parents=True, exist_ok=True)
@@ -542,6 +583,26 @@ class ProcessingEngine:
                     result.logs.append(f"{file_name}: {len(rows)} Netsis satiri olusturuldu.")
             finally:
                 writer.close()
+
+            if result.virman_records:
+                virman_writer = NetsisWriter(profile=reference_output_profile)
+                try:
+                    for region in self.REGIONS:
+                        rows = virman_by_region.get(region, [])
+                        if not rows:
+                            continue
+                        virman_name = (
+                            f"{region_file_prefix(region, self.REGIONS)}_{region}_"
+                            f"HESAPLAR_ARASI_VIRMAN_{tarih_etiketi}"
+                            f"{reference_output_profile.output_extension}"
+                        )
+                        virman_writer.write(rows, staging_dir / virman_name)
+                        created_names.append(virman_name)
+                        result.logs.append(
+                            f"{virman_name}: {len(rows)} giden virman satırı oluşturuldu."
+                        )
+                finally:
+                    virman_writer.close()
 
             if review_rows:
                 review_name = (

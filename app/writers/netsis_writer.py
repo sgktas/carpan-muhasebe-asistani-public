@@ -161,7 +161,12 @@ class NetsisWriter:
         return self.template_path.resolve()
 
     def _prepare_output_path(self, output_path: str | Path) -> Path:
-        output_path = xls_path(output_path).resolve()
+        output_path = Path(output_path)
+        if self.profile.output_extension == ".xls":
+            output_path = xls_path(output_path)
+        else:
+            output_path = output_path.with_suffix(self.profile.output_extension)
+        output_path = output_path.resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists():
             output_path.unlink()
@@ -265,7 +270,7 @@ class NetsisWriter:
 
             if records:
                 last_row = len(records) + 1
-                if template_path.suffix.lower() == ".xls" and len(records) > 1:
+                if len(records) > 1:
                     # Orijinal örnek satırın yazı, kenarlık ve sayı biçimini
                     # yeni satırlara da taşı; yalnız biçimleri kopyala.
                     worksheet.Range(f"A2:{last_column_letter}2").Copy()
@@ -275,6 +280,12 @@ class NetsisWriter:
                 # biçim dizeleri kurulu Office diline bağlı olduğundan önce
                 # Türkçe yerel biçim, ardından invariant biçim denenir. Biçim
                 # ataması veri üretimini tek başına durdurmaz.
+                text_column_formats: dict[int, object] = {}
+                for index in self._force_text_column_indexes():
+                    try:
+                        text_column_formats[index] = worksheet.Cells(2, index + 1).NumberFormat
+                    except Exception:
+                        pass
                 for start, end in self._contiguous_ranges(self._force_text_column_indexes()):
                     range_str = f"{self._excel_column_letter(start)}2:{self._excel_column_letter(end)}{last_row}"
                     try:
@@ -304,9 +315,19 @@ class NetsisWriter:
                     [self._record_values_for_excel_value2(record) for record in records],
                     template_path,
                     last_column_letter,
+                    cell_by_cell=self.profile.profile_id == "netsis_virman_toplu",
                 )
+                # Metin hücrelerini yazarken geçici olarak "@" kullanmak
+                # baştaki sıfırları ve uzun kodları korur. Ardından onaylı
+                # şablonun hücre görünümünü geri yükle; veri türü metin kalır.
+                for index, original_format in text_column_formats.items():
+                    letter = self._excel_column_letter(index)
+                    try:
+                        worksheet.Range(f"{letter}2:{letter}{last_row}").NumberFormat = original_format
+                    except Exception:
+                        pass
 
-            self._save_workbook_as_netsis_xls(workbook, template_path, output_path)
+            self._save_workbook_as_netsis(workbook, template_path, output_path)
             workbook.Close(SaveChanges=False)
             workbook = None
         except ExcelAutomationUnavailable:
@@ -318,7 +339,7 @@ class NetsisWriter:
                 except Exception:
                     pass
             raise RuntimeError(
-                f"'{self.profile.name}' uyumlu Excel 97-2003 dosyası Microsoft Excel ile "
+                f"'{self.profile.name}' uyumlu Excel dosyası Microsoft Excel ile "
                 f"kaydedilemedi: {error}"
             ) from error
         finally:
@@ -334,6 +355,7 @@ class NetsisWriter:
         rows: list[tuple],
         template_path: Path,
         last_column_letter: str,
+        cell_by_cell: bool = False,
     ) -> None:
         """Verileri şablonun türüne göre Excel'e yazar.
 
@@ -341,10 +363,16 @@ class NetsisWriter:
         matrisi tek seferde atamak, Windows ACE/OLEDB sürücüsünün dosyayı
         ``External table is not in the expected format`` diyerek reddettiği
         bir SST akışı üretebiliyor. Aynı dosyaya hücre hücre yazmak ise
-        Netsis'in kabul ettiği yapıyı koruyor. XLSX tabanlı şablonlarda hızlı
-        toplu yazma yolunu kullanmaya devam ederiz.
+        Netsis'in kabul ettiği yapıyı koruyor. Diğer XLSX profillerinde hızlı
+        toplu yazma yolu sürer; virman şablonunda baştaki sıfırları korumak
+        için hücre hücre yazılır.
         """
-        if template_path.suffix.lower() == ".xls":
+        # Onaylı XLSX virman şablonunda Plas.Kodu gibi metin olarak saklanan
+        # ancak sayısal görünüme sahip hücreler bulunuyor. Tüm matrisi tek
+        # Range.Value2 çağrısıyla yazmak Excel'in "00" değerini 0 sayısına
+        # dönüştürmesine yol açıyor. Her iki biçimde de hücre hücre yazarak
+        # şablondaki veri türünü ve Netsis'in beklediği dosya yapısını koru.
+        if template_path.suffix.lower() == ".xls" or cell_by_cell:
             for row_index, values in enumerate(rows, start=2):
                 for column_index, value in enumerate(values, start=1):
                     worksheet.Cells(row_index, column_index).Value2 = value
@@ -353,16 +381,17 @@ class NetsisWriter:
         last_row = len(rows) + 1
         worksheet.Range(f"A2:{last_column_letter}{last_row}").Value2 = tuple(rows)
 
-    def _save_workbook_as_netsis_xls(self, workbook, template_path: Path, output_path: Path) -> None:
+    def _save_workbook_as_netsis(self, workbook, template_path: Path, output_path: Path) -> None:
         """Netsis'in verdiği BIFF8 şablonundaki dosya yapısını korur.
 
         Orijinal şablon zaten ``.xls`` ise ``SaveAs(..., FileFormat=56)``
         Excel'in bazı eski tablo akışlarını yeniden oluşturmasına yol
         açabiliyor. Ephesus bu dosyayı "External table" hatasıyla
         reddedebildiği için, aynı BIFF8 dosyasından doğrudan bir kopya alırız.
-        XLSX tabanlı diğer profillerde ise standart BIFF8 dönüşümü sürer.
+        Şablon ile istenen çıktı uzantısı aynıysa yine doğrudan kopya alınır;
+        yalnız farklı uzantı isteyen profiller BIFF8'e dönüştürülür.
         """
-        if template_path.suffix.lower() == ".xls":
+        if self.profile.output_extension == template_path.suffix.lower():
             workbook.SaveCopyAs(str(output_path))
             return
 
@@ -373,6 +402,10 @@ class NetsisWriter:
             ConflictResolution=2,
             Local=True,
         )
+
+    # Eski test ve entegrasyon çağrıları için geriye dönük ad.
+    def _save_workbook_as_netsis_xls(self, workbook, template_path: Path, output_path: Path) -> None:
+        self._save_workbook_as_netsis(workbook, template_path, output_path)
 
     def _get_excel_application(self):
         if self._excel is not None:
@@ -434,10 +467,12 @@ class NetsisWriter:
 
         payload = {
             "headers": self.profile.headers(),
+            "output_extension": self.profile.output_extension,
             "date_columns": date_columns,
             "amount_columns": amount_columns,
             "string_columns": string_columns,
             "double_columns": double_columns,
+            "cell_by_cell": self.profile.profile_id == "netsis_virman_toplu",
             # Her satırı nesne içine almak PowerShell'in tek satırlı diziyi
             # düzleştirmesini engeller.
             "rows": [
@@ -487,7 +522,7 @@ class NetsisWriter:
             if completed.returncode != 0:
                 details = (completed.stderr or completed.stdout or "Bilinmeyen hata").strip()
                 raise RuntimeError(
-                    f"'{self.profile.name}' uyumlu Excel 97-2003 dosyası PowerShell üzerinden "
+                    f"'{self.profile.name}' uyumlu Excel dosyası PowerShell üzerinden "
                     f"Microsoft Excel ile kaydedilemedi: {details}"
                 )
 
@@ -571,7 +606,7 @@ try {
 
     if ($rows.Count -gt 0) {
         $lastRow = $rows.Count + 1
-        if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls" -and $rows.Count -gt 1) {
+        if ($rows.Count -gt 1) {
             $worksheet.Range("A2:$lastColumnLetter" + "2").Copy()
             $worksheet.Range("A3:$lastColumnLetter$lastRow").PasteSpecial(-4122)
             $excel.CutCopyMode = $false
@@ -580,8 +615,10 @@ try {
         # İngilizce "m/d/yy" biçimini COMException ile reddedebildiği için
         # önce yerel biçimler denenir. Biçimlendirme başarısız olsa bile veri
         # yazımı ve dosya kaydı durdurulmaz.
+        $stringColumnFormats = @{}
         foreach ($column in $stringColumns) {
             $letter = ExcelColumnLetter $column
+            try { $stringColumnFormats[[int]$column] = $worksheet.Cells.Item(2, $column + 1).NumberFormat } catch {}
             try { $worksheet.Range("$letter" + "2:$letter$lastRow").NumberFormat = "@" } catch {}
         }
         foreach ($column in $dateColumns) {
@@ -626,7 +663,7 @@ try {
                 $matrix.SetValue($value, $rowIndex, $column)
             }
         }
-        if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls") {
+        if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls" -or [bool]$payload.cell_by_cell) {
             for ($rowIndex = 0; $rowIndex -lt $rows.Count; $rowIndex++) {
                 for ($column = 0; $column -lt $columnCount; $column++) {
                     $worksheet.Cells.Item($rowIndex + 2, $column + 1).Value2 = $matrix.GetValue($rowIndex, $column)
@@ -636,10 +673,19 @@ try {
         else {
             $worksheet.Range("A2:$lastColumnLetter$lastRow").Value2 = $matrix
         }
+        foreach ($column in $stringColumns) {
+            if ($stringColumnFormats.ContainsKey([int]$column)) {
+                $letter = ExcelColumnLetter $column
+                try {
+                    $worksheet.Range("$letter" + "2:$letter$lastRow").NumberFormat = $stringColumnFormats[[int]$column]
+                }
+                catch {}
+            }
+        }
     }
 
-    # 56 = xlExcel8 / gerçek Excel 97-2003 BIFF8
-    if ([IO.Path]::GetExtension($TemplatePath) -ieq ".xls") {
+    # Şablon ve hedef biçimi aynıysa orijinal dosya yapısını koru.
+    if ([IO.Path]::GetExtension($TemplatePath) -ieq [string]$payload.output_extension) {
         $workbook.SaveCopyAs($OutputPath)
     }
     else {
@@ -670,6 +716,11 @@ finally {
 '''
 
     def _write_with_xlwt(self, records: list[NetsisRecord], output_path: str | Path) -> Path:
+        if self.profile.output_extension != ".xls":
+            raise RuntimeError(
+                f"'{self.profile.name}' çıktısı {self.profile.output_extension} biçimindeki "
+                "onaylı şablon ve Microsoft Excel olmadan üretilemez."
+            )
         workbook = xlwt.Workbook(encoding="utf-8", style_compression=2)
         worksheet = workbook.add_sheet("Sheet1")
         styles = make_styles()

@@ -78,6 +78,53 @@ def test_odeme_onaylandi_ve_referansli_ayriliyor(synthetic_project):
     assert book.format_map[doviz_xf.format_key].format_str == "#,##0.00"
 
 
+def test_negatif_referansli_virman_bolge_bazli_toplu_ciktiya_ayrilir(
+    synthetic_project,
+    monkeypatch,
+):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    import pandas as pd
+
+    rows = pd.read_excel(manim_path)
+    rows["Kod - Şube"] = rows["Kod - Şube"].astype(object)
+    rows.loc[2, "Banka"] = "Garanti"
+    rows.loc[2, "Kod - Şube"] = "TEST-HESAP-1001"
+    rows.loc[2, "Açıklama"] = "INT-HVL-1001 DEN 1005 HES VIRMAN"
+    rows.loc[2, "Tutar"] = -777.0
+    rows.to_excel(manim_path, index=False)
+    written = []
+
+    class FakeNetsisWriter:
+        def __init__(self, *args, profile=None):
+            self.profile = profile
+
+        def write(self, output_rows, output_path):
+            written.append((self.profile.profile_id, list(output_rows), output_path))
+            output_path.write_bytes(b"test")
+            return output_path
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", FakeNetsisWriter)
+
+    result = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path],
+        project_root,
+    ).run()
+
+    assert result.virman_records == 1
+    assert result.skipped_reference == 0
+    profile_id, virman_rows, output_path = next(
+        item for item in written if item[0] == "netsis_virman_toplu"
+    )
+    assert profile_id == "netsis_virman_toplu"
+    assert output_path.name == "01_BODRUM_HESAPLAR_ARASI_VIRMAN_15-16.07.2026.xlsx"
+    assert virman_rows[0].kaynak_banka_hesap_kodu == "BANK-G-01"
+    assert virman_rows[0].hedef_banka_hesap_kodu == "BANK-G-05"
+    assert virman_rows[0].tutar == 777.0
+
+
 def test_kural_calisti_eslestirmeye_girmeden_bolgesel_ciktiya_yazilir(synthetic_project):
     manim_path, tahsilat_path, customer_path, project_root = synthetic_project
     import pandas as pd

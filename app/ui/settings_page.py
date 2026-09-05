@@ -324,7 +324,10 @@ class SettingsPage(QWidget):
         self._profile_row_widgets.clear()
 
         input_profiles = self._input_profile_store.list_profiles()
-        output_profiles = self._output_profile_store.list_profiles()
+        output_profiles = [
+            profile for profile in self._output_profile_store.list_profiles()
+            if profile.category == "havale"
+        ]
         customer_list_profiles = self._customer_list_profile_store.list_profiles()
 
         rows = [

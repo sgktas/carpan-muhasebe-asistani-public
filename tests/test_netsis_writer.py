@@ -98,6 +98,14 @@ def test_orijinal_netsis_biff8_sablonu_profilde_kullanilabilir(tmp_path, monkeyp
     assert _default_template_path(profile) == template
 
 
+def test_xlsx_profile_preserves_xlsx_output_extension(tmp_path):
+    profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get(
+        "netsis_virman_toplu"
+    )
+    writer = NetsisWriter(template_path=tmp_path / "template.xlsx", profile=profile)
+    assert writer._prepare_output_path(tmp_path / "virman.xls").suffix == ".xlsx"
+
+
 def test_gercek_excel_97_2003_biff8_ve_xls_uzantisi(tmp_path):
     output_path = NetsisWriter().write([_record()], tmp_path / "test.xlsx")
     assert output_path.suffix == ".xls"
@@ -308,6 +316,36 @@ def test_orijinal_xls_sablonuna_hucre_hucre_yazilir(tmp_path):
     assert worksheet.cells[(2, 1)].Value2 == "C001"
     assert worksheet.cells[(2, 2)].Value2 == 1250.0
     assert worksheet.cells[(3, 1)].Value2 == "C002"
+
+
+def test_virman_xlsx_bastaki_sifiri_korumak_icin_hucre_hucre_yazilir(tmp_path):
+    template = tmp_path / "netsis_virman_toplu_template.xlsx"
+
+    class FakeCell:
+        def __init__(self):
+            self.Value2 = None
+
+    class FakeWorksheet:
+        def __init__(self):
+            self.cells = {}
+
+        def Cells(self, row, column):
+            return self.cells.setdefault((row, column), FakeCell())
+
+        def Range(self, _address):
+            raise AssertionError("Virman XLSX dosyasında toplu Value2 yazımı kullanılmamalı")
+
+    worksheet = FakeWorksheet()
+    NetsisWriter._write_excel_values(
+        worksheet,
+        [("BM-KAYNAK", "00")],
+        template,
+        "B",
+        cell_by_cell=True,
+    )
+
+    assert worksheet.cells[(2, 1)].Value2 == "BM-KAYNAK"
+    assert worksheet.cells[(2, 2)].Value2 == "00"
 
 
 def test_toplu_banka_kodu_sablon_biciminde_kalir():

@@ -333,7 +333,21 @@ class OutputProfileEditorDialog(QDialog):
     şablonu da tanımlanabilir.
     """
 
-    FIELD_OPTIONS = ["islem_tarihi", "cari_kodu", "tutar", "aciklama", "banka", "bolge", "kaynak"]
+    FIELD_OPTIONS = [
+        "islem_tarihi",
+        "islem_tarihi_metni",
+        "cari_kodu",
+        "tutar",
+        "aciklama",
+        "banka",
+        "bolge",
+        "kaynak",
+        "kaynak_banka_hesap_kodu",
+        "hedef_banka_hesap_kodu",
+        "muh_ref_kodu",
+        "proje_kodu",
+        "plasiyer_kodu",
+    ]
     STYLE_OPTIONS = ["text", "date", "amount", "integer", "centered"]
     SOURCE_OPTIONS = ["Sabit değer", "Alan"]
 

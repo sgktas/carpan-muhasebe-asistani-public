@@ -88,6 +88,61 @@ class RegionConfig:
         most_specific = [region for region, suffix in matches if len(suffix) == longest]
         return most_specific[0] if len(most_specific) == 1 else None
 
+    def find_manim_accounts_in_text(
+        self,
+        text: str,
+        *,
+        exclude: tuple[str, str] | None = None,
+    ) -> tuple[tuple[str, str], ...]:
+        """Metindeki hesap/IBAN sonlarından bilinen bölge+banka hesaplarını bulur."""
+        # Virman açıklamalarında banka referans numaraları da bulunur. Yalnız
+        # bir referans numarasının son haneleri hesap kuralıyla tesadüfen
+        # çakıştı diye para hareketini otomatik virman saymamak için burada
+        # güçlü hesap kanıtı kabul edilir: son-hane kodunun ayrı bir alan
+        # olarak geçmesi veya tam bir TR IBAN'ın aynı kodla bitmesi.
+        candidates = tuple(
+            self._account_key(part)
+            for part in re.findall(r"[A-Z0-9]+", str(text or "").upper())
+        )
+        if not candidates:
+            return ()
+
+        excluded = (
+            (str(exclude[0]).strip().upper(), str(exclude[1]).strip().upper())
+            if exclude
+            else None
+        )
+        matches: list[tuple[str, str, int]] = []
+        for region in self.regions():
+            entry = self._data.get(region, {})
+            for bank, raw_suffix in entry.get("manim_hesap_kodlari", {}).items():
+                bank_key = str(bank).strip().upper()
+                if excluded == (region, bank_key):
+                    continue
+                suffix = self._account_key(raw_suffix)
+                if suffix and any(
+                    candidate == suffix
+                    or (
+                        candidate.startswith("TR")
+                        and len(candidate) == 26
+                        and candidate.endswith(suffix)
+                    )
+                    for candidate in candidates
+                ):
+                    matches.append((region, bank_key, len(suffix)))
+        if not matches:
+            return ()
+
+        # Aynı hesabın hem kısa hem uzun son hanesi tanımlıysa en ayrıntılı
+        # eşleşmeyi kullan; eşit uzunluktaki farklı hesapları belirsiz bırak.
+        longest = max(length for _region, _bank, length in matches)
+        unique = {
+            (region, bank)
+            for region, bank, length in matches
+            if length == longest
+        }
+        return tuple(sorted(unique))
+
     def customer_branch_aliases(self, region: str) -> tuple[str, ...]:
         aliases = self._data.get(region, {}).get("musteri_sube_etiketleri", [])
         if isinstance(aliases, str):

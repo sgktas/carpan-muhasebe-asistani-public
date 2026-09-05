@@ -14,6 +14,11 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
 - Başlıkları, sütun sırasını, sayfa adını, sütun genişliklerini ve mevcut
   biçimlendirmeyi değiştirme. Tutar sütunlarının binlik ayraçlı, iki ondalıklı
   sayısal biçimini yeni veri satırlarında da koru.
+- Hesaplar arası toplu virman çıktısı
+  `templates/local/netsis_virman_toplu_template.xlsx` dosyasını kullanır.
+  Bu, kullanıcının 6 Eylül 2026 tarihinde onayladığı
+  `HESAPLAR ARASI VİRMAN TOPLU.xlsx` dosyasının birebir kopyasıdır. Kaynak
+  banka kodu A, hedef banka kodu H, yön değeri 1 ve tutar O sütunundadır.
 - Kaynak şablonların içine veri yazma, yeniden kaydetme veya başka Excel
   biçimine dönüştürme. Yalnız ayrı çıktı dosyasındaki işlem verileri değişebilir.
 - Şablon eksikse genel Excel üreterek devam etme. Önce orijinal dosyayı geri koy.

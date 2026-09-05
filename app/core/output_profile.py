@@ -40,6 +40,7 @@ class OutputProfile:
     category: str = "havale"
     grouping: str = "region_bank"
     protected: bool = False
+    output_extension: str = ".xls"
 
     def headers(self) -> list[str]:
         return [column.header for column in self.columns]
@@ -83,6 +84,9 @@ class OutputProfile:
             category=data.get("category", "havale"),
             grouping=data.get("grouping", "region_bank"),
             protected=bool(data.get("protected", False)),
+            output_extension=(
+                "." + str(data.get("output_extension", "xls")).strip().lstrip(".").lower()
+            ),
         )
 
 

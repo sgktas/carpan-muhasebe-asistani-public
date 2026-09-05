@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook
 import xlwt
 
 from app.core.output_contract import OutputContractError, validate_netsis_output
@@ -62,3 +63,48 @@ def test_output_contract_rejects_amount_difference(tmp_path):
 
     with pytest.raises(OutputContractError, match="toplamı uyuşmuyor"):
         validate_netsis_output(output, profile, records)
+
+
+def test_xlsx_contract_preserves_template_sheet_set_and_two_bank_codes(tmp_path):
+    profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get(
+        "netsis_virman_toplu"
+    )
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "output.xlsx"
+
+    for path in (template, output):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+        sheet.append(profile.headers())
+        sheet.append([
+            "BANK-SOURCE", 1, None, "06.09.2026", "06.09.2026", None, None,
+            "BANK-TARGET", None, None, None, None, 0, None, 1250, "TEST",
+            None, None, "R00", 101, "TEST", None, None, None, None, None,
+            None, None, None, None, None, None,
+        ])
+        workbook.create_sheet("Sayfa2")
+        workbook.create_sheet("Sheet3")
+        workbook.save(path)
+
+    records = [
+        type("Record", (), {"tutar": 1250})()
+    ]
+    validate_netsis_output(output, profile, records, template)
+
+
+def test_xlsx_contract_rejects_removed_template_sheet(tmp_path):
+    profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get(
+        "netsis_virman_toplu"
+    )
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "output.xlsx"
+    for path, extra_sheet in ((template, True), (output, False)):
+        workbook = Workbook()
+        workbook.active.append(profile.headers())
+        if extra_sheet:
+            workbook.create_sheet("Sayfa2")
+        workbook.save(path)
+
+    with pytest.raises(OutputContractError, match="sayfaları"):
+        validate_netsis_output(output, profile, [], template)

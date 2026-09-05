@@ -256,8 +256,8 @@ MANİM Aktarma ekranı sabit bir MANİM dosya sayısı beklemez; aynı işlemde 
 veya daha fazla MANİM raporu verilebilir. Ham FOM müşteri listesi, bağımsız
 **Müşteri Listesi** modülünde düzenlenir ve yerel hafızaya alınır; MANİM
 aktarımı bu hazırlanmış sürümü kullanır. MANİM'deki açık karşı hesap kodu
-hafızadaki listede yoksa sistem yanlış cari kodla çıktı üretmeden durur ve
-kullanıcıyı Müşteri Listesi modülünden güncel listeyi içe aktarmaya yönlendirir.
+hafızadaki listede yoksa kayıt otomatik eşleştirilmez; diğer işlemler durmadan
+devam eder ve ilgili kayıt manuel eşleştirme ekranında kontrol edilir.
 
 ### Havale çıktı şablonları
 
@@ -266,6 +266,21 @@ Mevcut şablon bölge ve banka için ayrı dosya üretmeye devam eder. **Netsis 
 Toplu Banka Kodlu Havale** şablonu ise her bölge için tek dosya üretir; Garanti,
 Yapı Kredi ve Ziraat satırlarının `Banka Hes.Kodu(*)` alanına bölge ayarlarındaki
 ilgili BM kodu otomatik yazılır.
+
+### Hesaplar arası virman çıktısı
+
+MANİM'de **Referanslı** durumundaki negatif hareketlerden yalnız açıklamasında
+virman/giden hesap transferi işareti bulunan ve hedef şirket hesabı Bölge
+Yönetimi'ndeki hesap/IBAN son haneleriyle kesin eşleşen kayıtlar ayrılır. Her
+kaynak bölge için tek `HESAPLAR_ARASI_VIRMAN_*.xlsx` dosyası oluşur; o bölgenin
+tüm kaynak bankaları aynı dosyada yer alır. Kaynak BM kodu `Banka Hes.Kodu(*)`,
+hedef BM kodu `Banka Hesap Kodu(*)` alanına yazılır ve yön değeri giden işlem
+için `1` olur. Hedefi belirsiz olan veya şirket dışı ödemeler otomatik aktarılmaz;
+mevcut Referanslı inceleme dosyasında kalır.
+
+Virman çıktısı yalnız onaylı `HESAPLAR ARASI VİRMAN TOPLU.xlsx` şablonunun yerel
+birebir kopyasından üretilir. Sayfa adları, 32 sütunlu başlık dizilimi ve çalışma
+kitabı yapısı doğrulanmadan çıktı başarılı sayılmaz.
 
 
 ## Revize 18 — Çıktı Klasörü ve FOM Adlandırması

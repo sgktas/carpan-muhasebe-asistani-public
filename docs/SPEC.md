@@ -34,7 +34,9 @@ değiştirilmemelidir.
 ### manim_transfer
 
 MANİM ve tahsilat verilerini bölge/banka bazında Netsis havale çıktılarına
-dönüştürür.
+dönüştürür. Referanslı negatif hareketlerde hedef şirket hesabı kesin
+belirlenen hesaplar arası virmanları da kaynak bölge bazında tek, çok bankalı
+Netsis XLSX çıktısına ayırır; belirsiz hareketleri Referanslı incelemede tutar.
 
 ### report_editing
 
