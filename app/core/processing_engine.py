@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
-import re
-import shutil
-import unicodedata
-from uuid import uuid4
-
-import pandas as pd
 
 from app.core.active_profile_store import ActiveProfileStore
 from app.core.customer_parser import CustomerParser
@@ -18,26 +12,35 @@ from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
 from app.core.output_profile import OutputProfileStore
 from app.core.mapping_store import MappingStore
-from app.core.money import money, money_sum
-from app.core.movement_classifier import MovementRoute
-from app.core.movement_router import MovementDecision, MovementRouter
-from app.core.output_order import (
-    bank_sort_key,
-    chronological_key,
-    region_file_prefix,
-    region_sort_key,
-    special_file_prefix,
+from app.core.manim_input_classifier import ManimInputClassifier
+from app.core.manim_output_service import (
+    ManimOutputPlan,
+    ManimOutputService,
+    build_review_row,
 )
+from app.core.manim_region_resolver import ManimRegionResolver
+from app.core.manim_resolution import (
+    CombinedBankMovementMatcher,
+    ManualResolution,
+    ManualResolutionService,
+    UnresolvedItem,
+    append_virman_decision,
+    missing_bank_account_code_reason,
+    output_key,
+    reference_candidate_log,
+    requires_bank_account_code,
+    with_region_codes,
+)
+from app.core.movement_classifier import MovementRoute
+from app.core.movement_router import MovementRouter
+from app.core.output_order import region_sort_key
 from app.core.manim_parser import InvalidManimRow, ManimParser
 from app.core.processed_files_log import ProcessedFilesLog
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.core.tahsilat_parser import TahsilatParser
-from app.models.records import CustomerRecord, ManimRecord, TahsilatRecord
+from app.core.text_keys import bank_key
+from app.models.records import ManimRecord
 from app.processors.havale_processor import HavaleProcessor
-from app.writers.netsis_writer import NetsisWriter
-from app.writers.odeme_onaylandi_writer import OdemeOnaylandiWriter
-from app.writers.referansli_writer import ReferansliWriter
-from app.writers.xls_utils import write_table_xls
 
 
 @dataclass
@@ -58,27 +61,6 @@ class ProcessingResult:
     duplicate_files: list[str] = field(default_factory=list)
     odeme_onaylandi_items: list[tuple] = field(default_factory=list)
     odeme_onaylandi_path: Path | None = None
-
-
-@dataclass
-class UnresolvedItem:
-    """Otomatik eşleşmeyen tek bir MANİM kaydı."""
-
-    record: ManimRecord
-    region: str
-    reason: str
-    suggested_rows: list[TahsilatRecord] = field(default_factory=list)
-    group_records: list[ManimRecord] = field(default_factory=list)
-    group_target_amount: float | None = None
-
-
-@dataclass
-class ManualResolution:
-    """Kullanıcının manuel eşleştirme ekranında bir kayıt için verdiği karar."""
-
-    route: str
-    rows: list[TahsilatRecord] | None = None
-    allow_partial: bool = False
 
 
 class ProcessingEngine:
@@ -107,9 +89,11 @@ class ProcessingEngine:
             active_region_config_path(self.resource_root / "config", self.data_root)
         )
         self.REGIONS = self.region_config.regions() or self.FALLBACK_REGIONS
+        self.input_classifier = ManimInputClassifier()
+        self.region_resolver = ManimRegionResolver(self.region_config, self.REGIONS)
 
     def find_duplicate_manim_files(self) -> dict[Path, dict]:
-        manim_files, _, _ = self._classify_files()
+        manim_files = self.input_classifier.classify(self.files).manim_files
         processed_log = ProcessedFilesLog(self.data_root / "data" / "processed_files.json")
         duplicates: dict[Path, dict] = {}
         for manim_file in manim_files:
@@ -121,7 +105,10 @@ class ProcessingEngine:
 
     def run(self, resolver=None, allow_duplicate_files: set[str] | None = None) -> ProcessingResult:
         result = ProcessingResult()
-        manim_files, tahsilat_file, customer_file = self._classify_files()
+        inputs = self.input_classifier.classify(self.files)
+        manim_files = inputs.manim_files
+        tahsilat_file = inputs.tahsilat_file
+        customer_file = inputs.customer_file
 
         if not manim_files:
             raise ValueError("En az bir MANIM raporu bulunamadi.")
@@ -171,7 +158,7 @@ class ProcessingEngine:
         # hafızaya alınır.
         if customer_file_is_fresh:
             customer_cache.save(customer_file)
-        customer_region_by_code, customer_region_by_name = self._customer_region_indexes(customers)
+        customer_region_by_code, customer_region_by_name = self.region_resolver.customer_indexes(customers)
         mapping_store = MappingStore(self.data_root / "data" / "customer_mappings.json")
         region_branch_aliases = {
             region: self.region_config.customer_branch_aliases(region)
@@ -231,7 +218,7 @@ class ProcessingEngine:
                 )
                 continue
 
-            file_region = self._region_from_name(manim_file.name)
+            file_region = self.region_resolver.from_file_name(manim_file.name)
             parse_result = ManimParser(manim_file, profile=input_profile).load_with_issues()
             records = parse_result.records
             invalid_rows.extend(parse_result.invalid_rows)
@@ -247,7 +234,7 @@ class ProcessingEngine:
 
             row_region_counts: dict[str, int] = defaultdict(int)
             for record in records:
-                region = self._region_for_record(
+                region = self.region_resolver.for_record(
                     record,
                     file_region,
                     customer_region_by_code,
@@ -279,7 +266,7 @@ class ProcessingEngine:
                     continue
 
                 if decision.route == MovementRoute.ODEME_ONAYLANDI:
-                    odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
+                    odeme_onaylandi_items.append((record, region, bank_key(record.banka)))
                     result.skipped_payment += 1
                     continue
 
@@ -289,17 +276,16 @@ class ProcessingEngine:
                     continue
 
                 if decision.route == MovementRoute.SAME_BANK_VIRMAN:
-                    self._append_virman_decision(
-                        decision,
-                        region,
-                        virman_by_region,
-                        result,
+                    result.logs.append(
+                        append_virman_decision(decision, region, virman_by_region)
                     )
                     continue
 
                 if decision.route == MovementRoute.REFERANSLI:
                     referansli_by_region[region].append(record)
-                    self._log_reference_candidate(decision, record, result)
+                    candidate_log = reference_candidate_log(decision, record)
+                    if candidate_log:
+                        result.logs.append(candidate_log)
                     continue
 
                 if decision.route != MovementRoute.HAVALE:
@@ -307,12 +293,12 @@ class ProcessingEngine:
                         f"İşleme motorunun desteklemediği hareket rotası: {decision.route}"
                     )
 
-                bank = self._bank_key(record.banka)
-                if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(region, bank):
+                bank = bank_key(record.banka)
+                if requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(region, bank):
                     pending.append(UnresolvedItem(
                         record=record,
                         region=region,
-                        reason=self._missing_bank_account_code_reason(region, bank),
+                        reason=missing_bank_account_code_reason(region, bank),
                     ))
                     continue
 
@@ -327,8 +313,13 @@ class ProcessingEngine:
                     continue
 
                 for netsis_row in netsis_rows:
-                    outputs[self._output_key(region, bank, output_profile)].append(
-                        self._with_region_codes(netsis_row, region, bank)
+                    outputs[output_key(region, bank, output_profile)].append(
+                        with_region_codes(
+                            netsis_row,
+                            region,
+                            bank,
+                            self.region_config,
+                        )
                     )
                     result.produced_netsis_records += 1
 
@@ -351,341 +342,61 @@ class ProcessingEngine:
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
-            still_pending: list[UnresolvedItem] = []
-
-            for index, item in enumerate(pending):
-                resolution: ManualResolution | None = resolutions.get(index)
-                if not resolution or resolution.route == "ATLA":
-                    still_pending.append(item)
-                    continue
-
-                if resolution.route == "ODEME_ONAYLANDI":
-                    if item.record.tutar < 0:
-                        still_pending.append(item)
-                        result.logs.append(
-                            "UYARI: Negatif tutarlı kayıt manuel olarak da Ödeme Onaylandı'ya "
-                            "taşınamaz; inceleme listesinde bırakıldı."
-                        )
-                        continue
-                    odeme_onaylandi_items.append((item.record, item.region, self._bank_key(item.record.banka)))
-                    result.skipped_payment += 1
-                    result.logs.append(f"Manuel olarak Ödeme Onaylandı'ya taşındı: {item.record.aciklama[:60]}...")
-                    continue
-
-                if resolution.route == "REFERANSLI":
-                    decision = movement_router.route_reference(item.record, item.region)
-                    if decision.route == MovementRoute.SAME_BANK_VIRMAN:
-                        self._append_virman_decision(
-                            decision,
-                            item.region,
-                            virman_by_region,
-                            result,
-                        )
-                    else:
-                        referansli_by_region[item.region].append(item.record)
-                        self._log_reference_candidate(decision, item.record, result)
-                        result.logs.append(
-                            "Manuel olarak Referanslı'ya taşındı: "
-                            f"{item.record.aciklama[:60]}..."
-                        )
-                    continue
-
-                if resolution.route != "HAVALE" or not resolution.rows:
-                    still_pending.append(item)
-                    continue
-
-                if item.group_records:
-                    validated_rows, validation_error = self._validate_manual_rows(
-                        resolution.rows,
-                        item.group_target_amount or 0,
-                        allow_partial=False,
-                    )
-                    if validation_error:
-                        still_pending.append(item)
-                        result.logs.append(
-                            "UYARI: Toplu havale manuel eşleştirmesi kabul edilmedi: "
-                            f"{validation_error}"
-                        )
-                        continue
-                    bank = self._bank_key(item.record.banka)
-                    for row in validated_rows:
-                        netsis_row = processor._netsis_record(
-                            item.group_records[0],
-                            row.musteri_kodu,
-                            row.tutar,
-                            "TOPLU_MANUEL_ESLESTIRME",
-                        )
-                        outputs[self._output_key(item.region, bank, output_profile)].append(
-                            self._with_region_codes(netsis_row, item.region, bank)
-                        )
-                        result.produced_netsis_records += 1
-                    result.logs.append(
-                        f"Toplu havale manuel onaylandı: {len(item.group_records)} hareket, "
-                        f"{len(validated_rows)} cari dağılımı, {item.group_target_amount:,.2f} TL."
-                    )
-                    continue
-
-                bank = self._bank_key(item.record.banka)
-                if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(item.region, bank):
-                    still_pending.append(
-                        UnresolvedItem(
-                            record=item.record,
-                            region=item.region,
-                            reason=self._missing_bank_account_code_reason(item.region, bank),
-                            suggested_rows=item.suggested_rows,
-                        )
-                    )
-                    result.logs.append(
-                        f"UYARI: BM kodu olmadığı için manuel havale aktarımı bekletildi: "
-                        f"{item.record.aciklama[:60]}..."
-                    )
-                    continue
-
-                validated_rows, validation_error = self._validate_manual_rows(
-                    resolution.rows,
-                    item.record.tutar,
-                    allow_partial=resolution.allow_partial,
-                )
-                if validation_error:
-                    still_pending.append(
-                        UnresolvedItem(
-                            record=item.record,
-                            region=item.region,
-                            reason=f"Manuel eşleştirme reddedildi: {validation_error}",
-                            suggested_rows=item.suggested_rows,
-                        )
-                    )
-                    result.logs.append(
-                        f"UYARI: Manuel eşleştirme kabul edilmedi ({validation_error}): "
-                        f"{item.record.aciklama[:60]}..."
-                    )
-                    continue
-
-                for row in validated_rows:
-                    netsis_row = processor._netsis_record(
-                        item.record,
-                        row.musteri_kodu,
-                        row.tutar,
-                        "MANUEL_ESLESTIRME",
-                    )
-                    outputs[self._output_key(item.region, bank, output_profile)].append(
-                        self._with_region_codes(netsis_row, item.region, bank)
-                    )
-                    result.produced_netsis_records += 1
-
-                manual_total = round(sum(row.tutar for row in validated_rows), 2)
-                remaining = round(float(item.record.tutar) - manual_total, 2)
-                if resolution.allow_partial and remaining > 0.01:
-                    # Eksik dağılım hafızaya alınmaz; aynı açıklama tekrar
-                    # geldiğinde kullanıcı bakiye durumunu yeniden görür.
-                    result.logs.append(
-                        f"Manuel kısmi eşleştirme: {manual_total:,.2f} TL Netsis'e aktarıldı, "
-                        f"{remaining:,.2f} TL bekleyen bakiye olarak bırakıldı: "
-                        f"{item.record.aciklama[:60]}..."
-                    )
-                else:
-                    mapping_updates.append(
-                        (
-                            item.record.aciklama,
-                            [
-                                {"musteri_kodu": row.musteri_kodu, "tutar": row.tutar}
-                                for row in validated_rows
-                            ],
-                        )
-                    )
-                    result.logs.append(
-                        f"Manuel eşleştirildi; çıktı başarıyla oluşunca hafızaya kaydedilecek: "
-                        f"{item.record.aciklama[:60]}..."
-                    )
-
-            pending = still_pending
+            manual_outcome = ManualResolutionService(self.region_config).apply(
+                pending=pending,
+                resolutions=resolutions,
+                outputs=outputs,
+                output_profile=output_profile,
+                processor=processor,
+                movement_router=movement_router,
+                virman_by_region=virman_by_region,
+                referansli_by_region=referansli_by_region,
+                odeme_onaylandi_items=odeme_onaylandi_items,
+            )
+            pending = manual_outcome.pending
+            result.produced_netsis_records += manual_outcome.produced_netsis_records
+            result.skipped_payment += manual_outcome.skipped_payment
+            result.logs.extend(manual_outcome.logs)
+            mapping_updates.extend(manual_outcome.mapping_updates)
 
         result.virman_records = sum(len(records) for records in virman_by_region.values())
         result.skipped_reference = sum(len(records) for records in referansli_by_region.values())
         result.unresolved = len(pending)
-        review_rows = [self._review_row(item.region, item.record, item.reason) for item in pending]
+        review_rows = [
+            build_review_row(item.region, item.record, item.reason)
+            for item in pending
+        ]
 
         # Tüm MANİM dosyaları mükerrer olduğu için atlandıysa yeni çıktı veya
         # işlenmiş dosya kaydı oluşturulmaz.
         if not processed_candidates:
             return result
 
-        baslangic_tarihi, bitis_tarihi = self._date_span(islem_tarihleri)
-        tarih_etiketi = self._file_date_label(baslangic_tarihi, bitis_tarihi)
-        klasor_tarih_etiketi = self._folder_date_label(baslangic_tarihi, bitis_tarihi)
-        result.logs.append(
-            "İşlem tarih aralığı: "
-            + (
-                baslangic_tarihi.strftime("%d.%m.%Y")
-                if baslangic_tarihi == bitis_tarihi
-                else f"{baslangic_tarihi:%d.%m.%Y} - {bitis_tarihi:%d.%m.%Y}"
+        output_artifacts = ManimOutputService(
+            self.output_root,
+            self.region_config,
+            self.REGIONS,
+        ).write(
+            ManimOutputPlan(
+                outputs=outputs,
+                virman_by_region=virman_by_region,
+                review_rows=review_rows,
+                invalid_rows=invalid_rows,
+                odeme_onaylandi_items=odeme_onaylandi_items,
+                referansli_by_region=referansli_by_region,
+                kural_calisti_by_region=kural_calisti_by_region,
+                islem_tarihleri=islem_tarihleri,
+                output_profile=output_profile,
+                reference_output_profile=reference_output_profile,
             )
         )
-
-        # Bölge/banka çıktılarında kaynak kronolojisi korunur. Python sıralaması
-        # kararlı olduğu için aynı tarih-saatteki kayıtlar MANİM sırasını korur.
-        for rows in outputs.values():
-            rows.sort(key=self._netsis_sort_key)
-        odeme_onaylandi_items.sort(
-            key=lambda item: (
-                region_sort_key(item[1], self.REGIONS),
-                chronological_key(
-                    item[0].islem_tarihi,
-                    item[0].kaynak_dosya,
-                    item[0].kaynak_satir,
-                ),
-                bank_sort_key(item[2]),
-            )
-        )
-        for records in referansli_by_region.values():
-            records.sort(key=self._manim_sort_key)
-        for records in kural_calisti_by_region.values():
-            records.sort(key=self._manim_sort_key)
-        for records in virman_by_region.values():
-            records.sort(
-                key=lambda record: (
-                    record.islem_tarihi or datetime.max,
-                    record.kaynak_banka,
-                    record.hedef_banka,
-                )
-            )
-
-        output_base = self.output_root
-        output_base.mkdir(parents=True, exist_ok=True)
-        final_output_dir = self._unique_output_dir(
-            output_base / f"MANİM AKTARMA - {tarih_etiketi}"
-        )
-        staging_dir = output_base / f".{final_output_dir.name}.tmp-{uuid4().hex}"
-        staging_dir.mkdir(parents=True, exist_ok=False)
-
-        created_names: list[str] = []
-        review_name: str | None = None
-        invalid_name: str | None = None
-
-        try:
-            # NetsisWriter şablonu uygulamanın gerçek çalışma yolundan seçer:
-            # paketli uygulamada ``templates/local`` içindeki doğrulanmış
-            # Netsis şablonu, kaynak pakette ise varsa genel şablon kullanılır.
-            # Burada ``templates/<dosya>`` yolunu doğrudan vermek local
-            # şablonu atlatıp genel xlwt çıktısına düşürebiliyordu; Ephesus
-            # bu çıktıyı "External table" hatasıyla reddedebiliyor.
-            writer = NetsisWriter(profile=output_profile)
-            try:
-                ordered_outputs = sorted(
-                    outputs.items(),
-                    key=lambda item: (
-                        region_sort_key(item[0][0], self.REGIONS),
-                        bank_sort_key(item[0][1]),
-                    ),
-                )
-                for (region, bank), rows in ordered_outputs:
-                    file_name = self._netsis_file_name(
-                        region, bank, tarih_etiketi, output_profile
-                    )
-                    writer.write(rows, staging_dir / file_name)
-                    created_names.append(file_name)
-                    result.logs.append(f"{file_name}: {len(rows)} Netsis satiri olusturuldu.")
-            finally:
-                writer.close()
-
-            if result.virman_records:
-                virman_writer = NetsisWriter(profile=reference_output_profile)
-                try:
-                    for region in self.REGIONS:
-                        rows = virman_by_region.get(region, [])
-                        if not rows:
-                            continue
-                        virman_name = (
-                            f"{region_file_prefix(region, self.REGIONS)}_{region}_"
-                            f"HESAPLAR_ARASI_VIRMAN_{tarih_etiketi}"
-                            f"{reference_output_profile.output_extension}"
-                        )
-                        virman_writer.write(rows, staging_dir / virman_name)
-                        created_names.append(virman_name)
-                        result.logs.append(
-                            f"{virman_name}: {len(rows)} giden virman satırı oluşturuldu."
-                        )
-                finally:
-                    virman_writer.close()
-
-            if review_rows:
-                review_name = (
-                    f"{special_file_prefix('INCELEME_GEREKENLER', self.REGIONS)}_"
-                    f"INCELEME_GEREKENLER_{tarih_etiketi}.xls"
-                )
-                self._write_review(review_rows, staging_dir / review_name)
-                result.logs.append(f"{review_name}: {len(review_rows)} satir kontrol bekliyor.")
-
-            if invalid_rows:
-                invalid_name = (
-                    f"{special_file_prefix('GECERSIZ_MANIM_SATIRLARI', self.REGIONS)}_"
-                    f"GECERSIZ_MANIM_SATIRLARI_{tarih_etiketi}.xls"
-                )
-                self._write_invalid_rows(invalid_rows, staging_dir / invalid_name)
-                created_names.append(invalid_name)
-                result.logs.append(
-                    f"{invalid_name}: {len(invalid_rows)} bozuk kaynak satırı eşleştirme dışında bırakıldı."
-                )
-
-            odeme_name = (
-                f"{special_file_prefix('ODEME_ONAYLANDI', self.REGIONS)}_"
-                f"ODEME_ONAYLANDI_{tarih_etiketi}.xls"
-            )
-            odeme_path = OdemeOnaylandiWriter(self.region_config).write(
-                odeme_onaylandi_items,
-                staging_dir / odeme_name,
-            )
-            result.odeme_onaylandi_items = list(odeme_onaylandi_items)
-            if odeme_path:
-                created_names.append(odeme_name)
-                result.logs.append(f"{odeme_name}: {len(odeme_onaylandi_items)} odeme onaylandi kaydi.")
-
-            referansli_name = (
-                f"{special_file_prefix('REFERANSLI', self.REGIONS)}_"
-                f"REFERANSLI_{tarih_etiketi}.xls"
-            )
-            referansli_path = ReferansliWriter(self.region_config).write(
-                referansli_by_region,
-                staging_dir / referansli_name,
-            )
-            if referansli_path:
-                total_referansli = sum(len(records) for records in referansli_by_region.values())
-                created_names.append(referansli_name)
-                result.logs.append(
-                    f"{referansli_name}: {total_referansli} referansli kaydi (bolge bazinda sayfa)."
-                )
-
-            kural_calisti_name = (
-                f"{special_file_prefix('KURAL_CALISTI', self.REGIONS)}_"
-                f"KURAL_CALISTI_{tarih_etiketi}.xls"
-            )
-            kural_calisti_path = ReferansliWriter(self.region_config).write(
-                kural_calisti_by_region,
-                staging_dir / kural_calisti_name,
-            )
-            if kural_calisti_path:
-                total_kural_calisti = sum(len(records) for records in kural_calisti_by_region.values())
-                created_names.append(kural_calisti_name)
-                result.logs.append(
-                    f"{kural_calisti_name}: {total_kural_calisti} kural çalıştı kaydı (bolge bazinda sayfa)."
-                )
-
-            # Dosyalar önce geçici klasörde tamamen üretilir. Tek bir writer bile
-            # hata verirse klasör silinir ve MANİM geçmişi işaretlenmez.
-            staging_dir.replace(final_output_dir)
-
-        except Exception:
-            shutil.rmtree(staging_dir, ignore_errors=True)
-            raise
-
-        result.output_dir = final_output_dir
-        if odeme_path:
-            result.odeme_onaylandi_path = final_output_dir / odeme_name
-        result.created_files = [final_output_dir / name for name in created_names]
-        if review_name:
-            result.review_file = final_output_dir / review_name
-        if invalid_name:
-            result.invalid_file = final_output_dir / invalid_name
+        result.output_dir = output_artifacts.output_dir
+        result.created_files = output_artifacts.created_files
+        result.review_file = output_artifacts.review_file
+        result.invalid_file = output_artifacts.invalid_file
+        result.odeme_onaylandi_path = output_artifacts.odeme_onaylandi_path
+        result.odeme_onaylandi_items = list(odeme_onaylandi_items)
+        result.logs.extend(output_artifacts.logs)
 
         # Çıktılar görünür ve eksiksiz hale geldikten sonra kalıcı yan etkiler
         # uygulanır. İşlenmiş dosya geçmişi en son yazılır.
@@ -697,449 +408,13 @@ class ProcessingEngine:
 
         return result
 
-    @staticmethod
-    def _append_virman_decision(
-        decision: MovementDecision,
-        region: str,
-        virman_by_region: dict[str, list],
-        result: ProcessingResult,
-    ) -> None:
-        virman_record = decision.virman_record
-        if virman_record is None:
-            raise ValueError("Aynı banka virman kararında çıktı kaydı bulunamadı.")
-        virman_by_region[region].append(virman_record)
-        result.logs.append(
-            f"Virman ayrıldı: {region}/{virman_record.kaynak_banka} -> "
-            f"{virman_record.hedef_banka}, {virman_record.tutar:,.2f} TL."
-        )
-
-    @staticmethod
-    def _log_reference_candidate(
-        decision: MovementDecision,
-        record: ManimRecord,
-        result: ProcessingResult,
-    ) -> None:
-        if decision.candidate and decision.reason:
-            result.logs.append(
-                "UYARI: Virman otomatik ayrılamadı; Referanslı listede bırakıldı: "
-                f"{decision.reason} ({record.aciklama[:60]}...)"
-            )
-
     def _match_combined_bank_movements(self, pending, outputs, result, output_profile, processor):
-        candidate_groups: dict[tuple, list[tuple[int, UnresolvedItem]]] = defaultdict(list)
-        for index, item in enumerate(pending):
-            if not item.suggested_rows or not item.record.islem_tarihi:
-                continue
-            bank = self._bank_key(item.record.banka)
-            key = (
-                item.region,
-                bank,
-                item.record.islem_tarihi.date(),
-                self._suggested_signature(item.suggested_rows),
-            )
-            candidate_groups[key].append((index, item))
-
-        consumed: set[int] = set()
-        manual_groups: list[UnresolvedItem] = []
-        for (region, bank, _day, _signature), indexed_items in candidate_groups.items():
-            if len(indexed_items) < 2:
-                continue
-            items = [item for _index, item in indexed_items]
-            indexes = [index for index, _item in indexed_items]
-            target = money(self._suggested_total(items[0].suggested_rows))
-            total = money_sum(item.record.tutar for item in items)
-            movements = " + ".join(f"{money(item.record.tutar):,.2f}" for item in items)
-
-            if total == target:
-                # Netsis'e banka hareketlerinin parça toplamlarını değil,
-                # tahsilat raporundaki cari/şube dağılımını bir kez yaz.
-                for candidate in items[0].suggested_rows:
-                    netsis_record = processor._netsis_record(
-                        items[0].record,
-                        str(candidate.musteri_kodu).strip(),
-                        candidate.tutar,
-                        "BIRLESIK_BANKA_HAREKETI",
-                    )
-                    netsis_record = self._with_region_codes(netsis_record, region, bank)
-                    outputs[self._output_key(region, bank, output_profile)].append(netsis_record)
-                    result.produced_netsis_records += 1
-                consumed.update(indexes)
-                result.logs.append(
-                    f"Birleşik havale eşleşti: {movements} TL = {target:,.2f} TL "
-                    f"({len(items)} banka hareketi)."
-                )
-                continue
-
-            consumed.update(indexes)
-            manual_groups.append(UnresolvedItem(
-                record=items[0].record,
-                region=region,
-                reason=(
-                    f"Aynı müşteri için {len(items)} havale bulundu. Tutarları düzenleyip "
-                    "tahsilat hedefiyle eşitleyerek birlikte onaylayın."
-                ),
-                suggested_rows=list(items[0].suggested_rows),
-                group_records=[item.record for item in items],
-                group_target_amount=float(target),
-            ))
-            result.logs.append(
-                f"Toplu havale kontrol bekliyor: {movements} TL; "
-                f"tahsilat hedefi {target:,.2f} TL ({len(items)} banka hareketi)."
-            )
-
-        return [
-            item for index, item in enumerate(pending) if index not in consumed
-        ] + manual_groups
-
-    @staticmethod
-    def _suggested_total(rows: list[TahsilatRecord]) -> float:
-        return float(money_sum(row.tutar for row in rows))
-
-    @classmethod
-    def _same_suggested_collection(
-        cls,
-        left_rows: list[TahsilatRecord],
-        right_rows: list[TahsilatRecord],
-    ) -> bool:
-        """İki önerinin aynı şubeli tahsilat havuzu olduğunu doğrular."""
-        if not left_rows or not right_rows:
-            return False
-
-        def signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, object], ...]:
-            return tuple(sorted(
-                (str(row.musteri_kodu).strip(), money(row.tutar))
-                for row in rows
-            ))
-
-        return signature(left_rows) == signature(right_rows)
-
-    @staticmethod
-    def _suggested_signature(rows: list[TahsilatRecord]) -> tuple[tuple[str, object], ...]:
-        return tuple(sorted(
-            (str(row.musteri_kodu).strip(), money(row.tutar))
-            for row in rows
-        ))
-
-    @staticmethod
-    def _output_key(region: str, bank: str, output_profile) -> tuple[str, str]:
-        return (region, bank if output_profile.grouping == "region_bank" else "TOPLU")
-
-    @staticmethod
-    def _requires_bank_account_code(output_profile) -> bool:
-        """Seçili çıktı şablonu BM/banka hesap kodu sütununu zorunlu tutuyor mu?"""
-        return any(
-            column.source_kind == "field" and column.field == "banka_hesap_kodu"
-            for column in output_profile.columns
+        outcome = CombinedBankMovementMatcher(self.region_config).match(
+            pending,
+            outputs,
+            output_profile,
+            processor,
         )
-
-    @staticmethod
-    def _missing_bank_account_code_reason(region: str, bank: str) -> str:
-        return (
-            f"{region} bölgesi {bank} için BM banka hesap kodu tanımlı değil. "
-            "Ayarlar > Bölge Yönetimi bölümünden bu banka için BM kodunu ekleyin; "
-            "satır boş BM koduyla Netsis aktarımına yazılmadı."
-        )
-
-    def _with_region_codes(self, record, region: str, bank: str):
-        return replace(
-            record,
-            bolge=region,
-            banka_hesap_kodu=self.region_config.banka_kodu(region, bank) or "",
-        )
-
-    def _netsis_file_name(self, region: str, bank: str, date_label: str, output_profile) -> str:
-        prefix = region_file_prefix(region, self.REGIONS)
-        if output_profile.grouping == "region":
-            return f"{prefix}_{region}_{date_label}.xls"
-        return f"{prefix}_{region}_{bank}_{date_label}.xls"
-
-    @staticmethod
-    def _validate_manual_rows(
-        rows: list[TahsilatRecord],
-        target_amount: float,
-        allow_partial: bool = False,
-    ) -> tuple[list[TahsilatRecord], str | None]:
-        validated: list[TahsilatRecord] = []
-
-        for row in rows:
-            raw_code = str(row.musteri_kodu).strip()
-            if not raw_code:
-                return [], "Cari kod boş bırakılamaz"
-            if float(row.tutar) <= 0:
-                return [], f"Tutar pozitif olmalı: {row.tutar}"
-            validated.append(
-                TahsilatRecord(
-                    # Pasif cari kodlar güncel aktif müşteri listesinde
-                    # görünmeyebilir. Manuel girilen kod Netsis'e aynen
-                    # gönderilir; doğrulanan tek mali kural toplam tutardır.
-                    musteri_kodu=raw_code,
-                    musteri_ismi=row.musteri_ismi,
-                    belge_tarihi=row.belge_tarihi,
-                    tutar=float(row.tutar),
-                )
-            )
-
-        if not validated:
-            return [], "Geçerli müşteri kodu ve tutar bulunamadı"
-
-        total = money_sum(row.tutar for row in validated)
-        target = money(target_amount)
-        if total > target:
-            return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL'yi aşamaz"
-        if not allow_partial and total != target:
-            return [], f"Manuel toplam {total:,.2f} TL, MANİM tutarı {target_amount:,.2f} TL ile eşleşmiyor"
-
-        return validated, None
-
-    def _classify_files(self) -> tuple[list[Path], Path | None, Path | None]:
-        manim_files: list[Path] = []
-        tahsilat_file: Path | None = None
-        customer_file: Path | None = None
-
-        for file in self.files:
-            headers = self._headers(file)
-            header_keys = {self._key(header) for header in headers}
-            name_key = self._key(file.stem)
-
-            if self._is_manim_file(name_key, header_keys):
-                manim_files.append(file)
-                continue
-            if self._is_tahsilat_file(name_key, header_keys):
-                tahsilat_file = file
-                continue
-            if self._is_customer_file(name_key, header_keys):
-                customer_file = file
-                continue
-
-        return manim_files, tahsilat_file, customer_file
-
-    @staticmethod
-    def _is_manim_file(name_key: str, header_keys: set[str]) -> bool:
-        return "MANIM" in name_key or {"BANKA", "DEKONTDURUMU"}.issubset(header_keys)
-
-    @staticmethod
-    def _is_tahsilat_file(name_key: str, header_keys: set[str]) -> bool:
-        if "TAHSILAT" in name_key or "TAHSILATLAR" in name_key:
-            return True
-        has_customer_name = bool({"MUSTERIISMI", "MUSTERIADI", "UNVAN", "CARIADI"} & header_keys)
-        has_amount = bool({"TUTAR", "TAHSILATTUTARI", "TAHSILAT"} & header_keys)
-        has_report_hint = bool({"BELGETARIHI", "MUSTERIKODU", "CARI KODU"} & header_keys)
-        return has_customer_name and has_amount and has_report_hint
-
-    @staticmethod
-    def _is_customer_file(name_key: str, header_keys: set[str]) -> bool:
-        if "MUSTERI" in name_key and ("LIST" in name_key or "LISTE" in name_key):
-            return True
-        has_code = bool({"MUSTERIKODU", "CARIKODU", "CARIKOD"} & header_keys)
-        has_title = bool({"UNVAN", "CARIADI", "MUSTERIADI", "MUSTERIISMI"} & header_keys)
-        has_customer_only_hint = bool({"VERGINO", "VERGINUMARASI", "SUBE"} & header_keys)
-        return has_code and has_title and has_customer_only_hint
-
-    @staticmethod
-    def _headers(file: Path) -> list[str]:
-        try:
-            return [str(column).strip() for column in pd.read_excel(file, nrows=0).columns]
-        except Exception as error:
-            raise ValueError(f"Dosya okunamadi: {file.name}. {error}") from error
-
-    def _region_from_name(self, name: str) -> str:
-        normalized = self._normalize(name)
-        for region in self.REGIONS:
-            if region in normalized:
-                return region
-        return "BILINMEYEN_BOLGE"
-
-    def _region_for_record(
-        self,
-        record: ManimRecord,
-        file_region: str,
-        customer_region_by_code: dict[str, str] | None = None,
-        customer_region_by_name: dict[str, str] | None = None,
-    ) -> str:
-        """Hesap, müşteri kodu ve müşteri adı sırasıyla satır bölgesini bulur."""
-        account_region = self.region_config.find_region_by_manim_account(
-            self._bank_key(record.banka),
-            record.sube,
-        )
-        if account_region:
-            return account_region
-
-        code_key = self._customer_code_key(record.karsi_hesap_kodu)
-        if code_key and customer_region_by_code:
-            code_region = customer_region_by_code.get(code_key)
-            if code_region:
-                return code_region
-
-        name_key = self._key(record.karsi_hesap_adi)
-        if name_key and customer_region_by_name:
-            name_region = customer_region_by_name.get(name_key)
-            if name_region:
-                return name_region
-
-        return file_region
-
-    def _customer_region_indexes(
-        self,
-        customers: list[CustomerRecord],
-    ) -> tuple[dict[str, str], dict[str, str]]:
-        """Yalnız tek bir bölgeye işaret eden müşteri kodu/adı eşleşmelerini indeksler."""
-        regions_by_code: dict[str, set[str]] = defaultdict(set)
-        regions_by_name: dict[str, set[str]] = defaultdict(set)
-
-        for customer in customers:
-            region = self.region_config.find_region_in_text(customer.sube)
-            if not region:
-                continue
-            code_key = self._customer_code_key(customer.cari_kodu)
-            if code_key:
-                regions_by_code[code_key].add(region)
-            for value in (customer.unvan, customer.tabela_adi):
-                name_key = self._key(value)
-                if name_key:
-                    regions_by_name[name_key].add(region)
-
-        code_index = {
-            key: next(iter(regions))
-            for key, regions in regions_by_code.items()
-            if len(regions) == 1
-        }
-        name_index = {
-            key: next(iter(regions))
-            for key, regions in regions_by_name.items()
-            if len(regions) == 1
-        }
-        return code_index, name_index
-
-    @staticmethod
-    def _bank_key(value: str) -> str:
-        normalized = ProcessingEngine._normalize(value)
-        if "GARANTI" in normalized:
-            return "GARANTI"
-        if "ZIRAAT" in normalized:
-            return "ZIRAAT"
-        if "YAPI" in normalized or "YKB" in normalized:
-            return "YKB"
-        return re.sub(r"[^A-Z0-9]+", "_", normalized).strip("_") or "BILINMEYEN_BANKA"
-
-    @staticmethod
-    def _normalize(value: str) -> str:
-        value = ProcessingEngine._decode_hash_unicode(value)
-        text = unicodedata.normalize("NFKD", str(value).upper())
-        text = "".join(char for char in text if not unicodedata.combining(char))
-        text = text.replace("İ", "I").replace("ı", "I")
-        text = re.sub(r"[^A-Z0-9]+", " ", text)
-        return " ".join(text.split())
-
-    @staticmethod
-    def _key(value: str) -> str:
-        value = ProcessingEngine._decode_hash_unicode(value)
-        text = unicodedata.normalize("NFKD", str(value).upper())
-        text = "".join(char for char in text if not unicodedata.combining(char))
-        text = text.replace("İ", "I").replace("ı", "I")
-        return re.sub(r"[^A-Z0-9]+", "", text)
-
-    @staticmethod
-    def _decode_hash_unicode(value: str) -> str:
-        """ZIP/aktarım sırasında ``#U00d6`` biçimine dönen Türkçe harfleri çözer."""
-        return re.sub(
-            r"#U([0-9A-Fa-f]{4})",
-            lambda match: chr(int(match.group(1), 16)),
-            str(value),
-        )
-
-    @staticmethod
-    def _customer_code_key(value: str) -> str:
-        return "".join(str(value).strip().upper().split())
-
-    @staticmethod
-    def _review_row(region: str, record: ManimRecord, reason: str) -> dict[str, object]:
-        return {
-            "Bolge": region,
-            "Kaynak Dosya": record.kaynak_dosya,
-            "Kaynak Satir": record.kaynak_satir,
-            "Banka": record.banka,
-            "Tarih": record.islem_tarihi,
-            "Tutar": record.tutar,
-            "Dekont Durumu": record.dekont_durumu,
-            "Aciklama": record.aciklama,
-            "Karsi Hesap Adi": record.karsi_hesap_adi,
-            "Karsi Hesap Kodu": record.karsi_hesap_kodu,
-            "Neden": reason,
-        }
-
-    @staticmethod
-    def _write_review(rows: list[dict[str, object]], output_path: Path) -> Path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        return write_table_xls(
-            rows,
-            output_path,
-            sheet_name="İnceleme",
-            amount_columns=("Tutar",),
-            date_columns=("Tarih",),
-        )
-
-    @staticmethod
-    def _write_invalid_rows(rows: list[InvalidManimRow], output_path: Path) -> Path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        report_rows: list[dict[str, object]] = []
-        for item in rows:
-            row = {
-                "Kaynak Dosya": item.kaynak_dosya,
-                "Kaynak Satır": item.kaynak_satir,
-                "Neden": "; ".join(item.nedenler),
-            }
-            row.update({str(key): value for key, value in item.ham_veri.items()})
-            report_rows.append(row)
-        return write_table_xls(report_rows, output_path, sheet_name="Geçersiz MANİM")
-
-    @staticmethod
-    def _date_span(values: set[date]) -> tuple[date, date]:
-        if not values:
-            today = datetime.now().date()
-            return today, today
-        return min(values), max(values)
-
-    @staticmethod
-    def _file_date_label(start: date, end: date) -> str:
-        if start == end:
-            return start.strftime("%d%m%Y")
-        if start.year == end.year and start.month == end.month:
-            return f"{start:%d}-{end:%d.%m.%Y}"
-        if start.year == end.year:
-            return f"{start:%d.%m}-{end:%d.%m.%Y}"
-        return f"{start:%d.%m.%Y}-{end:%d.%m.%Y}"
-
-    @staticmethod
-    def _folder_date_label(start: date, end: date) -> str:
-        if start == end:
-            return start.strftime("%Y-%m-%d")
-        return f"{start:%Y-%m-%d}_{end:%Y-%m-%d}"
-
-    @staticmethod
-    def _manim_sort_key(record: ManimRecord):
-        value = record.islem_tarihi
-        if isinstance(value, datetime):
-            return value, record.kaynak_dosya, record.kaynak_satir
-        if isinstance(value, date):
-            return datetime(value.year, value.month, value.day), record.kaynak_dosya, record.kaynak_satir
-        return datetime.max, record.kaynak_dosya, record.kaynak_satir
-
-    @staticmethod
-    def _netsis_sort_key(record):
-        value = record.islem_tarihi
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, date):
-            return datetime(value.year, value.month, value.day)
-        return datetime.max
-
-    @staticmethod
-    def _unique_output_dir(preferred: Path) -> Path:
-        if not preferred.exists():
-            return preferred
-        suffix = 2
-        while True:
-            candidate = preferred.with_name(f"{preferred.name}_{suffix}")
-            if not candidate.exists():
-                return candidate
-            suffix += 1
+        result.produced_netsis_records += outcome.produced_netsis_records
+        result.logs.extend(outcome.logs)
+        return outcome.pending

@@ -38,7 +38,7 @@ def test_netsis_writer_yerel_sablonu_secmesi_icin_yol_verilmeden_kurulur(
         def close(self):
             pass
 
-    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", FakeNetsisWriter)
+    monkeypatch.setattr("app.core.manim_output_service.NetsisWriter", FakeNetsisWriter)
     engine = ProcessingEngine(_files(synthetic_project), synthetic_project[3])
     engine.run()
 
@@ -106,7 +106,7 @@ def test_negatif_referansli_virman_bolge_bazli_toplu_ciktiya_ayrilir(
         def close(self):
             pass
 
-    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", FakeNetsisWriter)
+    monkeypatch.setattr("app.core.manim_output_service.NetsisWriter", FakeNetsisWriter)
 
     result = ProcessingEngine(
         [manim_path, tahsilat_path, customer_path],
@@ -407,7 +407,7 @@ def test_writer_hatasi_dosyayi_islenmis_olarak_isaretlemez(synthetic_project, mo
     def fail_write(*_args, **_kwargs):
         raise OSError("disk yazma testi")
 
-    monkeypatch.setattr("app.core.processing_engine.NetsisWriter.write", fail_write)
+    monkeypatch.setattr("app.core.manim_output_service.NetsisWriter.write", fail_write)
 
     with pytest.raises(OSError, match="disk yazma testi"):
         engine.run()

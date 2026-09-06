@@ -31,6 +31,11 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   katmanından geçmelidir. Aynı banka virmanı dahil rota kararlarını tekrar
   `processing_engine.py` içine dağıtma. Yeni rota eklerken
   `docs/MANIM_YONLENDIRME_MIMARISI.md` sözleşmesini uygula.
+- `ProcessingEngine` yalnız MANİM iş akışını koordine eder. Dosya türü tanıma
+  `manim_input_classifier.py`, bölge çözümleme `manim_region_resolver.py`,
+  birleşik/manüel eşleştirme `manim_resolution.py`, çıktı sıralama ve yazma
+  `manim_output_service.py` içinde kalmalıdır. Bu sorumlulukları yeniden ana
+  motora taşımadan `docs/MANIM_ISLEME_MIMARISI.md` sınırlarını koru.
 - Kaynak şablonların içine veri yazma, yeniden kaydetme veya başka Excel
   biçimine dönüştürme. Yalnız ayrı çıktı dosyasındaki işlem verileri değişebilir.
 - Şablon eksikse genel Excel üreterek devam etme. Önce orijinal dosyayı geri koy.

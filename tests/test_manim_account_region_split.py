@@ -57,7 +57,7 @@ def test_aydin_dosyasi_kod_sube_ile_uc_akisi_nazilliden_ayirir(
         },
     ]
     pd.DataFrame(rows).to_excel(manim_path, index=False)
-    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", _FakeNetsisWriter)
+    monkeypatch.setattr("app.core.manim_output_service.NetsisWriter", _FakeNetsisWriter)
 
     result = ProcessingEngine(
         [manim_path, tahsilat_path, customer_path],
@@ -125,7 +125,7 @@ def test_hesap_bulunamazsa_guncel_musteri_kodu_ve_adi_bolgeyi_ayirir(
             "Karşı Hesap Adı": "NAZILLI TEST MARKET", "Karşı Hesap Kodu": "NAZ001",
         },
     ]).to_excel(manim_path, index=False)
-    monkeypatch.setattr("app.core.processing_engine.NetsisWriter", _FakeNetsisWriter)
+    monkeypatch.setattr("app.core.manim_output_service.NetsisWriter", _FakeNetsisWriter)
 
     result = ProcessingEngine(
         [manim_path, tahsilat_path, customer_path],
