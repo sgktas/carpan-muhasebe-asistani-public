@@ -12,31 +12,67 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.app_paths import APP_PATHS
-from app.core.entitlements import local_development_entitlements
+from app.core.identity import AuthenticatedSession, IdentityStore
 from app.core.operation_history import OperationHistory
 from app.modules.registry import build_module_registry
 from app.ui.history_page import HistoryPage
+from app.ui.audit_page import AuditPage
 from app.ui.settings_page import SettingsPage
+from app.ui.team_page import ROLE_LABELS, TeamPage
 from app.ui.theme import BRAND_ORANGE, MAIN_STYLE, asset_icon, crisp_pixmap
 
 
 class MainWindow(QWidget):
     """Çarpan masaüstü uygulamasının modüler kurumsal kabuğu."""
 
-    def __init__(self, username: str = "kullanıcı"):
+    def __init__(
+        self,
+        session: AuthenticatedSession,
+        identity_store: IdentityStore,
+        on_logout=None,
+    ):
         super().__init__()
-        self.username = username
+        self.session = session
+        self.identity_store = identity_store
+        self.on_logout = on_logout
+        self.username = session.display_name
         self.history = OperationHistory(
             APP_PATHS.state_dir / "operations.sqlite3",
-            actor=username,
+            actor=session.display_name,
+            company_id=session.company_id,
+            user_id=session.user_id,
         )
         all_modules = build_module_registry(self.history)
-        entitlements = local_development_entitlements(
-            module.module_id for module in all_modules
-        )
         self.modules = [
-            module for module in all_modules if entitlements.allows(module.module_id)
+            module for module in all_modules if session.allows_module(module.module_id)
         ]
+        self.management_items: list[tuple[str, str, str, object]] = []
+        if session.can("history.read"):
+            self.management_items.append(
+                ("history", "Geçmiş İşlemler", "history", lambda: HistoryPage(self.history))
+            )
+        if session.can("users.manage"):
+            self.management_items.append(
+                (
+                    "team",
+                    "Ekip ve Yetkiler",
+                    "settings",
+                    lambda: TeamPage(self.identity_store, self.session),
+                )
+            )
+        if session.can("audit.read"):
+            self.management_items.append(
+                (
+                    "audit",
+                    "Güvenlik Kayıtları",
+                    "history",
+                    lambda: AuditPage(self.identity_store, self.session),
+                )
+            )
+        if session.can("settings.manage"):
+            self.management_items.append(
+                ("settings", "Ayarlar", "settings", SettingsPage)
+            )
 
         self.nav_buttons: list[QPushButton] = []
         self.nav_icon_names: list[str] = []
@@ -60,11 +96,12 @@ class MainWindow(QWidget):
         self.pages = QStackedWidget()
         for module in self.modules:
             self.pages.addWidget(module.page_factory())
-        self.pages.addWidget(HistoryPage(self.history))
-        self.pages.addWidget(SettingsPage())
+        for _item_id, _label, _icon, page_factory in self.management_items:
+            self.pages.addWidget(page_factory())
         root.addWidget(self.pages, 1)
 
-        self._set_active_nav(0)
+        if self.nav_buttons:
+            self._set_active_nav(0)
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -113,14 +150,14 @@ class MainWindow(QWidget):
                 module.module_id,
             )
 
-        layout.addSpacing(18)
-        management_label = QLabel("YÖNETİM")
-        management_label.setObjectName("navSection")
-        layout.addWidget(management_label)
-        layout.addSpacing(3)
-
-        self._add_nav_button(layout, "Geçmiş İşlemler", "history", "history")
-        self._add_nav_button(layout, "Ayarlar", "settings", "settings")
+        if self.management_items:
+            layout.addSpacing(18)
+            management_label = QLabel("YÖNETİM")
+            management_label.setObjectName("navSection")
+            layout.addWidget(management_label)
+            layout.addSpacing(3)
+            for item_id, label, icon_name, _factory in self.management_items:
+                self._add_nav_button(layout, label, icon_name, item_id)
 
         layout.addStretch()
         layout.addWidget(self._build_user_card())
@@ -146,18 +183,28 @@ class MainWindow(QWidget):
         user_col.setSpacing(1)
         name_label = QLabel(self.username)
         name_label.setObjectName("userName")
-        status_label = QLabel("Oturum açık")
+        status_label = QLabel(
+            f"{self.session.company_name} · "
+            f"{ROLE_LABELS.get(self.session.role, self.session.role)}"
+        )
         status_label.setObjectName("userStatus")
+        status_label.setWordWrap(True)
         logout_button = QPushButton("Çıkış yap")
         logout_button.setObjectName("logoutButton")
         logout_button.setCursor(Qt.PointingHandCursor)
-        logout_button.clicked.connect(self.close)
+        logout_button.clicked.connect(self._logout)
 
         user_col.addWidget(name_label)
         user_col.addWidget(status_label)
         user_col.addWidget(logout_button)
         user_layout.addLayout(user_col, 1)
         return user_card
+
+    def _logout(self) -> None:
+        self.identity_store.record_logout(self.session)
+        if callable(self.on_logout):
+            self.on_logout()
+        self.close()
 
     def _add_nav_button(
         self,
@@ -186,11 +233,10 @@ class MainWindow(QWidget):
 
     def _on_nav_clicked(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
-        if self.nav_items[index][0] == "history":
-            page = self.pages.widget(index)
-            refresh = getattr(page, "refresh", None)
-            if callable(refresh):
-                refresh()
+        page = self.pages.widget(index)
+        refresh = getattr(page, "refresh", None)
+        if callable(refresh):
+            refresh()
         self._set_active_nav(index)
 
     def _set_active_nav(self, active_index: int) -> None:

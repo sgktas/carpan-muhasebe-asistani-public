@@ -36,6 +36,8 @@ Sistem verileri Windows'ta şu gizli uygulama klasöründe tutulur:
 
 - `processed_files.json`: başarıyla tamamlanan MANİM dosyalarının geçmişi
 - `customer_mappings.json`: kullanıcı tarafından doğrulanan cari eşleştirmeleri
+- `platform.sqlite3`: firma, kullanıcı, rol ve zincirlenmiş güvenlik olayları
+- `operations.sqlite3`: firma/kullanıcı kimlikli işlem geçmişi
 
 Kullanıcının açacağı Excel çıktıları gizli klasöre yazılmaz. Görünür çıktı yolu:
 
@@ -140,8 +142,8 @@ Windows Dosya Gezgini dosyaları ada göre sıraladığı için çıktı adları
 ## Modüler çekirdek ve Rapor Düzenleme modülü (v13)
 
 Uygulama artık sabit sayfalardan oluşan tek amaçlı bir araç değildir. Modüller
-`app/modules/registry.py` üzerinden kayıt edilir ve kullanıcının yerel
-entitlement yetkilerine göre sidebar'a dinamik olarak eklenir.
+`app/modules/registry.py` üzerinden kayıt edilir ve oturum açan kullanıcının
+firma rolüne göre kenar menüye dinamik olarak eklenir.
 
 Müşteri listesi dahil modüller:
 
@@ -160,9 +162,25 @@ Ortak çekirdek hizmetleri:
 - modül bazlı işlem durumu ve özet kaydı,
 - ileride çevrimiçi veya imzalı lisansa bağlanabilecek entitlement katmanı.
 
-Yerel geliştirme sürümünde kayıtlı bütün modüller açıktır. Ticari lisans sistemi
-eklendiğinde arayüz ve modül kodları değişmeden yalnız entitlement sağlayıcısı
-değiştirilecektir.
+### Firma hesabı, kullanıcılar ve roller
+
+İlk açılışta firma çalışma alanı ile ilk yönetici hesabı oluşturulur. Sonraki
+açılışlarda kullanıcı adı ve parola zorunludur. Parolalar düz metin tutulmaz;
+rastgele salt ile PBKDF2-HMAC-SHA256 kullanılarak saklanır. Art arda hatalı girişler
+hesabı geçici olarak kilitler.
+
+Yönetici, **Ekip ve Yetkiler** ekranından kullanıcı oluşturabilir, rol/erişim
+değiştirebilir ve parola sıfırlayabilir. Roller:
+
+- Yönetici: bütün modüller, ayarlar, ekip ve denetim kayıtları
+- Operatör: işlem modülleri ve işlem geçmişi
+- Onay Sorumlusu: MANİM/onay akışı ve işlem geçmişi
+- Denetçi: işlem geçmişi ve güvenlik kayıtlarını salt okunur inceleme
+
+Her yeni işlem kaydına görünen kullanıcıyla birlikte değişmez kullanıcı ve firma
+kimliği de eklenir. Oturum açma, başarısız giriş, çıkış, kullanıcı oluşturma,
+rol/erişim değişikliği ve parola sıfırlama olayları zincirlenmiş güvenlik kaydına
+yazılır. **Güvenlik Kayıtları** ekranı zincirin bütünlüğünü de doğrular.
 
 ### Rapor Düzenleme girdileri
 

@@ -361,7 +361,7 @@ QLabel.fieldLabel {{
     font-size: 12px;
     font-weight: 600;
 }}
-QLineEdit {{
+QLineEdit, QComboBox {{
     background-color: #FBFCFD;
     border: 1px solid #D6DEE4;
     border-radius: 9px;
@@ -369,10 +369,10 @@ QLineEdit {{
     font-size: 13px;
     color: {TEXT_PRIMARY};
 }}
-QLineEdit:hover {{
+QLineEdit:hover, QComboBox:hover {{
     border-color: #BECAD3;
 }}
-QLineEdit:focus {{
+QLineEdit:focus, QComboBox:focus {{
     border: 1px solid {BRAND_NAVY};
     background-color: #FFFFFF;
 }}
@@ -391,6 +391,14 @@ QPushButton#loginButton:hover {{
 QLabel#versionLabel {{
     color: {TEXT_MUTED};
     font-size: 10px;
+}}
+QLabel#loginError {{
+    color: #B42318;
+    background-color: #FEF3F2;
+    border: 1px solid #FECDCA;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
 }}
 """
 

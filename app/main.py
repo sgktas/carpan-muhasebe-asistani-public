@@ -13,12 +13,14 @@ from PySide6.QtWidgets import QApplication
 
 from app.core.app_logging import configure_logging, install_exception_logging
 from app.core.app_paths import APP_PATHS
+from app.core.identity import AuthenticatedSession, IdentityStore
 from app.ui.login_window import LoginWindow
 from app.ui.main_window import MainWindow
 
 # Ana pencereye global referans tutulur; aksi halde login penceresi
 # kapanınca Python nesnesi çöp toplanır ve ana pencere anında yok olur.
 _main_window = None
+_login_window = None
 
 
 def _set_windows_app_id() -> None:
@@ -50,13 +52,26 @@ def main():
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
 
-    def open_main_window(username: str) -> None:
+    identity_store = IdentityStore(APP_PATHS.state_dir / "platform.sqlite3")
+
+    def show_login_window() -> None:
+        global _login_window
+        _login_window = LoginWindow(
+            identity_store=identity_store,
+            on_login_success=open_main_window,
+        )
+        _login_window.show()
+
+    def open_main_window(session: AuthenticatedSession) -> None:
         global _main_window
-        _main_window = MainWindow(username=username)
+        _main_window = MainWindow(
+            session=session,
+            identity_store=identity_store,
+            on_logout=show_login_window,
+        )
         _main_window.show()
 
-    login = LoginWindow(on_login_success=open_main_window)
-    login.show()
+    show_login_window()
 
     sys.exit(app.exec())
 

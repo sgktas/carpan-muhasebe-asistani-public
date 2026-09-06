@@ -36,6 +36,10 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   birleşik/manüel eşleştirme `manim_resolution.py`, çıktı sıralama ve yazma
   `manim_output_service.py` içinde kalmalıdır. Bu sorumlulukları yeniden ana
   motora taşımadan `docs/MANIM_ISLEME_MIMARISI.md` sınırlarını koru.
+- Firma, kullanıcı, parola, rol ve güvenlik denetimi kararları
+  `app/core/identity.py` içinde kalmalıdır. Arayüzde rol adına göre dağınık karar
+  üretme; `AuthenticatedSession.can()` izinlerini kullan. Kimlik şeması
+  değişikliklerinde `schema_migrations` ile geriye uyumlu geçiş ekle.
 - Kaynak şablonların içine veri yazma, yeniden kaydetme veya başka Excel
   biçimine dönüştürme. Yalnız ayrı çıktı dosyasındaki işlem verileri değişebilir.
 - Şablon eksikse genel Excel üreterek devam etme. Önce orijinal dosyayı geri koy.

@@ -21,6 +21,8 @@ class OperationRecord:
     output_files: list[str]
     summary: dict
     error_message: str | None
+    company_id: int | None = None
+    user_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -42,11 +44,22 @@ class OperationHistory:
     kayıt bırakır.
     """
 
-    def __init__(self, database_path: str | Path, actor: str = ""):
+    def __init__(
+        self,
+        database_path: str | Path,
+        actor: str = "",
+        *,
+        company_id: int | None = None,
+        user_id: int | None = None,
+    ):
         self.database_path = Path(database_path)
         self.actor = str(actor).strip()
+        self.company_id = int(company_id) if company_id is not None else None
+        self.user_id = int(user_id) if user_id is not None else None
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        if self.company_id is not None:
+            self._claim_legacy_records()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -79,6 +92,12 @@ class OperationHistory:
                 connection.execute(
                     "ALTER TABLE operations ADD COLUMN actor TEXT NOT NULL DEFAULT ''"
                 )
+            if "company_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE operations ADD COLUMN company_id INTEGER"
+                )
+            if "user_id" not in columns:
+                connection.execute("ALTER TABLE operations ADD COLUMN user_id INTEGER")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS operation_events (
@@ -129,6 +148,14 @@ class OperationHistory:
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    def _claim_legacy_records(self) -> None:
+        """İlk firma kurulumunda eski firma kimliksiz geçmişi kaybetme."""
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE operations SET company_id = ? WHERE company_id IS NULL",
+                (self.company_id,),
+            )
+
     def start(
         self,
         module_id: str,
@@ -140,13 +167,16 @@ class OperationHistory:
             cursor = connection.execute(
                 """
                 INSERT INTO operations (
-                    module_id, module_name, actor, status, started_at, input_files_json
-                ) VALUES (?, ?, ?, 'RUNNING', ?, ?)
+                    module_id, module_name, actor, company_id, user_id,
+                    status, started_at, input_files_json
+                ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?)
                 """,
                 (
                     module_id,
                     module_name,
                     self.actor,
+                    self.company_id,
+                    self.user_id,
                     self._now(),
                     json.dumps(inputs, ensure_ascii=False),
                 ),
@@ -246,14 +276,25 @@ class OperationHistory:
 
     def events(self, operation_id: int) -> list[OperationEvent]:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT * FROM operation_events
-                WHERE operation_id = ?
-                ORDER BY id
-                """,
-                (int(operation_id),),
-            ).fetchall()
+            if self.company_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT e.* FROM operation_events e
+                    WHERE e.operation_id = ?
+                    ORDER BY e.id
+                    """,
+                    (int(operation_id),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT e.* FROM operation_events e
+                    JOIN operations o ON o.id = e.operation_id
+                    WHERE e.operation_id = ? AND o.company_id = ?
+                    ORDER BY e.id
+                    """,
+                    (int(operation_id), self.company_id),
+                ).fetchall()
         return [
             OperationEvent(
                 id=int(row["id"]),
@@ -269,15 +310,25 @@ class OperationHistory:
 
     def recent(self, limit: int = 100) -> list[OperationRecord]:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT *
-                FROM operations
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (max(1, int(limit)),),
-            ).fetchall()
+            if self.company_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM operations
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (max(1, int(limit)),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM operations
+                    WHERE company_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (self.company_id, max(1, int(limit))),
+                ).fetchall()
 
         result: list[OperationRecord] = []
         for row in rows:
@@ -294,6 +345,8 @@ class OperationHistory:
                     output_files=json.loads(row["output_files_json"] or "[]"),
                     summary=json.loads(row["summary_json"] or "{}"),
                     error_message=row["error_message"],
+                    company_id=row["company_id"],
+                    user_id=row["user_id"],
                 )
             )
         return result
