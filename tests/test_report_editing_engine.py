@@ -293,7 +293,8 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
 
     def fake_write(self, template_path, output_path, sheets, **kwargs):
         output_path = Path(output_path).with_suffix(".xls")
-        output_path.write_bytes(b"test")
+        sheet_name, rows = sheets[0]
+        _save_xls(output_path, sheet_name, kwargs["headers"][0], rows)
         calls.append((Path(output_path).name, sheets, kwargs))
         return output_path
 

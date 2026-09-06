@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.core.customer_list_cache import CustomerListCache
+from app.core.output_contract import validate_fom_integration_output
 
 AMOUNT_FORMAT = "#,##0.00"
 AMOUNT_HEADERS = {
@@ -959,13 +960,24 @@ class ReportEditingEngine:
             )
 
             if self.create_template_outputs:
+                template_path = _report_template_path(
+                    self.resource_root, "sales_template.xls"
+                )
                 template_output = output_dir / f"{SALES_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(
-                    _report_template_path(self.resource_root, "sales_template.xls"),
+                    template_path,
                     template_output,
                     [(SALES_SHEET_NAME, values)],
                     headers=[SALES_OUTPUT_COLUMNS + [""]],
                     delete_extra_sheets=True,
+                )
+                validate_fom_integration_output(
+                    template_output,
+                    expected_basename=SALES_OUTPUT_BASENAME,
+                    expected_sheet_name=SALES_SHEET_NAME,
+                    expected_headers=SALES_OUTPUT_COLUMNS + [""],
+                    expected_data_rows=len(values),
+                    template_path=template_path,
                 )
                 result.created_files.append(template_output)
                 result.logs.append("Satış verileri orijinal Excel 97-2003 şablonuna yazıldı.")
@@ -1007,13 +1019,24 @@ class ReportEditingEngine:
                 )
 
             if self.create_template_outputs:
+                template_path = _report_template_path(
+                    self.resource_root, "collections_template.xls"
+                )
                 template_output = output_dir / f"{COLLECTION_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(
-                    _report_template_path(self.resource_root, "collections_template.xls"),
+                    template_path,
                     template_output,
                     [(COLLECTION_SHEET_NAME, main_values)],
                     headers=[COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"]],
                     delete_extra_sheets=True,
+                )
+                validate_fom_integration_output(
+                    template_output,
+                    expected_basename=COLLECTION_OUTPUT_BASENAME,
+                    expected_sheet_name=COLLECTION_SHEET_NAME,
+                    expected_headers=COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"],
+                    expected_data_rows=len(main_values),
+                    template_path=template_path,
                 )
                 result.created_files.append(template_output)
                 result.logs.append("Tahsilat verileri orijinal Excel 97-2003 şablonuna yazıldı.")

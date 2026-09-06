@@ -15,6 +15,9 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   `ENT_SATIS_FATURALARI.xls` ve `ENT_TAHSILATLAR.xls` olmalıdır. Çalışma
   sayfaları sırasıyla `SATIS_FATURALARI` ve `TAHSILATLAR` olarak kalmalıdır;
   uzun ad, Türkçe karakter veya parantez kullanma.
+- FOM entegrasyon çıktısını başarılı saymadan önce `.xls` dosya imzası,
+  güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı
+  çıktı sözleşmesiyle doğrulanmalıdır.
 - Başlıkları, sütun sırasını, sayfa adını, sütun genişliklerini ve mevcut
   biçimlendirmeyi değiştirme. Tutar sütunlarının binlik ayraçlı, iki ondalıklı
   sayısal biçimini yeni veri satırlarında da koru.

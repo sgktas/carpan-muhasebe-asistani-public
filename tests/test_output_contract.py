@@ -5,7 +5,11 @@ import pytest
 from openpyxl import Workbook
 import xlwt
 
-from app.core.output_contract import OutputContractError, validate_netsis_output
+from app.core.output_contract import (
+    OutputContractError,
+    validate_fom_integration_output,
+    validate_netsis_output,
+)
 from app.core.output_profile import OutputProfileStore
 from app.models.records import NetsisRecord
 
@@ -19,6 +23,69 @@ def _write_contract_file(path: Path, headers: list[str], bank_format: str) -> No
     sheet.write(1, 0, "SENTETIK-BANKA", bank_style)
     sheet.write(1, 14, 1250.50)
     workbook.save(str(path))
+
+
+def _write_fom_contract_file(
+    path: Path,
+    *,
+    sheet_name: str = "SATIS_FATURALARI",
+    headers: list[str] | None = None,
+    row_count: int = 1,
+) -> None:
+    workbook = xlwt.Workbook()
+    sheet = workbook.add_sheet(sheet_name)
+    headers = headers or ["MusteriKodu", "Tutar"]
+    for column, header in enumerate(headers):
+        sheet.write(0, column, header)
+    for row in range(1, row_count + 1):
+        sheet.write(row, 0, f"TEST{row}")
+        sheet.write(row, 1, 100.0)
+    workbook.save(str(path))
+
+
+def test_fom_contract_accepts_psoft_safe_xls(tmp_path):
+    output = tmp_path / "ENT_SATIS_FATURALARI.xls"
+    _write_fom_contract_file(output, row_count=2)
+
+    validate_fom_integration_output(
+        output,
+        expected_basename="ENT_SATIS_FATURALARI",
+        expected_sheet_name="SATIS_FATURALARI",
+        expected_headers=["MusteriKodu", "Tutar"],
+        expected_data_rows=2,
+    )
+
+
+def test_fom_contract_rejects_long_punctuated_name(tmp_path):
+    output = tmp_path / "ENT-Muhasebe_Entegrasyon(Satis_Faturalari).xls"
+    _write_fom_contract_file(output)
+
+    with pytest.raises(OutputContractError, match="yalnız kısa ASCII"):
+        validate_fom_integration_output(
+            output,
+            expected_basename=output.stem,
+            expected_sheet_name="SATIS_FATURALARI",
+            expected_headers=["MusteriKodu", "Tutar"],
+            expected_data_rows=1,
+        )
+
+
+def test_fom_contract_rejects_wrong_sheet_or_row_count(tmp_path):
+    output = tmp_path / "ENT_TAHSILATLAR.xls"
+    _write_fom_contract_file(
+        output,
+        sheet_name="YANLIS_SAYFA",
+        row_count=1,
+    )
+
+    with pytest.raises(OutputContractError, match="sayfa adı değişmiş"):
+        validate_fom_integration_output(
+            output,
+            expected_basename="ENT_TAHSILATLAR",
+            expected_sheet_name="TAHSILATLAR",
+            expected_headers=["MusteriKodu", "Tutar"],
+            expected_data_rows=2,
+        )
 
 
 def test_toplu_output_contract_rejects_changed_bank_code_cell_format(tmp_path):

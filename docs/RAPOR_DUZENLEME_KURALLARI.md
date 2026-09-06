@@ -140,13 +140,16 @@ yazılır. Şablonun başlık ve belge yapısı korunur.
 ```text
 02_SATIS_RAPORU_DUZENLENMIS_<tarih>.xlsx
 03_TAHSILAT_RAPORU_DUZENLENMIS_<tarih>.xlsx
-ENT-Muhasebe_Entegrasyon(Satış_Faturaları).xls
-ENT-Muhasebe_Entegrasyon(Tahsilatlar).xls
+ENT_SATIS_FATURALARI.xls
+ENT_TAHSILATLAR.xls
 ```
 
 Düzenlenmiş `.xlsx` dosyaları kaynak raporun sayfa adını korur. Orijinal
-`.xls` şablon çıktıları ise kaynak/orijinal raporlardaki 31 karakterlik Excel
-sayfa adlarıyla kaydedilir.
+`.xls` şablon çıktıları Psoft uyumluluğu için sırasıyla `SATIS_FATURALARI` ve
+`TAHSILATLAR` sayfa adlarıyla kaydedilir. Dosya ve sayfa adlarında Türkçe
+karakter, parantez veya başka noktalama işareti kullanılmaz.
 
 Her iki şablon çıktısı Microsoft Excel ile `FileFormat=56` kullanılarak `.xls` kaydedilir.
 Şablon çıktısı için Windows ve kurulu Microsoft Excel gerekir.
+Oluşan dosya başarılı sayılmadan önce gerçek `.xls` imzası, tek sayfa adı,
+orijinal şablon başlıkları ve veri satırı sayısı otomatik doğrulanır.

@@ -72,6 +72,7 @@ $env:MUHASEBE_ASISTANI_OUTPUT_DIR="C:\MuhasebeAsistaniCiktilari"
 - Pasif müşterilerin borç kapatma havaleleri için cari kod manuel girilebilir ve kullanıcı onayıyla aktarılabilir.
 - Onaylı Netsis profilleri arayüzden değiştirilemez; özel formatlar ayrı kullanıcı profili olarak saklanır.
 - Oluşan Netsis dosyası başlık, sayfa, satır sayısı, tutar toplamı, banka kodu ve kritik hücre biçimleri açısından otomatik doğrulanır.
+- Psoft FOM entegrasyon dosyası `.xls` imzası, güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı açısından otomatik doğrulanır.
 
 ## Excel çıktı biçimi
 
@@ -183,12 +184,12 @@ Windows'ta normal işlem toplam beş dosya üretir:
 01_MUSTERI_LISTESI_DUZENLENMIS.xlsx
 02_SATIS_RAPORU_DUZENLENMIS_<tarih>.xlsx
 03_TAHSILAT_RAPORU_DUZENLENMIS_<tarih>.xlsx
-ENT-Muhasebe_Entegrasyon(Satış_Faturaları).xls
-ENT-Muhasebe_Entegrasyon(Tahsilatlar).xls
+ENT_SATIS_FATURALARI.xls
+ENT_TAHSILATLAR.xls
 ```
 
-Satış ve tahsilat dosyaları, operasyon sistemindeki orijinal dosya adları ve
-orijinal Excel sayfa adlarıyla üretilir. `.xlsx` tahsilat dosyasında ana sayfa
+Psoft'a verilecek `.xls` dosyaları kısa ASCII dosya ve sayfa adlarıyla üretilir;
+uzun ad, Türkçe karakter ve parantez kullanılmaz. `.xlsx` tahsilat dosyasında ana sayfa
 yalnız `TahsilatTipi=N / TahsilatTuru=1` kayıtlarını, `ŞUBELİLER` sayfası ise
 MANİM eşleştirmesi için tüm kayıtları taşır. Orijinal `.xls` tahsilat şablonuna
 yalnız N/1 kayıtları yazılır; fazladan `ŞUBELİLER` sayfası eklenmez.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from openpyxl import load_workbook
 import xlrd
@@ -12,6 +13,99 @@ from app.models.records import NetsisRecord
 
 class OutputContractError(ValueError):
     """Oluşan Excel dosyası seçili muhasebe profiliyle uyuşmadığında."""
+
+
+def validate_fom_integration_output(
+    output_path: str | Path,
+    *,
+    expected_basename: str,
+    expected_sheet_name: str,
+    expected_headers: list[str],
+    expected_data_rows: int,
+    template_path: str | Path | None = None,
+) -> None:
+    """Psoft'a verilecek FOM .xls çıktısının aktarım sözleşmesini denetler."""
+    output_path = Path(output_path)
+    if output_path.suffix.casefold() != ".xls":
+        raise OutputContractError("FOM entegrasyon çıktısı Excel 97-2003 (.xls) olmalı.")
+    if output_path.stem != expected_basename:
+        raise OutputContractError(
+            f"FOM entegrasyon dosya adı değişmiş: {output_path.name}"
+        )
+    if (
+        len(expected_basename) > 31
+        or not expected_basename.isascii()
+        or re.fullmatch(r"[A-Z0-9_]+", expected_basename) is None
+    ):
+        raise OutputContractError(
+            "Psoft dosya adı yalnız kısa ASCII harf, rakam ve alt çizgi içermeli."
+        )
+    if (
+        len(expected_sheet_name) > 31
+        or not expected_sheet_name.isascii()
+        or re.fullmatch(r"[A-Z0-9_]+", expected_sheet_name) is None
+    ):
+        raise OutputContractError(
+            "Psoft çalışma sayfası adı yalnız kısa ASCII harf, rakam ve alt çizgi içermeli."
+        )
+    try:
+        if output_path.read_bytes()[:8] != bytes.fromhex("D0CF11E0A1B11AE1"):
+            raise OutputContractError(
+                "FOM entegrasyon çıktısının uzantısı .xls ancak dosya biçimi Excel 97-2003 değil."
+            )
+        output = _WorkbookView.open(output_path)
+    except OutputContractError:
+        raise
+    except Exception as error:
+        raise OutputContractError(
+            f"FOM entegrasyon Excel'i doğrulanamadı: {error}"
+        ) from error
+
+    if output.sheet_names != [expected_sheet_name]:
+        raise OutputContractError(
+            f"FOM entegrasyon sayfa adı değişmiş: {output.sheet_names}"
+        )
+    if output.ncols != len(expected_headers):
+        raise OutputContractError(
+            "FOM entegrasyon çıktısının sütun sayısı şablonla uyuşmuyor."
+        )
+
+    baseline_headers = [str(value or "") for value in expected_headers]
+    if template_path and Path(template_path).is_file():
+        try:
+            template = _WorkbookView.open(Path(template_path))
+        except Exception as error:
+            raise OutputContractError(
+                f"FOM entegrasyon şablonu doğrulanamadı: {error}"
+            ) from error
+        if template.ncols != output.ncols:
+            raise OutputContractError(
+                "FOM entegrasyon çıktısının sütun sayısı orijinal şablonla uyuşmuyor."
+            )
+        baseline_headers = [
+            str(template.value(0, column) or "")
+            for column in range(template.ncols)
+        ]
+
+    actual_headers = [
+        str(output.value(0, column) or "")
+        for column in range(output.ncols)
+    ]
+    if actual_headers != baseline_headers:
+        raise OutputContractError(
+            "FOM entegrasyon çıktısının başlıkları veya sütun sırası şablondan farklı."
+        )
+
+    data_rows = [
+        row
+        for row in range(1, output.nrows)
+        if any(str(output.value(row, column) or "").strip() for column in range(output.ncols))
+    ]
+    if len(data_rows) != expected_data_rows:
+        raise OutputContractError(
+            "FOM entegrasyon satır sayısı uyuşmuyor: "
+            f"beklenen {expected_data_rows}, oluşan {len(data_rows)}."
+        )
 
 
 def validate_netsis_output(
