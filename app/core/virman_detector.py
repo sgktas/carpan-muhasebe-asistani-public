@@ -78,6 +78,12 @@ class VirmanDetector:
             )
 
         target_region, target_bank = targets[0]
+        # Bu çıktı yalnız aynı bankanın şirket hesapları/şubeleri arasındaki
+        # transfer içindir. Farklı bankaya yapılan EFT/havale, ayrı şablonu
+        # beklediği için Referanslı kayıt olarak kalır.
+        if target_bank != source_bank:
+            return VirmanDetection()
+
         target_code = self.region_config.banka_kodu(target_region, target_bank)
         if not target_code:
             return VirmanDetection(

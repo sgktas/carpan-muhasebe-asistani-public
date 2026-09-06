@@ -100,6 +100,18 @@ def test_outgoing_transfer_to_known_own_account_is_detected(tmp_path):
     assert result.record.hedef_banka_hesap_kodu == "BANK-Y-05"
 
 
+def test_different_bank_transfer_stays_in_reference_output(tmp_path):
+    detector = VirmanDetector(_config(tmp_path))
+
+    result = detector.detect(
+        _record("GIDEN HAVALE SIRKET HESABI TRTESTTESTTESTTESTTEST2005"),
+        "BODRUM",
+    )
+
+    assert result.record is None
+    assert result.candidate is False
+
+
 def test_reference_number_suffix_alone_does_not_create_false_virman(tmp_path):
     detector = VirmanDetector(_config(tmp_path))
     result = detector.detect(
