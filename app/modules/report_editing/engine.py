@@ -49,8 +49,11 @@ COLLECTION_OUTPUT_COLUMNS = [
 ]
 
 
-SALES_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Satış_Faturaları)"
-COLLECTION_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Tahsilatlar)"
+# Psoft, seçilen Excel'in dosya adını da tablo/nesne adı olarak yorumluyor.
+# Uzun adlar, Türkçe karakterler ve parantezler "not a valid name" hatasına
+# yol açtığı için Netsis'e aktarılacak iki dosyanın adı kısa ASCII tutulur.
+SALES_OUTPUT_BASENAME = "ENT_SATIS_FATURALARI"
+COLLECTION_OUTPUT_BASENAME = "ENT_TAHSILATLAR"
 SALES_CLEAN_OUTPUT_PREFIX = "02_SATIS_RAPORU_DUZENLENMIS"
 COLLECTION_CLEAN_OUTPUT_PREFIX = "03_TAHSILAT_RAPORU_DUZENLENMIS"
 CUSTOMER_CLEAN_OUTPUT_FILENAME = "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"

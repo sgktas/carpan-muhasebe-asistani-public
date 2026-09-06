@@ -312,6 +312,13 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
     assert any(name.startswith(COLLECTION_CLEAN_OUTPUT_PREFIX) and name.endswith(".xlsx") for name in names)
     assert f"{COLLECTION_OUTPUT_BASENAME}.xls" in names
 
+    assert SALES_OUTPUT_BASENAME == "ENT_SATIS_FATURALARI"
+    assert COLLECTION_OUTPUT_BASENAME == "ENT_TAHSILATLAR"
+    assert SALES_OUTPUT_BASENAME.isascii() and SALES_OUTPUT_BASENAME.replace("_", "").isalnum()
+    assert COLLECTION_OUTPUT_BASENAME.isascii() and COLLECTION_OUTPUT_BASENAME.replace("_", "").isalnum()
+    assert len(SALES_OUTPUT_BASENAME) <= 31
+    assert len(COLLECTION_OUTPUT_BASENAME) <= 31
+
     assert SALES_SHEET_NAME == "SATIS_FATURALARI"
     assert COLLECTION_SHEET_NAME == "TAHSILATLAR"
     assert len(SALES_SHEET_NAME + "$") <= 31

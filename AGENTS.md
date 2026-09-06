@@ -11,6 +11,10 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   Tek sayfası `Sheet1`'dır; `Muh.Ref.Kod(*)` sabiti `G01`'dir. Tarih, cari kod,
   tutar ve masraf tutarı hücre biçimleri bu onaylı dosyadaki gibi korunur.
 - Toplu havale ve FOM çıktılarında da mevcut onaylı yerel şablonları koru.
+- Psoft/Netsis'e gidecek FOM entegrasyon dosyalarının güvenli adları
+  `ENT_SATIS_FATURALARI.xls` ve `ENT_TAHSILATLAR.xls` olmalıdır. Çalışma
+  sayfaları sırasıyla `SATIS_FATURALARI` ve `TAHSILATLAR` olarak kalmalıdır;
+  uzun ad, Türkçe karakter veya parantez kullanma.
 - Başlıkları, sütun sırasını, sayfa adını, sütun genişliklerini ve mevcut
   biçimlendirmeyi değiştirme. Tutar sütunlarının binlik ayraçlı, iki ondalıklı
   sayısal biçimini yeni veri satırlarında da koru.
