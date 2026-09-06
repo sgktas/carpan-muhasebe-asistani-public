@@ -27,6 +27,10 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   `Sheet1` sayfası bırakılmış güncel sürümüdür. Kaynak banka kodu A, hedef
   banka kodu H, yön değeri 1 ve tutar O sütunundadır. Plas.Kodu U sütununda
   metin olarak `00` görünmelidir; sayısal `0.00` biçimi kullanılmaz.
+- MANİM hareket rotaları `app/core/movement_router.py` içindeki tek karar
+  katmanından geçmelidir. Aynı banka virmanı dahil rota kararlarını tekrar
+  `processing_engine.py` içine dağıtma. Yeni rota eklerken
+  `docs/MANIM_YONLENDIRME_MIMARISI.md` sözleşmesini uygula.
 - Kaynak şablonların içine veri yazma, yeniden kaydetme veya başka Excel
   biçimine dönüştürme. Yalnız ayrı çıktı dosyasındaki işlem verileri değişebilir.
 - Şablon eksikse genel Excel üreterek devam etme. Önce orijinal dosyayı geri koy.

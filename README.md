@@ -271,8 +271,9 @@ ilgili BM kodu otomatik yazılır.
 ### Hesaplar arası virman çıktısı
 
 MANİM'de **Referanslı** durumundaki negatif hareketlerden yalnız açıklamasında
-virman/giden hesap transferi işareti bulunan ve hedef şirket hesabı Bölge
-Yönetimi'ndeki hesap/IBAN son haneleriyle kesin eşleşen kayıtlar ayrılır. Her
+virman/giden hesap transferi işareti bulunan, kaynak ve hedef bankası aynı olan
+ve hedef şirket hesabı Bölge Yönetimi'ndeki hesap/IBAN son haneleriyle kesin
+eşleşen kayıtlar ayrılır. Her
 kaynak bölge için tek `HESAPLAR_ARASI_VIRMAN_*.xlsx` dosyası oluşur; o bölgenin
 tüm kaynak bankaları aynı dosyada yer alır. Kaynak BM kodu `Banka Hes.Kodu(*)`,
 hedef BM kodu `Banka Hesap Kodu(*)` alanına yazılır ve yön değeri giden işlem
@@ -282,6 +283,10 @@ mevcut Referanslı inceleme dosyasında kalır.
 Virman çıktısı yalnız onaylı `HESAPLAR ARASI VİRMAN TOPLU.xlsx` şablonunun yerel
 birebir kopyasından üretilir. Sayfa adları, 32 sütunlu başlık dizilimi ve çalışma
 kitabı yapısı doğrulanmadan çıktı başarılı sayılmaz.
+
+Dekont durumu ile virman önceliği `app/core/movement_router.py` içindeki tek
+yönlendirme katmanında birleştirilmiştir. Karar sırası ve yeni rota ekleme
+sözleşmesi `docs/MANIM_YONLENDIRME_MIMARISI.md` belgesinde tanımlıdır.
 
 
 ## Revize 18 — Çıktı Klasörü ve FOM Adlandırması

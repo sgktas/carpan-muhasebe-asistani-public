@@ -19,7 +19,8 @@ from app.core.input_profile import InputProfileStore
 from app.core.output_profile import OutputProfileStore
 from app.core.mapping_store import MappingStore
 from app.core.money import money, money_sum
-from app.core.movement_classifier import MovementClassifier, MovementRoute
+from app.core.movement_classifier import MovementRoute
+from app.core.movement_router import MovementDecision, MovementRouter
 from app.core.output_order import (
     bank_sort_key,
     chronological_key,
@@ -31,7 +32,6 @@ from app.core.manim_parser import InvalidManimRow, ManimParser
 from app.core.processed_files_log import ProcessedFilesLog
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.core.tahsilat_parser import TahsilatParser
-from app.core.virman_detector import VirmanDetector
 from app.models.records import CustomerRecord, ManimRecord, TahsilatRecord
 from app.processors.havale_processor import HavaleProcessor
 from app.writers.netsis_writer import NetsisWriter
@@ -183,8 +183,7 @@ class ProcessingEngine:
             mapping_store,
             region_branch_aliases=region_branch_aliases,
         )
-        movement_classifier = MovementClassifier()
-        virman_detector = VirmanDetector(self.region_config)
+        movement_router = MovementRouter(self.region_config)
 
         outputs: dict[tuple[str, str], list] = defaultdict(list)
         pending: list[UnresolvedItem] = []
@@ -255,44 +254,58 @@ class ProcessingEngine:
                     customer_region_by_name,
                 )
                 row_region_counts[region] += 1
-                classification = movement_classifier.classify(record)
+                decision = movement_router.route(record, region)
 
-                if classification.route == MovementRoute.REVIEW:
+                if decision.route == MovementRoute.REVIEW:
                     pending.append(UnresolvedItem(
                         record=record,
                         region=region,
-                        reason=classification.reason,
+                        reason=decision.reason,
                     ))
-                    if classification.code == "NEGATIVE_PAYMENT_APPROVAL":
+                    if decision.code == "NEGATIVE_PAYMENT_APPROVAL":
                         result.logs.append(
                             "UYARI: Negatif tutarlı kayıt Ödeme Onaylandı'ya yazılmadı; "
                             "Referanslı kayıt olarak kontrol bekliyor."
                         )
-                    elif classification.code == "AMBIGUOUS_STAFF_DEPOSIT":
+                    elif decision.code == "AMBIGUOUS_STAFF_DEPOSIT":
                         result.logs.append(
                             "UYARI: Referanslı seçilmiş ancak açıklamada ROTA/YATAN PARA "
                             "bilgisi var; Ödeme Onaylandı olma ihtimali için kullanıcı onayı bekliyor."
                         )
                     else:
                         result.logs.append(
-                            f"UYARI [{classification.code}]: {classification.reason}"
+                            f"UYARI [{decision.code}]: {decision.reason}"
                         )
                     continue
 
-                if classification.route == MovementRoute.ODEME_ONAYLANDI:
+                if decision.route == MovementRoute.ODEME_ONAYLANDI:
                     odeme_onaylandi_items.append((record, region, self._bank_key(record.banka)))
                     result.skipped_payment += 1
                     continue
 
-                if classification.route == MovementRoute.KURAL_CALISTI:
+                if decision.route == MovementRoute.KURAL_CALISTI:
                     kural_calisti_by_region[region].append(record)
                     result.skipped_rule += 1
                     continue
 
-                if classification.route == MovementRoute.REFERANSLI:
-                    referansli_by_region[region].append(record)
-                    result.skipped_reference += 1
+                if decision.route == MovementRoute.SAME_BANK_VIRMAN:
+                    self._append_virman_decision(
+                        decision,
+                        region,
+                        virman_by_region,
+                        result,
+                    )
                     continue
+
+                if decision.route == MovementRoute.REFERANSLI:
+                    referansli_by_region[region].append(record)
+                    self._log_reference_candidate(decision, record, result)
+                    continue
+
+                if decision.route != MovementRoute.HAVALE:
+                    raise ValueError(
+                        f"İşleme motorunun desteklemediği hareket rotası: {decision.route}"
+                    )
 
                 bank = self._bank_key(record.banka)
                 if self._requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(region, bank):
@@ -360,9 +373,21 @@ class ProcessingEngine:
                     continue
 
                 if resolution.route == "REFERANSLI":
-                    referansli_by_region[item.region].append(item.record)
-                    result.skipped_reference += 1
-                    result.logs.append(f"Manuel olarak Referanslı'ya taşındı: {item.record.aciklama[:60]}...")
+                    decision = movement_router.route_reference(item.record, item.region)
+                    if decision.route == MovementRoute.SAME_BANK_VIRMAN:
+                        self._append_virman_decision(
+                            decision,
+                            item.region,
+                            virman_by_region,
+                            result,
+                        )
+                    else:
+                        referansli_by_region[item.region].append(item.record)
+                        self._log_reference_candidate(decision, item.record, result)
+                        result.logs.append(
+                            "Manuel olarak Referanslı'ya taşındı: "
+                            f"{item.record.aciklama[:60]}..."
+                        )
                     continue
 
                 if resolution.route != "HAVALE" or not resolution.rows:
@@ -474,27 +499,6 @@ class ProcessingEngine:
                     )
 
             pending = still_pending
-
-        # Referanslı kayıtların yalnız negatif, kendi hesaplarımıza giden ve
-        # hedefi kesin belirlenen virmanlarını yeni Netsis çıktısına ayır.
-        for region, records in list(referansli_by_region.items()):
-            remaining_reference: list[ManimRecord] = []
-            for record in records:
-                detection = virman_detector.detect(record, region)
-                if detection.record is not None:
-                    virman_by_region[region].append(detection.record)
-                    result.logs.append(
-                        f"Virman ayrıldı: {region}/{detection.record.kaynak_banka} -> "
-                        f"{detection.record.hedef_banka}, {detection.record.tutar:,.2f} TL."
-                    )
-                    continue
-                remaining_reference.append(record)
-                if detection.candidate and detection.reason:
-                    result.logs.append(
-                        f"UYARI: Virman otomatik ayrılamadı; Referanslı listede bırakıldı: "
-                        f"{detection.reason} ({record.aciklama[:60]}...)"
-                    )
-            referansli_by_region[region] = remaining_reference
 
         result.virman_records = sum(len(records) for records in virman_by_region.values())
         result.skipped_reference = sum(len(records) for records in referansli_by_region.values())
@@ -692,6 +696,34 @@ class ProcessingEngine:
         )
 
         return result
+
+    @staticmethod
+    def _append_virman_decision(
+        decision: MovementDecision,
+        region: str,
+        virman_by_region: dict[str, list],
+        result: ProcessingResult,
+    ) -> None:
+        virman_record = decision.virman_record
+        if virman_record is None:
+            raise ValueError("Aynı banka virman kararında çıktı kaydı bulunamadı.")
+        virman_by_region[region].append(virman_record)
+        result.logs.append(
+            f"Virman ayrıldı: {region}/{virman_record.kaynak_banka} -> "
+            f"{virman_record.hedef_banka}, {virman_record.tutar:,.2f} TL."
+        )
+
+    @staticmethod
+    def _log_reference_candidate(
+        decision: MovementDecision,
+        record: ManimRecord,
+        result: ProcessingResult,
+    ) -> None:
+        if decision.candidate and decision.reason:
+            result.logs.append(
+                "UYARI: Virman otomatik ayrılamadı; Referanslı listede bırakıldı: "
+                f"{decision.reason} ({record.aciklama[:60]}...)"
+            )
 
     def _match_combined_bank_movements(self, pending, outputs, result, output_profile, processor):
         candidate_groups: dict[tuple, list[tuple[int, UnresolvedItem]]] = defaultdict(list)
