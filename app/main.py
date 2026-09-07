@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.core.app_logging import configure_logging, install_exception_logging
 from app.core.app_paths import APP_PATHS
+from app.core.company_workspace import CompanyWorkspaceManager
 from app.core.identity import AuthenticatedSession, IdentityStore
 from app.ui.login_window import LoginWindow
 from app.ui.main_window import MainWindow
@@ -53,9 +54,11 @@ def main():
         app.setWindowIcon(app_icon)
 
     identity_store = IdentityStore(APP_PATHS.state_dir / "platform.sqlite3")
+    workspace_manager = CompanyWorkspaceManager(APP_PATHS.base_data_root)
 
     def show_login_window() -> None:
         global _login_window
+        APP_PATHS.reset_to_installation_data()
         _login_window = LoginWindow(
             identity_store=identity_store,
             on_login_success=open_main_window,
@@ -64,6 +67,15 @@ def main():
 
     def open_main_window(session: AuthenticatedSession) -> None:
         global _main_window
+        # Birden çok firma varsa ortak eski veriyi tahmine dayalı biçimde hiçbir
+        # firmaya taşımayız. Tek-firma kurulumunda güvenli kopyalı geçiş yapılır.
+        workspace = workspace_manager.prepare(
+            session.company_id,
+            migrate_legacy=len(identity_store.companies()) == 1,
+        )
+        APP_PATHS.activate_company_workspace(workspace.root)
+        if workspace.migrated_legacy_data:
+            logger.info("Eski yerel çalışma verisi firma alanına kopyalandı.")
         _main_window = MainWindow(
             session=session,
             identity_store=identity_store,

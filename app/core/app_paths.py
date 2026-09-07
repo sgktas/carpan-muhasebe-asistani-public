@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import sys
@@ -12,7 +12,7 @@ VISIBLE_OUTPUT_FOLDER = "Çarpan Muhasebe Asistanı"
 VISIBLE_OUTPUT_SUBFOLDER = "Çıktılar"
 
 
-@dataclass(frozen=True)
+@dataclass
 class AppPaths:
     """Uygulama kaynaklarını, sistem verilerini ve kullanıcı çıktılarını ayırır.
 
@@ -28,6 +28,19 @@ class AppPaths:
     resource_root: Path
     data_root: Path
     output_root: Path
+    base_data_root: Path = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.base_data_root = self.data_root
+
+    def activate_company_workspace(self, workspace_root: Path) -> None:
+        """Aktif oturumun firma alanını tüm modüllere uygular."""
+        self.data_root = Path(workspace_root)
+        self.ensure_writable_dirs()
+
+    def reset_to_installation_data(self) -> None:
+        self.data_root = self.base_data_root
+        self.ensure_writable_dirs()
 
     @property
     def assets_dir(self) -> Path:

@@ -62,9 +62,14 @@ Kimlik verisi `platform.sqlite3` içinde tutulur. Şema değişiklikleri doğrud
 mevcut tabloyu varsaymak yerine `schema_migrations` ile sürümlenir. Operasyon
 geçmişindeki eski kayıtlar firma/kullanıcı kimliği olmadan okunmaya devam eder.
 
-## Sonraki dilim
+## Firma çalışma alanları
 
-Bir sonraki mimari adım, her firmanın eşleştirme hafızası, profilleri, ayarları,
-işlem geçmişi ve çıktı konumunu fiziksel olarak ayrı çalışma alanına taşımaktır.
-Mevcut kullanıcı verilerinin kaybolmaması için bu geçiş otomatik, yedekli ve geri
-alınabilir bir migrasyonla yapılmalıdır.
+Her oturumda uygulama aktif firmaya ait ayrı bir yerel çalışma alanı kullanır.
+Bu alan eşleştirme hafızası, profiller, bölge ayarları, işlem geçmişi ve günlükleri
+diğer firmalardan fiziksel olarak ayırır.
+
+Eski tek-firma kurulumu ilk girişte silinmeden firma alanına kopyalanır; özgün
+dosyalar geri dönüş için yerinde kalır. Birden fazla firma zaten varsa veriyi
+tahmine dayalı biçimde hiçbir firmaya aktarmak yerine yeni firma alanı boş başlar.
+Kimlik veritabanı uygulama kurulumunda ortak kalır; böylece farklı firmaların
+kullanıcıları aynı giriş ekranından kendi alanlarına erişebilir.
