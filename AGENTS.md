@@ -40,6 +40,11 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   `app/core/identity.py` içinde kalmalıdır. Arayüzde rol adına göre dağınık karar
   üretme; `AuthenticatedSession.can()` izinlerini kullan. Kimlik şeması
   değişikliklerinde `schema_migrations` ile geriye uyumlu geçiş ekle.
+- Merkezi B2B API yalnız `platform_api/` altında geliştirilir. Masaüstü istemcisi
+  PostgreSQL'e doğrudan bağlanamaz; firma kapsamlı merkezi sorgular
+  `tenant_transaction()` ve RLS sözleşmesi üzerinden geçmelidir. İlk merkezi
+  sürümde banka/Excel/müşteri dosyalarını API'ye taşıma; gerçek gizli değerleri
+  `.env`, dokümantasyon, test veya Git içine yazma.
 - Kaynak şablonların içine veri yazma, yeniden kaydetme veya başka Excel
   biçimine dönüştürme. Yalnız ayrı çıktı dosyasındaki işlem verileri değişebilir.
 - Şablon eksikse genel Excel üreterek devam etme. Önce orijinal dosyayı geri koy.

@@ -135,3 +135,19 @@ CREATE POLICY refresh_tokens_tenant_scope ON carpan.refresh_tokens
 CREATE POLICY audit_events_tenant_scope ON carpan.audit_events
     USING (company_id = NULLIF(current_setting('app.company_id', true), '')::uuid)
     WITH CHECK (company_id = NULLIF(current_setting('app.company_id', true), '')::uuid);
+
+CREATE OR REPLACE FUNCTION carpan.resolve_company_code(p_code TEXT)
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, carpan
+AS $$
+    SELECT id
+    FROM carpan.companies
+    WHERE lower(code) = lower(trim(p_code))
+      AND status = 'ACTIVE'
+    LIMIT 1
+$$;
+
+REVOKE ALL ON FUNCTION carpan.resolve_company_code(TEXT) FROM PUBLIC;

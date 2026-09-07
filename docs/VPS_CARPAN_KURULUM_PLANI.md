@@ -42,9 +42,11 @@ eder; API yalnız `127.0.0.1:8010` üzerinden Nginx tarafından çağrılır.
 5. `/var/www/carpan-platform` altında kaynak ve sanal ortam hazırlanır.
 6. `/etc/carpan-platform/api.env` yalnız sunucuda oluşturulur; Git'e konmaz.
 7. Sürümlü PostgreSQL migrasyonları uygulanır.
-8. `carpan-api.service` yalnız `127.0.0.1:8010` portunda başlatılır.
-9. Alan adı kesinleştiğinde Nginx, SSL sertifikası ve `api.` alt alanı eklenir.
-10. Otomatik günlük PostgreSQL yedeği ve geri-yükleme denemesi kurulur.
+8. İlk firma ve merkezi yönetici hesabı, parola komut satırına yazılmadan
+   `bootstrap_company.py` ile oluşturulur.
+9. `carpan-api.service` yalnız `127.0.0.1:8010` portunda başlatılır.
+10. Alan adı kesinleştiğinde Nginx, SSL sertifikası ve `api.` alt alanı eklenir.
+11. Otomatik günlük PostgreSQL yedeği ve geri-yükleme denemesi kurulur.
 
 ## Yedekleme ölçütü
 

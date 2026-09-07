@@ -20,3 +20,4 @@ def test_initial_migration_has_tenant_and_audit_contracts():
         assert table in migration
     assert "ENABLE ROW LEVEL SECURITY" in migration
     assert "app.company_id" in migration
+    assert "carpan.resolve_company_code" in migration

@@ -42,6 +42,17 @@ python scripts/migrate.py
 Bu komut yalnız `platform_api/migrations/` içindeki sürümlü SQL dosyalarını
 uygular. Mevcut Acki Radar veritabanına kesinlikle bağlanmamalıdır.
 
+Migrasyon tamamlandıktan sonra ilk firma ve merkezi yönetici hesabı, yalnız
+sunucu yöneticisinin açık terminalinden ve parola komut satırına yazılmadan
+oluşturulur:
+
+```powershell
+python scripts/bootstrap_company.py --company-code CARPAN --company-name "Çarpan" --username admin --display-name "Platform Yöneticisi"
+```
+
+Bu komut ilk firmadan sonra tekrar çalışmaz. Sonraki firmalar, ileride eklenecek
+yetkili yönetim paneli akışından oluşturulur.
+
 ## Gizli bilgiler
 
 - `.env` dosyası Git'e eklenmez.
