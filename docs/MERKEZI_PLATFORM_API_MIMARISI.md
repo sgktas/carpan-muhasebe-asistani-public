@@ -17,6 +17,18 @@ Web yönetim paneli ── HTTPS ───> platform_api ──> PostgreSQL
 Masaüstü istemcisi PostgreSQL'e doğrudan bağlanmaz. API, Nginx arkasında yalnız
 HTTPS ile yayınlanır. PostgreSQL yalnız VPS içinden erişilebilir.
 
+## Masaüstü bağlantı davranışı
+
+Masaüstündeki Ayarlar ekranında merkezi API adresi yerel olarak kaydedilir. Adres
+HTTPS olmalıdır; yalnız yerel geliştirme için `localhost` üzerinde HTTP kabul
+edilir. Uygulama başlangıçta ağı beklemez. Kullanıcı "Bağlantıyı sınayın"
+seçtiğinde yalnız `/health` çağrısı yapılır.
+
+Merkez henüz kurulmamış ya da ulaşılamıyorsa masaüstü uygulaması yerel kimlik,
+eşleştirme hafızası ve dosya işleme ile çalışmaya devam eder. Bu aşamada merkezi
+bağlantı, lisans veya oturum verisini saklamaz ve banka/Excel/müşteri verisi
+göndermez.
+
 ## Kimlik akışı
 
 1. Kullanıcı firma kodu, kullanıcı adı ve parolayla `/v1/auth/login` çağrısı yapar.

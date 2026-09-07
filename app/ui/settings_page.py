@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -26,6 +27,7 @@ from app.core.input_profile import InputProfileStore
 from app.core.output_location import OutputLocationStore, resolve_output_dir
 from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
+from app.core.platform_connection import PlatformApiClient, PlatformConnectionError, PlatformConnectionStore
 from app.ui.common import add_page_header
 from app.ui.profile_editor_dialogs import (
     CustomerListProfileEditorDialog,
@@ -50,6 +52,7 @@ class SettingsPage(QWidget):
         self._region_store = RegionConfigStore(
             active_region_config_path(APP_PATHS.config_dir, APP_PATHS.data_root)
         )
+        self._platform_store = PlatformConnectionStore(APP_PATHS.data_root)
         self._profile_row_widgets: list[QWidget] = []
         self._build_ui()
 
@@ -187,6 +190,74 @@ class SettingsPage(QWidget):
         layout.addWidget(subtitle)
         layout.addLayout(row)
         return card
+
+    def _platform_connection_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("Merkezi Platform Bağlantısı")
+        title.setObjectName("cardTitle")
+        description = QLabel(
+            "Lisans, merkezi kullanıcı ve cihaz yönetimi bu bağlantı üzerinden çalışacak. "
+            "Banka, Excel ve müşteri verileri bilgisayarınızda kalır."
+        )
+        description.setObjectName("cardSubtitle")
+        description.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(description)
+
+        self._platform_url_input = QLineEdit(self._platform_store.get().api_url)
+        self._platform_url_input.setPlaceholderText("https://platform.firmaniz.com")
+        self._platform_url_input.setClearButtonEnabled(True)
+        layout.addWidget(self._platform_url_input)
+
+        bottom = QHBoxLayout()
+        self._platform_status = QLabel()
+        self._platform_status.setObjectName("miniInfoText")
+        self._refresh_platform_status()
+        save_button = QPushButton("Adresi kaydet")
+        save_button.setObjectName("secondary")
+        save_button.clicked.connect(self._save_platform_url)
+        test_button = QPushButton("Bağlantıyı sınayın")
+        test_button.setObjectName("secondary")
+        test_button.clicked.connect(self._test_platform_connection)
+        bottom.addWidget(self._platform_status, 1)
+        bottom.addWidget(save_button)
+        bottom.addWidget(test_button)
+        layout.addLayout(bottom)
+        return card
+
+    def _refresh_platform_status(self) -> None:
+        config = self._platform_store.get()
+        self._platform_status.setText(
+            "Merkezi platform henüz yapılandırılmadı. Yerel çalışma devam ediyor."
+            if not config.api_url
+            else "Merkezi platform adresi kaydedildi. Bağlantıyı sınayabilirsiniz."
+        )
+
+    def _save_platform_url(self) -> None:
+        try:
+            self._platform_store.save(self._platform_url_input.text())
+        except PlatformConnectionError as error:
+            QMessageBox.warning(self, "Merkezi platform adresi", str(error))
+            return
+        self._refresh_platform_status()
+
+    def _test_platform_connection(self) -> None:
+        try:
+            config = self._platform_store.save(self._platform_url_input.text())
+        except PlatformConnectionError as error:
+            QMessageBox.warning(self, "Merkezi platform adresi", str(error))
+            return
+        status = PlatformApiClient(config).health()
+        self._platform_status.setText(status.message)
+        if status.is_connected:
+            QMessageBox.information(self, "Merkezi platform", status.message)
+        else:
+            QMessageBox.warning(self, "Merkezi platform", status.message)
 
     def _refresh_region_summary(self) -> None:
         regions = self._region_store.config().regions()
@@ -434,6 +505,7 @@ class SettingsPage(QWidget):
         card_layout.addWidget(backup_row)
         layout.addWidget(card)
 
+        layout.addWidget(self._platform_connection_card())
         layout.addWidget(self._region_management_card())
 
         profile_card = QFrame()
