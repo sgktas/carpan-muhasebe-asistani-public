@@ -16,6 +16,7 @@ from app.core.identity import AuthenticatedSession, IdentityStore
 from app.core.operation_history import OperationHistory
 from app.modules.registry import build_module_registry
 from app.ui.history_page import HistoryPage
+from app.ui.operation_center_page import OperationCenterPage
 from app.ui.audit_page import AuditPage
 from app.ui.settings_page import SettingsPage
 from app.ui.team_page import ROLE_LABELS, TeamPage
@@ -48,6 +49,14 @@ class MainWindow(QWidget):
         ]
         self.management_items: list[tuple[str, str, str, object]] = []
         if session.can("history.read"):
+            self.management_items.append(
+                (
+                    "operations_center",
+                    "Operasyon Merkezi",
+                    "history",
+                    lambda: OperationCenterPage(self.history),
+                )
+            )
             self.management_items.append(
                 ("history", "Geçmiş İşlemler", "history", lambda: HistoryPage(self.history))
             )

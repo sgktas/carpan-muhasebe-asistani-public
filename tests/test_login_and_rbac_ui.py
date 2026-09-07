@@ -52,7 +52,7 @@ def test_login_shows_error_without_opening_workspace(tmp_path, monkeypatch):
     assert login.error_label.isVisibleTo(login)
 
 
-def test_approver_sees_only_authorized_module_and_history(tmp_path, monkeypatch):
+def test_approver_sees_only_authorized_module_and_operations_views(tmp_path, monkeypatch):
     monkeypatch.setattr(identity, "PASSWORD_ITERATIONS", 1_000)
     store = IdentityStore(tmp_path / "platform.sqlite3")
     admin = store.create_initial_admin(
@@ -92,5 +92,9 @@ def test_approver_sees_only_authorized_module_and_history(tmp_path, monkeypatch)
 
     window = main_window.MainWindow(approver, store)
 
-    assert [item[0] for item in window.nav_items] == ["manim_transfer", "history"]
+    assert [item[0] for item in window.nav_items] == [
+        "manim_transfer",
+        "operations_center",
+        "history",
+    ]
     window.close()
