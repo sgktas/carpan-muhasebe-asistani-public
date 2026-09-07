@@ -8,10 +8,10 @@ from openpyxl import Workbook, load_workbook
 from app.modules.report_editing.engine import (
     COLLECTION_CLEAN_OUTPUT_PREFIX,
     COLLECTION_OUTPUT_BASENAME,
-    COLLECTION_SHEET_NAME,
+    COLLECTION_OUTPUT_COLUMNS,
     SALES_CLEAN_OUTPUT_PREFIX,
     SALES_OUTPUT_BASENAME,
-    SALES_SHEET_NAME,
+    SALES_OUTPUT_COLUMNS,
     ExcelTemplateWriter,
     ReportEditingEngine,
     refresh_customer_list_cache,
@@ -290,10 +290,26 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
     )
 
     calls = []
+    template_dir = tmp_path / "templates" / "report_editing"
+    template_dir.mkdir(parents=True)
+    _save_xls(
+        template_dir / "sales_template.xls",
+        "ORIJINAL_SATIS",
+        SALES_OUTPUT_COLUMNS + [""],
+        [],
+    )
+    _save_xls(
+        template_dir / "collections_template.xls",
+        "ORIJINAL_TAHSILAT",
+        COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"],
+        [],
+    )
 
     def fake_write(self, template_path, output_path, sheets, **kwargs):
         output_path = Path(output_path).with_suffix(".xls")
         sheet_name, rows = sheets[0]
+        if sheet_name is None:
+            sheet_name = xlrd.open_workbook(str(template_path)).sheet_by_index(0).name
         _save_xls(output_path, sheet_name, kwargs["headers"][0], rows)
         calls.append((Path(output_path).name, sheets, kwargs))
         return output_path
@@ -320,20 +336,15 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
     assert len(SALES_OUTPUT_BASENAME) <= 31
     assert len(COLLECTION_OUTPUT_BASENAME) <= 31
 
-    assert SALES_SHEET_NAME == "SATIS_FATURALARI"
-    assert COLLECTION_SHEET_NAME == "TAHSILATLAR"
-    assert len(SALES_SHEET_NAME + "$") <= 31
-    assert len(COLLECTION_SHEET_NAME + "$") <= 31
-
     sales_call = next(call for call in calls if call[0] == f"{SALES_OUTPUT_BASENAME}.xls")
-    assert sales_call[1][0][0] == SALES_SHEET_NAME
+    assert sales_call[1][0][0] is None
     assert sales_call[2]["delete_extra_sheets"] is True
 
     collection_call = next(
         call for call in calls if call[0] == f"{COLLECTION_OUTPUT_BASENAME}.xls"
     )
     assert len(collection_call[1]) == 1
-    assert collection_call[1][0][0] == COLLECTION_SHEET_NAME
+    assert collection_call[1][0][0] is None
     assert len(collection_call[1][0][1]) == 1
     assert collection_call[1][0][1][0][4:6] == ["N", "1"]
     assert collection_call[2]["delete_extra_sheets"] is True

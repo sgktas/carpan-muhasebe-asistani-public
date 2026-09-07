@@ -13,8 +13,8 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
 - Toplu havale ve FOM çıktılarında da mevcut onaylı yerel şablonları koru.
 - Psoft/Netsis'e gidecek FOM entegrasyon dosyalarının güvenli adları
   `ENT_SATIS_FATURALARI.xls` ve `ENT_TAHSILATLAR.xls` olmalıdır. Çalışma
-  sayfaları sırasıyla `SATIS_FATURALARI` ve `TAHSILATLAR` olarak kalmalıdır;
-  uzun ad, Türkçe karakter veya parantez kullanma.
+  sayfası adı ise onaylı kaynak şablondan aynen korunmalıdır; yeniden
+  adlandırma, sadeleştirme veya dönüştürme yapma.
 - FOM entegrasyon çıktısını başarılı saymadan önce `.xls` dosya imzası,
   güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı
   çıktı sözleşmesiyle doğrulanmalıdır.

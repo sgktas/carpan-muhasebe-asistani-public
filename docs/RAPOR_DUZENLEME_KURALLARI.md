@@ -145,9 +145,10 @@ ENT_TAHSILATLAR.xls
 ```
 
 Düzenlenmiş `.xlsx` dosyaları kaynak raporun sayfa adını korur. Orijinal
-`.xls` şablon çıktıları Psoft uyumluluğu için sırasıyla `SATIS_FATURALARI` ve
-`TAHSILATLAR` sayfa adlarıyla kaydedilir. Dosya ve sayfa adlarında Türkçe
-karakter, parantez veya başka noktalama işareti kullanılmaz.
+`.xls` şablon çıktılarında çalışma sayfası adı, Psoft'un şablon sözleşmesini
+korumak için kaynak şablondan aynen bırakılır. Dosya adları ise Psoft için kısa
+ASCII biçiminde kalır; çalışma sayfası adını sadeleştirme veya yeniden adlandırma
+yapılmaz.
 
 Her iki şablon çıktısı Microsoft Excel ile `FileFormat=56` kullanılarak `.xls` kaydedilir.
 Şablon çıktısı için Windows ve kurulu Microsoft Excel gerekir.

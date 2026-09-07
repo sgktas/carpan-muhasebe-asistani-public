@@ -58,8 +58,6 @@ COLLECTION_OUTPUT_BASENAME = "ENT_TAHSILATLAR"
 SALES_CLEAN_OUTPUT_PREFIX = "02_SATIS_RAPORU_DUZENLENMIS"
 COLLECTION_CLEAN_OUTPUT_PREFIX = "03_TAHSILAT_RAPORU_DUZENLENMIS"
 CUSTOMER_CLEAN_OUTPUT_FILENAME = "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"
-SALES_SHEET_NAME = "SATIS_FATURALARI"
-COLLECTION_SHEET_NAME = "TAHSILATLAR"
 
 
 
@@ -372,6 +370,18 @@ def _report_template_path(resource_root: Path, file_name: str) -> Path:
     if os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1" and local.is_file():
         return local
     return resource_root / "templates" / "report_editing" / file_name
+
+
+def _template_first_sheet_name(template_path: str | Path) -> str:
+    """Psoft'un beklediği özgün şablon sayfa adını korur.
+
+    Dosya adı Psoft için kısa ve ASCII kalır; çalışma sayfası adı ise kullanıcı
+    tarafından onaylanan orijinal şablondan gelir ve yeniden adlandırılmaz.
+    """
+    workbook = xlrd.open_workbook(str(template_path), formatting_info=False)
+    if not workbook.nsheets:
+        raise ValueError("FOM entegrasyon şablonunda çalışma sayfası bulunamadı.")
+    return str(workbook.sheet_by_index(0).name)
 
 
 class ExcelTemplateWriter:
@@ -963,18 +973,19 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "sales_template.xls"
                 )
+                template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{SALES_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(
                     template_path,
                     template_output,
-                    [(SALES_SHEET_NAME, values)],
+                    [(None, values)],
                     headers=[SALES_OUTPUT_COLUMNS + [""]],
                     delete_extra_sheets=True,
                 )
                 validate_fom_integration_output(
                     template_output,
                     expected_basename=SALES_OUTPUT_BASENAME,
-                    expected_sheet_name=SALES_SHEET_NAME,
+                    expected_sheet_name=template_sheet_name,
                     expected_headers=SALES_OUTPUT_COLUMNS + [""],
                     expected_data_rows=len(values),
                     template_path=template_path,
@@ -1022,18 +1033,19 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "collections_template.xls"
                 )
+                template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{COLLECTION_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(
                     template_path,
                     template_output,
-                    [(COLLECTION_SHEET_NAME, main_values)],
+                    [(None, main_values)],
                     headers=[COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"]],
                     delete_extra_sheets=True,
                 )
                 validate_fom_integration_output(
                     template_output,
                     expected_basename=COLLECTION_OUTPUT_BASENAME,
-                    expected_sheet_name=COLLECTION_SHEET_NAME,
+                    expected_sheet_name=template_sheet_name,
                     expected_headers=COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"],
                     expected_data_rows=len(main_values),
                     template_path=template_path,

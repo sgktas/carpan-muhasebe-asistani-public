@@ -88,6 +88,23 @@ def test_fom_contract_rejects_wrong_sheet_or_row_count(tmp_path):
         )
 
 
+def test_fom_contract_allows_original_template_sheet_name(tmp_path):
+    sheet_name = "ENT-Muhasebe_Entegrasyon(Satis"
+    template = tmp_path / "template.xls"
+    output = tmp_path / "ENT_TAHSILATLAR.xls"
+    _write_fom_contract_file(template, sheet_name=sheet_name)
+    _write_fom_contract_file(output, sheet_name=sheet_name)
+
+    validate_fom_integration_output(
+        output,
+        expected_basename="ENT_TAHSILATLAR",
+        expected_sheet_name=sheet_name,
+        expected_headers=["MusteriKodu", "Tutar"],
+        expected_data_rows=1,
+        template_path=template,
+    )
+
+
 def test_toplu_output_contract_rejects_changed_bank_code_cell_format(tmp_path):
     profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get("netsis_toplu")
     template = tmp_path / "template.xls"

@@ -40,13 +40,9 @@ def validate_fom_integration_output(
         raise OutputContractError(
             "Psoft dosya adı yalnız kısa ASCII harf, rakam ve alt çizgi içermeli."
         )
-    if (
-        len(expected_sheet_name) > 31
-        or not expected_sheet_name.isascii()
-        or re.fullmatch(r"[A-Z0-9_]+", expected_sheet_name) is None
-    ):
+    if not expected_sheet_name or len(expected_sheet_name) > 31:
         raise OutputContractError(
-            "Psoft çalışma sayfası adı yalnız kısa ASCII harf, rakam ve alt çizgi içermeli."
+            "FOM entegrasyon şablonunun çalışma sayfası adı geçersiz."
         )
     try:
         if output_path.read_bytes()[:8] != bytes.fromhex("D0CF11E0A1B11AE1"):
@@ -81,6 +77,10 @@ def validate_fom_integration_output(
         if template.ncols != output.ncols:
             raise OutputContractError(
                 "FOM entegrasyon çıktısının sütun sayısı orijinal şablonla uyuşmuyor."
+            )
+        if template.sheet_names != [expected_sheet_name]:
+            raise OutputContractError(
+                "FOM entegrasyon şablonunun çalışma sayfası adı beklenen özgün adla uyuşmuyor."
             )
         baseline_headers = [
             str(template.value(0, column) or "")
