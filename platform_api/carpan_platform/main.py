@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from carpan_platform.api.auth import router as auth_router
+from carpan_platform.api.licensing import router as licensing_router
 from carpan_platform.config import Settings
 from carpan_platform.database import database_health
 
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["Authorization", "Content-Type", "X-Device-Id"],
         )
     app.include_router(auth_router)
+    app.include_router(licensing_router)
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, object]:

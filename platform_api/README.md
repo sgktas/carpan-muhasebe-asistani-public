@@ -17,6 +17,12 @@ Bu temel, henüz gerçek VPS'e kurulmuş değildir. Sunucu yükseltildikten sonr
 ayrı Linux kullanıcısı, ayrı PostgreSQL veritabanı ve ayrı Nginx alanı ile
 dağıtılacaktır.
 
+Lisans API'si `GET /v1/license`, cihaz aktivasyonu ise
+`POST /v1/devices/activate` uçlarından çalışır. Cihaz aktivasyonunda donanım
+seri numarası veya kullanıcı verisi kullanılmaz; masaüstünün ürettiği rastgele
+kurulum kimliğinin tek yönlü özeti saklanır. Merkezi bağlantı devre dışıyken
+masaüstü uygulaması yerel çalışmasına devam eder.
+
 ## Yerel kurulum
 
 ```powershell
