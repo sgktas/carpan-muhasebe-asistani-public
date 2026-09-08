@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout
 
@@ -10,9 +12,10 @@ from app.ui.background_task import BackgroundWorker
 class PlatformAccountDialog(QDialog):
     """Merkezi hesap için sade giriş/çıkış ekranı; yerel kullanıcı hesabını değiştirmez."""
 
-    def __init__(self, service: PlatformAuthService, parent=None):
+    def __init__(self, service: PlatformAuthService, parent=None, license_sync: Callable | None = None):
         super().__init__(parent)
         self._service = service
+        self._license_sync = license_sync
         self._auth_thread: QThread | None = None
         self._auth_worker: BackgroundWorker | None = None
         self.setWindowTitle("Merkezi Hesap")
@@ -58,11 +61,22 @@ class PlatformAccountDialog(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close)
         layout.addLayout(buttons)
-        self._run_async(self._service.restore, self._apply_restore)
+        self._run_async(lambda: self._auth_and_license(self._service.restore()), self._apply_restore)
 
-    def _apply_restore(self, current) -> None:
+    def _auth_and_license(self, result):
+        if not self._license_sync or not result.is_connected or not result.session:
+            return result, None, None
+        try:
+            return result, self._license_sync(result.session), None
+        except Exception as error:
+            # Oturum geçerli kalır; merkezi lisans geçici olarak okunamadığında
+            # yerel muhasebe çalışması durdurulmaz.
+            return result, None, error
+
+    def _apply_restore(self, payload) -> None:
+        current, license_info, license_error = payload
         if current.is_connected and current.session:
-            self.status.setText(f"Bağlı hesap: {current.session.display_name} · Rol: {current.session.role}")
+            self._show_connected_status(current, license_info, license_error)
             self.logout_button.setEnabled(True)
             return
         self.status.setText(current.message)
@@ -74,15 +88,26 @@ class PlatformAccountDialog(QDialog):
         password = self.password.text()
         self.password.clear()
         self._run_async(
-            lambda: self._service.sign_in(
+            lambda: self._auth_and_license(self._service.sign_in(
                 company_code=company_code, username=username, password=password
-            ),
+            )),
             self._apply_sign_in,
         )
 
-    def _apply_sign_in(self, result) -> None:
+    def _show_connected_status(self, result, license_info, license_error) -> None:
+        text = f"Bağlı hesap: {result.session.display_name} · Rol: {result.session.role}"
+        if license_info is not None:
+            state = "geçerli" if license_info.usable else "geçersiz"
+            text += f" · Lisans: {license_info.plan_code} ({state})"
+        elif license_error is not None:
+            text += " · Lisans doğrulanamadı; yerel çalışma devam ediyor"
+        self.status.setText(text)
+
+    def _apply_sign_in(self, payload) -> None:
+        result, license_info, license_error = payload
         self.status.setText(result.message)
         if result.is_connected:
+            self._show_connected_status(result, license_info, license_error)
             self.logout_button.setEnabled(True)
             QMessageBox.information(self, "Merkezi hesap", result.message)
         else:

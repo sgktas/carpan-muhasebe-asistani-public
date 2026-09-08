@@ -24,6 +24,7 @@ from app.core.app_paths import APP_PATHS
 from app.core.backup_service import BackupError, create_local_backup
 from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
+from app.core.installation_identity import InstallationIdentityStore
 from app.core.output_location import OutputLocationStore, resolve_output_dir
 from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
@@ -399,7 +400,16 @@ class SettingsPage(QWidget):
             self._platform_session_store,
             LocalSessionScope(self._local_session.company_id, self._local_session.user_id),
         )
-        PlatformAccountDialog(service, self).exec()
+        installation_store = InstallationIdentityStore(APP_PATHS.data_root)
+        PlatformAccountDialog(
+            service,
+            self,
+            license_sync=lambda session: service.sync_device_and_license(
+                session,
+                installation_id=installation_store.get_or_create(),
+                device_label="Çarpan Muhasebe Asistanı",
+            ),
+        ).exec()
 
     def _refresh_region_summary(self) -> None:
         regions = self._region_store.config().regions()

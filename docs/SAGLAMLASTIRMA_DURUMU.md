@@ -108,6 +108,10 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
 - Lisans bilgisi alınmadan modül yetkisi verilmemesi için servis metodu
   `PlatformLicense` döndürüyor; arayüzdeki tam lisans/entitlement sunumu
   sonraki küçük adımda bu sözleşmeye bağlanacak.
+- Merkezi hesap penceresi artık cihaz aktivasyonunu ve lisans okumasını giriş/
+  oturum yenileme akışında arka planda çalıştırıp planı ve geçerliliği gösteriyor.
+  Lisans servisi geçici olarak erişilemiyorsa oturum bilgisi korunuyor ve yerel
+  çalışma devam ediyor.
 
 ## 8 Eylül 2026 — İlk küçük adım
 
