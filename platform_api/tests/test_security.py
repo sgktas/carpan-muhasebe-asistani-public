@@ -7,6 +7,8 @@ from carpan_platform.config import Settings
 from carpan_platform.security import (
     TokenError,
     create_access_token,
+    create_refresh_token,
+    hash_refresh_token,
     hash_password,
     read_access_token,
     verify_password,
@@ -67,3 +69,13 @@ def test_token_cannot_be_read_with_a_different_signing_key(settings):
 
     with pytest.raises(TokenError):
         read_access_token(other_settings, token)
+
+
+def test_refresh_token_is_random_and_only_its_hash_is_persistable():
+    token = create_refresh_token()
+
+    assert len(token) >= 40
+    assert hash_refresh_token(token) != token
+    assert len(hash_refresh_token(token)) == 64
+    with pytest.raises(TokenError):
+        hash_refresh_token("short")

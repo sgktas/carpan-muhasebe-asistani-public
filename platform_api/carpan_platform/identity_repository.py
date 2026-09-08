@@ -9,7 +9,12 @@ import psycopg
 
 from carpan_platform.config import Settings
 from carpan_platform.database import DatabaseConfigurationError, tenant_transaction
-from carpan_platform.security import verify_password
+from carpan_platform.security import (
+    create_refresh_token,
+    hash_refresh_token,
+    refresh_token_expiry,
+    verify_password,
+)
 
 
 MAX_FAILED_ATTEMPTS = 5
@@ -131,6 +136,49 @@ class CentralIdentityRepository:
                 "display_name": str(row["display_name"]),
                 "role": str(row["role"]),
             }
+
+    def create_refresh_session(self, *, company_id: UUID, user_id: UUID) -> str:
+        """Ham belirteci yalnız istemciye döndürür; veritabanında sadece özeti kalır."""
+        raw_token = create_refresh_token()
+        with tenant_transaction(self.settings, company_id) as connection:
+            connection.execute(
+                """
+                INSERT INTO carpan.refresh_tokens(company_id, user_id, token_hash, expires_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (company_id, user_id, hash_refresh_token(raw_token), refresh_token_expiry()),
+            )
+        return raw_token
+
+    def rotate_refresh_session(self, raw_token: str) -> dict:
+        """Tek kullanımlık yenileme ile eski oturumu iptal eder ve kimliği döndürür."""
+        token_hash = hash_refresh_token(raw_token)
+        if not self.settings.database_configured:
+            raise DatabaseConfigurationError("PostgreSQL bağlantısı yapılandırılmamış.")
+        with psycopg.connect(str(self.settings.database_url)) as connection:
+            with connection.transaction():
+                row = connection.execute(
+                    "SELECT * FROM carpan.consume_refresh_token(%s)", (token_hash,)
+                ).fetchone()
+        if row is None:
+            raise LoginRejected("Oturum yenileme belirteci geçersiz.")
+        return {
+            "company_id": UUID(str(row[0])),
+            "user_id": UUID(str(row[1])),
+            "display_name": str(row[2]),
+            "role": str(row[3]),
+        }
+
+    def revoke_refresh_session(self, *, company_id: UUID, user_id: UUID, raw_token: str) -> None:
+        with tenant_transaction(self.settings, company_id) as connection:
+            connection.execute(
+                """
+                UPDATE carpan.refresh_tokens
+                SET revoked_at = now()
+                WHERE company_id = %s AND user_id = %s AND token_hash = %s AND revoked_at IS NULL
+                """,
+                (company_id, user_id, hash_refresh_token(raw_token)),
+            )
 
     def _resolve_company_id(self, company_code: str) -> UUID:
         if not self.settings.database_configured:

@@ -40,8 +40,9 @@ göndermez.
    üretilir.
 6. İstemci `/v1/auth/me` ile tokenın geçerliliğini ve firma kapsamını doğrular.
 
-Uzun ömürlü oturum ve cihaz yenileme tokenları veri tabanı şemasında ayrılmıştır;
-yenileme/iptal uçları ikinci API diliminde uygulanacaktır.
+Uzun ömürlü oturum yenileme belirteçleri veritabanında yalnız SHA-256 özetiyle
+tutulur. Yenileme ucu eski belirteci tek işlemde iptal eder ve yeni belirteç
+çifti üretir. Çıkış ucu, aynı kullanıcıya ait yenileme oturumunu iptal eder.
 
 ## Yetki ilkeleri
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 from uuid import UUID
 
 import jwt
@@ -11,6 +13,7 @@ from carpan_platform.config import Settings
 
 
 ACCESS_TOKEN_MINUTES = 15
+REFRESH_TOKEN_DAYS = 30
 PASSWORD_HASHER = PasswordHash.recommended()
 
 
@@ -24,6 +27,22 @@ class AccessTokenClaims:
     company_id: UUID
     role: str
     expires_at: datetime
+
+
+def create_refresh_token() -> str:
+    """İstemciye yalnız bir kez verilecek, yüksek entropili oturum yenileme değeri."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    value = str(token or "").strip()
+    if len(value) < 40:
+        raise TokenError("Geçersiz oturum yenileme belirteci.")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def refresh_token_expiry(now: datetime | None = None) -> datetime:
+    return (now or datetime.now(timezone.utc)) + timedelta(days=REFRESH_TOKEN_DAYS)
 
 
 def hash_password(password: str) -> str:
