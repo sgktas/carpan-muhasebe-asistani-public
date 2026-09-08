@@ -34,8 +34,8 @@ class PlatformConnectionStore:
     """Merkezi API adresini yalnız yerel uygulama ayarlarında saklar.
 
     Finansal veri, müşteri listesi, parola veya erişim belirteci bu dosyaya
-    yazılmaz. Merkezi giriş etkinleştirildiğinde oturum belirteçleri ayrı ve
-    işletim sistemi korumalı bir depoda ele alınacaktır.
+    yazılmaz. Merkezi girişte oturum belirteçleri ``PlatformSessionStore``
+    tarafından işletim sistemi korumalı ayrı bir depoda tutulur.
     """
 
     FILE_NAME = "platform_connection.json"
