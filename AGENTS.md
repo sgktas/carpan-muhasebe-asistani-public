@@ -11,10 +11,12 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   Tek sayfası `Sheet1`'dır; 32 başlık, sütun sırası ve çalışma sayfası adı aynen
   korunur. Çıktı `.xlsx` olarak üretilir; `Muh.Ref.Kod(*)` sabiti `G01`'dir.
 - Toplu havale ve FOM çıktılarında da mevcut onaylı yerel şablonları koru.
-- Psoft/Netsis'e gidecek FOM entegrasyon dosyalarının güvenli adları
-  `ENT_SATIS_FATURALARI.xls` ve `ENT_TAHSILATLAR.xls` olmalıdır. Çalışma
-  sayfası adı ise onaylı kaynak şablondan aynen korunmalıdır; yeniden
-  adlandırma, sadeleştirme veya dönüştürme yapma.
+- Psoft/Netsis'e gidecek FOM entegrasyon dosyaları tam olarak
+  `ENT-Muhasebe_Entegrasyon(Satış_Faturaları).xls` ve
+  `ENT-Muhasebe_Entegrasyon(Tahsilatlar).xls` adlarıyla üretilmelidir.
+  Kullanıcı bu adları gerçek aktarımda başarılı olarak doğruladı. Çalışma
+  sayfası adı onaylı kaynak şablondan aynen korunmalıdır; dosya veya sayfa
+  adını yeniden adlandırma, sadeleştirme ya da dönüştürme yapma.
 - FOM entegrasyon çıktısını başarılı saymadan önce `.xls` dosya imzası,
   güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı
   çıktı sözleşmesiyle doğrulanmalıdır.

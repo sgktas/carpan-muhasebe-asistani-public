@@ -202,12 +202,12 @@ Windows'ta normal işlem toplam beş dosya üretir:
 01_MUSTERI_LISTESI_DUZENLENMIS.xlsx
 02_SATIS_RAPORU_DUZENLENMIS_<tarih>.xlsx
 03_TAHSILAT_RAPORU_DUZENLENMIS_<tarih>.xlsx
-ENT_SATIS_FATURALARI.xls
-ENT_TAHSILATLAR.xls
+ENT-Muhasebe_Entegrasyon(Satış_Faturaları).xls
+ENT-Muhasebe_Entegrasyon(Tahsilatlar).xls
 ```
 
-Psoft'a verilecek `.xls` dosyaları kısa ASCII dosya ve sayfa adlarıyla üretilir;
-uzun ad, Türkçe karakter ve parantez kullanılmaz. `.xlsx` tahsilat dosyasında ana sayfa
+Psoft'a verilecek `.xls` dosyaları, Psoft/FOM'un onaylı özgün dosya adlarıyla üretilir.
+Çalışma sayfası adı da kaynak şablondan aynen korunur. `.xlsx` tahsilat dosyasında ana sayfa
 yalnız `TahsilatTipi=N / TahsilatTuru=1` kayıtlarını, `ŞUBELİLER` sayfası ise
 MANİM eşleştirmesi için tüm kayıtları taşır. Orijinal `.xls` tahsilat şablonuna
 yalnız N/1 kayıtları yazılır; fazladan `ŞUBELİLER` sayfası eklenmez.

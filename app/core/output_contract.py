@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 from openpyxl import load_workbook
 import xlrd
@@ -13,6 +12,15 @@ from app.models.records import NetsisRecord
 
 class OutputContractError(ValueError):
     """Oluşan Excel dosyası seçili muhasebe profiliyle uyuşmadığında."""
+
+
+# Psoft, FOM'un kendi dışa aktarma adlarını nesne adı olarak bekliyor. Bu iki
+# ad kullanıcı tarafından gerçek aktarımda doğrulandı; serbest ad kabul etme.
+FOM_SALES_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Satış_Faturaları)"
+FOM_COLLECTION_OUTPUT_BASENAME = "ENT-Muhasebe_Entegrasyon(Tahsilatlar)"
+FOM_INTEGRATION_BASENAMES = frozenset(
+    {FOM_SALES_OUTPUT_BASENAME, FOM_COLLECTION_OUTPUT_BASENAME}
+)
 
 
 def validate_fom_integration_output(
@@ -32,13 +40,9 @@ def validate_fom_integration_output(
         raise OutputContractError(
             f"FOM entegrasyon dosya adı değişmiş: {output_path.name}"
         )
-    if (
-        len(expected_basename) > 31
-        or not expected_basename.isascii()
-        or re.fullmatch(r"[A-Z0-9_]+", expected_basename) is None
-    ):
+    if expected_basename not in FOM_INTEGRATION_BASENAMES:
         raise OutputContractError(
-            "Psoft dosya adı yalnız kısa ASCII harf, rakam ve alt çizgi içermeli."
+            "Psoft entegrasyon dosya adı onaylı satış veya tahsilat adı olmalı."
         )
     if not expected_sheet_name or len(expected_sheet_name) > 31:
         raise OutputContractError(

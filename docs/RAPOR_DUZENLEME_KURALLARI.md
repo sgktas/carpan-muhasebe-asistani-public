@@ -140,14 +140,14 @@ yazılır. Şablonun başlık ve belge yapısı korunur.
 ```text
 02_SATIS_RAPORU_DUZENLENMIS_<tarih>.xlsx
 03_TAHSILAT_RAPORU_DUZENLENMIS_<tarih>.xlsx
-ENT_SATIS_FATURALARI.xls
-ENT_TAHSILATLAR.xls
+ENT-Muhasebe_Entegrasyon(Satış_Faturaları).xls
+ENT-Muhasebe_Entegrasyon(Tahsilatlar).xls
 ```
 
 Düzenlenmiş `.xlsx` dosyaları kaynak raporun sayfa adını korur. Orijinal
 `.xls` şablon çıktılarında çalışma sayfası adı, Psoft'un şablon sözleşmesini
-korumak için kaynak şablondan aynen bırakılır. Dosya adları ise Psoft için kısa
-ASCII biçiminde kalır; çalışma sayfası adını sadeleştirme veya yeniden adlandırma
+korumak için kaynak şablondan aynen bırakılır. Dosya adları Psoft/FOM'un onaylı
+özgün adlarıyla üretilir; çalışma sayfası adını sadeleştirme veya yeniden adlandırma
 yapılmaz.
 
 Her iki şablon çıktısı Microsoft Excel ile `FileFormat=56` kullanılarak `.xls` kaydedilir.

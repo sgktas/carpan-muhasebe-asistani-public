@@ -6,6 +6,8 @@ from openpyxl import Workbook
 import xlwt
 
 from app.core.output_contract import (
+    FOM_COLLECTION_OUTPUT_BASENAME,
+    FOM_SALES_OUTPUT_BASENAME,
     OutputContractError,
     validate_fom_integration_output,
     validate_netsis_output,
@@ -43,24 +45,24 @@ def _write_fom_contract_file(
     workbook.save(str(path))
 
 
-def test_fom_contract_accepts_psoft_safe_xls(tmp_path):
-    output = tmp_path / "ENT_SATIS_FATURALARI.xls"
+def test_fom_contract_accepts_exact_psoft_sales_name(tmp_path):
+    output = tmp_path / f"{FOM_SALES_OUTPUT_BASENAME}.xls"
     _write_fom_contract_file(output, row_count=2)
 
     validate_fom_integration_output(
         output,
-        expected_basename="ENT_SATIS_FATURALARI",
+        expected_basename=FOM_SALES_OUTPUT_BASENAME,
         expected_sheet_name="SATIS_FATURALARI",
         expected_headers=["MusteriKodu", "Tutar"],
         expected_data_rows=2,
     )
 
 
-def test_fom_contract_rejects_long_punctuated_name(tmp_path):
-    output = tmp_path / "ENT-Muhasebe_Entegrasyon(Satis_Faturalari).xls"
+def test_fom_contract_rejects_unapproved_integration_name(tmp_path):
+    output = tmp_path / "ENT_SATIS_FATURALARI.xls"
     _write_fom_contract_file(output)
 
-    with pytest.raises(OutputContractError, match="yalnız kısa ASCII"):
+    with pytest.raises(OutputContractError, match="onaylı satış veya tahsilat"):
         validate_fom_integration_output(
             output,
             expected_basename=output.stem,
@@ -71,7 +73,7 @@ def test_fom_contract_rejects_long_punctuated_name(tmp_path):
 
 
 def test_fom_contract_rejects_wrong_sheet_or_row_count(tmp_path):
-    output = tmp_path / "ENT_TAHSILATLAR.xls"
+    output = tmp_path / f"{FOM_COLLECTION_OUTPUT_BASENAME}.xls"
     _write_fom_contract_file(
         output,
         sheet_name="YANLIS_SAYFA",
@@ -81,7 +83,7 @@ def test_fom_contract_rejects_wrong_sheet_or_row_count(tmp_path):
     with pytest.raises(OutputContractError, match="sayfa adı değişmiş"):
         validate_fom_integration_output(
             output,
-            expected_basename="ENT_TAHSILATLAR",
+            expected_basename=FOM_COLLECTION_OUTPUT_BASENAME,
             expected_sheet_name="TAHSILATLAR",
             expected_headers=["MusteriKodu", "Tutar"],
             expected_data_rows=2,
@@ -91,13 +93,13 @@ def test_fom_contract_rejects_wrong_sheet_or_row_count(tmp_path):
 def test_fom_contract_allows_original_template_sheet_name(tmp_path):
     sheet_name = "ENT-Muhasebe_Entegrasyon(Satis"
     template = tmp_path / "template.xls"
-    output = tmp_path / "ENT_TAHSILATLAR.xls"
+    output = tmp_path / f"{FOM_COLLECTION_OUTPUT_BASENAME}.xls"
     _write_fom_contract_file(template, sheet_name=sheet_name)
     _write_fom_contract_file(output, sheet_name=sheet_name)
 
     validate_fom_integration_output(
         output,
-        expected_basename="ENT_TAHSILATLAR",
+        expected_basename=FOM_COLLECTION_OUTPUT_BASENAME,
         expected_sheet_name=sheet_name,
         expected_headers=["MusteriKodu", "Tutar"],
         expected_data_rows=1,

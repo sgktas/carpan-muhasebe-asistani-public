@@ -18,7 +18,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.core.customer_list_cache import CustomerListCache
-from app.core.output_contract import validate_fom_integration_output
+from app.core.output_contract import (
+    FOM_COLLECTION_OUTPUT_BASENAME,
+    FOM_SALES_OUTPUT_BASENAME,
+    validate_fom_integration_output,
+)
 
 AMOUNT_FORMAT = "#,##0.00"
 AMOUNT_HEADERS = {
@@ -50,11 +54,10 @@ COLLECTION_OUTPUT_COLUMNS = [
 ]
 
 
-# Psoft, seçilen Excel'in dosya adını da tablo/nesne adı olarak yorumluyor.
-# Uzun adlar, Türkçe karakterler ve parantezler "not a valid name" hatasına
-# yol açtığı için Netsis'e aktarılacak iki dosyanın adı kısa ASCII tutulur.
-SALES_OUTPUT_BASENAME = "ENT_SATIS_FATURALARI"
-COLLECTION_OUTPUT_BASENAME = "ENT_TAHSILATLAR"
+# Psoft, FOM'un kendi dışa aktarma dosya adlarını bekliyor. Bu adlar gerçek
+# aktarımda kullanıcı tarafından doğrulandığı için değiştirilmeden korunur.
+SALES_OUTPUT_BASENAME = FOM_SALES_OUTPUT_BASENAME
+COLLECTION_OUTPUT_BASENAME = FOM_COLLECTION_OUTPUT_BASENAME
 SALES_CLEAN_OUTPUT_PREFIX = "02_SATIS_RAPORU_DUZENLENMIS"
 COLLECTION_CLEAN_OUTPUT_PREFIX = "03_TAHSILAT_RAPORU_DUZENLENMIS"
 CUSTOMER_CLEAN_OUTPUT_FILENAME = "01_MUSTERI_LISTESI_DUZENLENMIS.xlsx"
@@ -375,8 +378,8 @@ def _report_template_path(resource_root: Path, file_name: str) -> Path:
 def _template_first_sheet_name(template_path: str | Path) -> str:
     """Psoft'un beklediği özgün şablon sayfa adını korur.
 
-    Dosya adı Psoft için kısa ve ASCII kalır; çalışma sayfası adı ise kullanıcı
-    tarafından onaylanan orijinal şablondan gelir ve yeniden adlandırılmaz.
+    Dosya adı FOM/Psoft'un onaylı özgün adıyla, çalışma sayfası adı ise kullanıcı
+    tarafından onaylanan orijinal şablondan gelir; ikisi de yeniden adlandırılmaz.
     """
     workbook = xlrd.open_workbook(str(template_path), formatting_info=False)
     if not workbook.nsheets:
