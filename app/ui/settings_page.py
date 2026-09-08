@@ -29,7 +29,10 @@ from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
 from app.core.template_integrity import verify_approved_templates
 from app.core.platform_connection import PlatformApiClient, PlatformConnectionError, PlatformConnectionStore
+from app.core.platform_auth_service import PlatformAuthService
+from app.core.platform_session import PlatformSessionStore
 from app.ui.common import add_page_header
+from app.ui.platform_account_dialog import PlatformAccountDialog
 from app.ui.profile_editor_dialogs import (
     CustomerListProfileEditorDialog,
     InputProfileEditorDialog,
@@ -53,7 +56,10 @@ class SettingsPage(QWidget):
         self._region_store = RegionConfigStore(
             active_region_config_path(APP_PATHS.config_dir, APP_PATHS.data_root)
         )
-        self._platform_store = PlatformConnectionStore(APP_PATHS.data_root)
+        # Merkezi bağlantı firma çalışma alanına değil, bu bilgisayarın ortak
+        # kurulum alanına aittir. Finansal yerel veriler yine firma alanındadır.
+        self._platform_store = PlatformConnectionStore(APP_PATHS.base_data_root)
+        self._platform_session_store = PlatformSessionStore(APP_PATHS.base_data_root)
         self._profile_row_widgets: list[QWidget] = []
         self._build_ui()
 
@@ -290,9 +296,13 @@ class SettingsPage(QWidget):
         test_button = QPushButton("Bağlantıyı sınayın")
         test_button.setObjectName("secondary")
         test_button.clicked.connect(self._test_platform_connection)
+        account_button = QPushButton("Merkezi hesabı aç")
+        account_button.setObjectName("secondary")
+        account_button.clicked.connect(self._open_platform_account)
         bottom.addWidget(self._platform_status, 1)
         bottom.addWidget(save_button)
         bottom.addWidget(test_button)
+        bottom.addWidget(account_button)
         layout.addLayout(bottom)
         return card
 
@@ -324,6 +334,19 @@ class SettingsPage(QWidget):
             QMessageBox.information(self, "Merkezi platform", status.message)
         else:
             QMessageBox.warning(self, "Merkezi platform", status.message)
+
+    def _open_platform_account(self) -> None:
+        config = self._platform_store.get()
+        if not config.api_url:
+            QMessageBox.information(
+                self,
+                "Merkezi hesap",
+                "Önce merkezi platform adresini kaydedin. Yerel çalışma bundan etkilenmez.",
+            )
+            return
+        PlatformAccountDialog(
+            PlatformAuthService(PlatformApiClient(config), self._platform_session_store), self
+        ).exec()
 
     def _refresh_region_summary(self) -> None:
         regions = self._region_store.config().regions()
