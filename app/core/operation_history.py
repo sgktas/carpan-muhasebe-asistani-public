@@ -13,6 +13,10 @@ class OperationHistoryError(RuntimeError):
     """An operation cannot be changed by this company or application instance."""
 
 
+class DecisionAuditError(ValueError):
+    """A decision audit record is missing a required, safe field."""
+
+
 @dataclass(frozen=True)
 class OperationRecord:
     id: int
@@ -339,6 +343,56 @@ class OperationHistory:
                     json.dumps(details or {}, ensure_ascii=False),
                 ),
             )
+
+    def add_decision(
+        self,
+        operation_id: int,
+        *,
+        decision: str,
+        outcome: str,
+        region: str,
+        bank: str,
+        amount: float,
+        source_file: str,
+        source_row: int,
+        rule_code: str,
+        reason: str = "",
+    ) -> None:
+        """Append a normalized, immutable routing/eşleştirme karar kaydı.
+
+        Karar günlüğü ham açıklama, IBAN veya müşteri adı taşımaz; yalnızca
+        yeniden denetim için gereken kaynak satırı, tutar ve kural kimliğini
+        saklar. ``add_event`` üzerinden yazıldığı için işlem sahibi/firma ve
+        çalışan işlem lease kontrolleri aynen korunur.
+        """
+        values = {
+            "decision": str(decision).strip().upper(),
+            "outcome": str(outcome).strip().upper(),
+            "region": str(region).strip().upper(),
+            "bank": str(bank).strip().upper(),
+            "rule_code": str(rule_code).strip().upper(),
+            "source_file": str(source_file).strip(),
+            "reason": str(reason).strip()[:240],
+        }
+        if not all(values[key] for key in ("decision", "outcome", "region", "rule_code", "source_file")):
+            raise DecisionAuditError("Karar günlüğü için karar, sonuç, bölge, kural ve kaynak zorunludur.")
+        try:
+            normalized_amount = round(float(amount), 2)
+            normalized_row = int(source_row)
+        except (TypeError, ValueError) as error:
+            raise DecisionAuditError("Karar günlüğü tutar ve satır numarası geçersiz.") from error
+        if normalized_row < 1:
+            raise DecisionAuditError("Kaynak satırı 1 veya daha büyük olmalıdır.")
+        self.add_event(
+            operation_id,
+            "DECISION_AUDIT",
+            f"{values['decision']} → {values['outcome']}",
+            details={
+                **values,
+                "amount": normalized_amount,
+                "source_row": normalized_row,
+            },
+        )
 
     def heartbeat(self, operation_id: int) -> None:
         """Extend a running operation's lease while its owner is still working."""

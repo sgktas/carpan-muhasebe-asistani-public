@@ -88,10 +88,10 @@ class HistoryPage(QWidget):
         header.addWidget(self.open_button)
         card_layout.addLayout(header)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setObjectName("historyTable")
         self.table.setHorizontalHeaderLabels(
-            ["Tarih", "Kullanıcı", "Modül", "Durum", "Girdi", "Çıktı", "Özet"]
+            ["Tarih", "Kullanıcı", "Modül", "Durum", "Girdi", "Çıktı", "Karar", "Özet"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -105,6 +105,7 @@ class HistoryPage(QWidget):
         self.table.setColumnWidth(3, 90)
         self.table.setColumnWidth(4, 70)
         self.table.setColumnWidth(5, 70)
+        self.table.setColumnWidth(6, 80)
         card_layout.addWidget(self.table, 1)
 
         layout.addWidget(card, 1)
@@ -156,6 +157,10 @@ class HistoryPage(QWidget):
         self._records = self.history.recent(100)
         self.table.setRowCount(len(self._records))
         for row_index, record in enumerate(self._records):
+            decision_count = sum(
+                event.code == "DECISION_AUDIT"
+                for event in self.history.events(record.id)
+            )
             values = [
                 self._display_date(record.started_at),
                 record.actor or "-",
@@ -163,11 +168,12 @@ class HistoryPage(QWidget):
                 self._status_text(record.status),
                 str(len(record.input_files)),
                 str(len(record.output_files)),
+                str(decision_count),
                 self._summary_text(record.summary),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if column in (3, 4, 5):
+                if column in (3, 4, 5, 6):
                     item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_index, column, item)
         self._update_actions()
@@ -187,6 +193,8 @@ class HistoryPage(QWidget):
             return
         record = self._records[row]
         events = self.history.events(record.id)
+        decision_events = [event for event in events if event.code == "DECISION_AUDIT"]
+        decision_lines = self._decision_lines(decision_events)
         lines = [
             f"İşlem #{record.id}",
             f"Kullanıcı: {record.actor or '-'}",
@@ -198,6 +206,9 @@ class HistoryPage(QWidget):
             "",
             "Çıktılar:",
             *([f"  • {path}" for path in record.output_files] or ["  • -"]),
+            "",
+            f"Karar özeti ({len(decision_events)} kayıt):",
+            *(decision_lines or ["  • Bu işlem için yapılandırılmış karar kaydı yok."]),
             "",
             "Olay günlüğü:",
             *[
@@ -221,6 +232,35 @@ class HistoryPage(QWidget):
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
         dialog.exec()
+
+    @staticmethod
+    def _decision_lines(events) -> list[str]:
+        labels = {
+            "HAVALE": "Havale",
+            "ODEME_ONAYLANDI": "Ödeme Onaylandı",
+            "REFERANSLI": "Referanslı",
+            "SAME_BANK_VIRMAN": "Aynı banka virmanı",
+            "KURAL_CALISTI": "Kural çalıştı",
+            "REVIEW": "İnceleme",
+        }
+        lines = []
+        for event in events:
+            details = event.details
+            outcome = labels.get(str(details.get("outcome", "")), details.get("outcome", "-"))
+            region = details.get("region", "-")
+            bank = details.get("bank", "-") or "-"
+            raw_amount = details.get("amount")
+            try:
+                amount = f"{float(raw_amount):,.2f}"
+            except (TypeError, ValueError):
+                amount = "-"
+            rule = details.get("rule_code", "-")
+            reason = details.get("reason")
+            line = f"  • {region} / {bank} — {outcome} — {amount} TL — kural: {rule}"
+            if reason:
+                line += f" ({reason})"
+            lines.append(line)
+        return lines
 
     def open_selected_output(self) -> None:
         row = self.table.currentRow()

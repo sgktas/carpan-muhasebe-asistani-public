@@ -1,6 +1,10 @@
 import pytest
 
-from app.core.operation_history import OperationHistory, OperationHistoryError
+from app.core.operation_history import (
+    DecisionAuditError,
+    OperationHistory,
+    OperationHistoryError,
+)
 
 
 def test_operation_history_records_success_and_failure(tmp_path):
@@ -133,3 +137,49 @@ def test_terminal_operation_cannot_be_rewritten_or_receive_new_events(tmp_path):
     record = history.recent()[0]
     assert record.status == "SUCCESS"
     assert record.output_files == ["first.xls"]
+
+
+def test_decision_audit_is_normalized_and_scoped_to_running_operation(tmp_path):
+    history = OperationHistory(tmp_path / "operations.sqlite3", company_id=4, user_id=9)
+    operation_id = history.start("manim_transfer", "MANİM", ["movement.xlsx"])
+
+    history.add_decision(
+        operation_id,
+        decision="route",
+        outcome="review",
+        region="Antalya",
+        bank="Akbank",
+        amount=7329.641,
+        source_file="C:/incoming/movement.xlsx",
+        source_row=17,
+        rule_code="missing_bank_account_code",
+        reason="BM kodu eksik",
+    )
+
+    event = history.events(operation_id)[-1]
+    assert event.code == "DECISION_AUDIT"
+    assert event.message == "ROUTE → REVIEW"
+    assert event.details == {
+        "decision": "ROUTE",
+        "outcome": "REVIEW",
+        "region": "ANTALYA",
+        "bank": "AKBANK",
+        "amount": 7329.64,
+        "source_file": "C:/incoming/movement.xlsx",
+        "source_row": 17,
+        "rule_code": "MISSING_BANK_ACCOUNT_CODE",
+        "reason": "BM kodu eksik",
+    }
+
+    with pytest.raises(DecisionAuditError):
+        history.add_decision(
+            operation_id,
+            decision="route",
+            outcome="review",
+            region="Antalya",
+            bank="Akbank",
+            amount=1,
+            source_file="movement.xlsx",
+            source_row=0,
+            rule_code="rule",
+        )

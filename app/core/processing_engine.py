@@ -61,6 +61,7 @@ class ProcessingResult:
     duplicate_files: list[str] = field(default_factory=list)
     odeme_onaylandi_items: list[tuple] = field(default_factory=list)
     odeme_onaylandi_path: Path | None = None
+    decision_audits: list[dict] = field(default_factory=list)
 
 
 class ProcessingEngine:
@@ -102,6 +103,33 @@ class ProcessingEngine:
             if previous:
                 duplicates[manim_file] = {"hash": file_hash, **previous}
         return duplicates
+
+    @staticmethod
+    def _decision_audit(
+        result: ProcessingResult,
+        record: ManimRecord,
+        region: str,
+        bank: str,
+        *,
+        decision: str,
+        outcome: str,
+        rule_code: str,
+        reason: str = "",
+    ) -> None:
+        """Karar günlüğü için müşteri/IBAN açıklaması taşımayan özet üretir."""
+        result.decision_audits.append(
+            {
+                "decision": decision,
+                "outcome": outcome,
+                "region": region,
+                "bank": bank,
+                "amount": round(float(record.tutar), 2),
+                "source_file": Path(record.kaynak_dosya).name,
+                "source_row": int(record.kaynak_satir),
+                "rule_code": rule_code,
+                "reason": reason,
+            }
+        )
 
     def run(self, resolver=None, allow_duplicate_files: set[str] | None = None) -> ProcessingResult:
         result = ProcessingResult()
@@ -244,6 +272,11 @@ class ProcessingEngine:
                 decision = movement_router.route(record, region)
 
                 if decision.route == MovementRoute.REVIEW:
+                    self._decision_audit(
+                        result, record, region, bank_key(record.banka),
+                        decision="ROUTE", outcome="REVIEW",
+                        rule_code=decision.code, reason=decision.reason,
+                    )
                     pending.append(UnresolvedItem(
                         record=record,
                         region=region,
@@ -266,22 +299,42 @@ class ProcessingEngine:
                     continue
 
                 if decision.route == MovementRoute.ODEME_ONAYLANDI:
+                    self._decision_audit(
+                        result, record, region, bank_key(record.banka),
+                        decision="ROUTE", outcome="ODEME_ONAYLANDI",
+                        rule_code=decision.code, reason=decision.reason,
+                    )
                     odeme_onaylandi_items.append((record, region, bank_key(record.banka)))
                     result.skipped_payment += 1
                     continue
 
                 if decision.route == MovementRoute.KURAL_CALISTI:
+                    self._decision_audit(
+                        result, record, region, bank_key(record.banka),
+                        decision="ROUTE", outcome="KURAL_CALISTI",
+                        rule_code=decision.code, reason=decision.reason,
+                    )
                     kural_calisti_by_region[region].append(record)
                     result.skipped_rule += 1
                     continue
 
                 if decision.route == MovementRoute.SAME_BANK_VIRMAN:
+                    self._decision_audit(
+                        result, record, region, bank_key(record.banka),
+                        decision="ROUTE", outcome="SAME_BANK_VIRMAN",
+                        rule_code=decision.code, reason=decision.reason,
+                    )
                     result.logs.append(
                         append_virman_decision(decision, region, virman_by_region)
                     )
                     continue
 
                 if decision.route == MovementRoute.REFERANSLI:
+                    self._decision_audit(
+                        result, record, region, bank_key(record.banka),
+                        decision="ROUTE", outcome="REFERANSLI",
+                        rule_code=decision.code, reason=decision.reason,
+                    )
                     referansli_by_region[region].append(record)
                     candidate_log = reference_candidate_log(decision, record)
                     if candidate_log:
@@ -295,6 +348,12 @@ class ProcessingEngine:
 
                 bank = bank_key(record.banka)
                 if requires_bank_account_code(output_profile) and not self.region_config.banka_kodu(region, bank):
+                    self._decision_audit(
+                        result, record, region, bank,
+                        decision="ROUTE", outcome="REVIEW",
+                        rule_code="MISSING_BANK_ACCOUNT_CODE",
+                        reason=missing_bank_account_code_reason(region, bank),
+                    )
                     pending.append(UnresolvedItem(
                         record=record,
                         region=region,
@@ -304,6 +363,11 @@ class ProcessingEngine:
 
                 netsis_rows, reason = processor.process(record, region)
                 if reason:
+                    self._decision_audit(
+                        result, record, region, bank,
+                        decision="MATCH", outcome="REVIEW",
+                        rule_code="CUSTOMER_MATCH_REVIEW", reason=reason,
+                    )
                     pending.append(UnresolvedItem(
                         record=record,
                         region=region,
@@ -322,6 +386,11 @@ class ProcessingEngine:
                         )
                     )
                     result.produced_netsis_records += 1
+                self._decision_audit(
+                    result, record, region, bank,
+                    decision="MATCH", outcome="HAVALE",
+                    rule_code="AUTOMATIC_CUSTOMER_MATCH",
+                )
 
             if row_region_counts:
                 distribution = ", ".join(

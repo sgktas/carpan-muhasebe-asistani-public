@@ -599,6 +599,8 @@ class ManimModulePage(QWidget):
                     message,
                     level="WARNING" if message.startswith("UYARI") else "INFO",
                 )
+            for audit in result.decision_audits:
+                self.history.add_decision(self._operation_id, **audit)
             self.history.complete(
                 self._operation_id,
                 result.created_files,

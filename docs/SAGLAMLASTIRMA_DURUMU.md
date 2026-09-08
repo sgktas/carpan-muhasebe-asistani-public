@@ -169,3 +169,28 @@ Bu ilk adımın o andaki doğrulama sınırı (sonraki PostgreSQL sonucu yukarı
 Bu liste bütün mimarinin tamamlandığını ifade etmez. Lisans/cihaz bağlantısı,
 atomik oturum yenileme, kalıcı finansal dağıtım kayıtları, yedekten dönüş ve
 gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
+
+## 9 Eylül 2026 — MANİM karar günlüğü
+
+- MANİM yönlendirme ve müşteri eşleştirme kararları artık işlem sonucu içinde
+  yapılandırılmış denetim kayıtları olarak tutuluyor. Her kayıt; rota/sonuç,
+  bölge, banka, kuruşuna yuvarlanmış tutar, kaynak dosya-satır ve kural kodunu
+  içeriyor.
+- Karar günlüğü ham dekont açıklaması, IBAN veya müşteri adını saklamıyor;
+  böylece işlem geçmişi denetlenebilir kalırken gereksiz kişisel veri çoğaltılmıyor.
+- `OperationHistory.add_decision` firma, uygulama örneği ve aktif işlem lease
+  kontrollerini ortak olay günlüğü üzerinden koruyor. Tamamlanan işlem sonradan
+  karar olayı alamıyor.
+- Netsis/FOM şablonları, çıktı sözleşmeleri ve yönlendirme kuralları bu adımda
+  değiştirilmedi. Pytest ortamındaki mevcut Windows geçici klasör izin sorunu
+  nedeniyle bu turda derleme doğrulaması yapıldı; tam geçici-dizin testleri
+  uygun izinli ortamda yeniden çalıştırılmalıdır.
+
+## 9 Eylül 2026 — Karar günlüğünün kullanıcı görünümü
+
+- Geçmiş İşlemler ekranına işlem başına yapılandırılmış karar sayısı eklendi.
+- İşlem ayrıntılarında bölge/banka, sonuç, tutar ve kural kodu okunabilir bir
+  karar özeti olarak gösteriliyor; kullanıcı artık bir işlemin neden incelemeye
+  kaldığını veya hangi rotaya ayrıldığını olay listesini açmadan görebiliyor.
+- Eski işlemlerde karar olayı bulunmuyorsa ekran bunu açıkça belirtiyor;
+  geçmiş veriler geriye dönük değiştirilmedi.
