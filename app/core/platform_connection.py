@@ -14,6 +14,10 @@ class PlatformConnectionError(ValueError):
     """Merkezi platform bağlantı ayarı geçerli olmadığında."""
 
 
+class PlatformAuthenticationError(RuntimeError):
+    """Merkezi platform giriş veya oturum yenileme isteği kabul edilmediğinde."""
+
+
 @dataclass(frozen=True)
 class PlatformConnectionConfig:
     api_url: str = ""
@@ -129,3 +133,106 @@ class PlatformApiClient:
             "Merkezi platform bağlantısı hazır.",
             service=str(payload["service"]),
         )
+
+    def login(
+        self,
+        *,
+        company_code: str,
+        username: str,
+        password: str,
+        timeout_seconds: float = 8.0,
+    ):
+        """Merkezi giriş yapar; parola yalnız bu HTTPS isteğinde kullanılır."""
+        payload = self._post_json(
+            "/v1/auth/login",
+            {
+                "company_code": str(company_code).strip(),
+                "username": str(username).strip(),
+                "password": str(password),
+            },
+            timeout_seconds=timeout_seconds,
+        )
+        return self._session_from_response(payload)
+
+    def refresh(self, refresh_token: str, *, timeout_seconds: float = 8.0):
+        """Tek kullanımlık yenileme anahtarını döndürerek yeni oturum alır."""
+        payload = self._post_json(
+            "/v1/auth/refresh",
+            {"refresh_token": str(refresh_token)},
+            timeout_seconds=timeout_seconds,
+        )
+        return self._session_from_response(payload)
+
+    def logout(self, *, access_token: str, refresh_token: str, timeout_seconds: float = 8.0) -> None:
+        """Sunucudaki oturumu iptal eder; başarısızsa yerel oturum silinmemelidir."""
+        self._post_json(
+            "/v1/auth/logout",
+            {"refresh_token": str(refresh_token)},
+            access_token=str(access_token),
+            timeout_seconds=timeout_seconds,
+            expect_json=False,
+        )
+
+    def _post_json(
+        self,
+        path: str,
+        payload: dict[str, str],
+        *,
+        timeout_seconds: float,
+        access_token: str | None = None,
+        expect_json: bool = True,
+    ) -> dict:
+        if not self.config.api_url:
+            raise PlatformAuthenticationError("Merkezi platform adresi yapılandırılmadı.")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Carpan-Muhasebe-Asistani",
+        }
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        request = Request(
+            f"{self.config.api_url}{path}",
+            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=timeout_seconds) as response:
+                status_code = getattr(response, "status", 200)
+                raw = response.read()
+        except HTTPError as error:
+            if error.code in {401, 403}:
+                raise PlatformAuthenticationError("Merkezi oturum doğrulanamadı.") from None
+            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.") from None
+        except (URLError, OSError, TimeoutError):
+            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.") from None
+        if status_code not in {200, 201, 204}:
+            raise PlatformAuthenticationError("Merkezi platform isteği tamamlanamadı.")
+        if not expect_json:
+            return {}
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise PlatformAuthenticationError("Merkezi platform geçerli bir yanıt vermedi.") from None
+        if not isinstance(parsed, dict):
+            raise PlatformAuthenticationError("Merkezi platform geçerli bir yanıt vermedi.")
+        return parsed
+
+    def _session_from_response(self, payload: dict):
+        # Döngüsel içe aktarmayı önlemek için yalnız bu ağ sınırında yüklenir.
+        from app.core.platform_session import PlatformSession
+
+        try:
+            session = PlatformSession(
+                access_token=str(payload["access_token"]),
+                refresh_token=str(payload["refresh_token"]),
+                api_url=self.config.api_url,
+                display_name=str(payload["display_name"]),
+                role=str(payload["role"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise PlatformAuthenticationError("Merkezi platform oturum bilgisi eksik gönderdi.") from None
+        if not session.is_valid():
+            raise PlatformAuthenticationError("Merkezi platform oturum bilgisi geçersiz.")
+        return session

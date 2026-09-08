@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from urllib.error import URLError
 
 from app.core.platform_connection import (
     PlatformApiClient,
+    PlatformAuthenticationError,
     PlatformConnectionConfig,
     PlatformConnectionError,
     PlatformConnectionStore,
@@ -47,3 +49,36 @@ def test_platform_health_is_offline_safe_and_never_needs_database_access():
         ),
     )
     assert client.health().is_connected
+
+
+def test_platform_login_uses_https_json_and_returns_only_a_valid_session():
+    captured = {}
+
+    def opener(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = request.data
+        captured["authorization"] = request.get_header("Authorization")
+        assert timeout == 8.0
+        return _Response(
+            b'{"access_token":"aaaaaaaaaaaaaaaa","refresh_token":"refresh-token-rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr","display_name":"Yonetic i","role":"ADMIN"}'
+        )
+
+    client = PlatformApiClient(PlatformConnectionConfig("https://platform.carpan.example"), opener=opener)
+    session = client.login(company_code="CARPAN", username="yonetici", password="gizli-parola")
+
+    assert session.api_url == "https://platform.carpan.example"
+    assert captured["url"].endswith("/v1/auth/login")
+    assert b"gizli-parola" in captured["payload"]
+    assert captured["authorization"] is None
+
+
+def test_platform_authentication_error_never_echoes_secret_values():
+    client = PlatformApiClient(
+        PlatformConnectionConfig("https://platform.carpan.example"),
+        opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("offline")),
+    )
+
+    with pytest.raises(PlatformAuthenticationError) as error:
+        client.refresh("refresh-secret-value")
+
+    assert "refresh-secret-value" not in str(error.value)
