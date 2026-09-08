@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QThread, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
@@ -32,6 +32,7 @@ from app.core.platform_connection import PlatformApiClient, PlatformConnectionEr
 from app.core.platform_auth_service import LocalSessionScope, PlatformAuthService
 from app.core.platform_session import PlatformSessionStore
 from app.ui.common import add_page_header
+from app.ui.background_task import BackgroundWorker
 from app.ui.platform_account_dialog import PlatformAccountDialog
 from app.ui.profile_editor_dialogs import (
     CustomerListProfileEditorDialog,
@@ -52,6 +53,9 @@ class SettingsPage(QWidget):
         self._customer_list_profile_store = CustomerListProfileStore(
             APP_PATHS.config_dir, self._user_config_dir
         )
+        self._platform_test_thread: QThread | None = None
+        self._platform_test_worker: BackgroundWorker | None = None
+        self._platform_test_button: QPushButton | None = None
         self._output_location_store = OutputLocationStore(APP_PATHS.data_root)
         self._region_store = RegionConfigStore(
             active_region_config_path(APP_PATHS.config_dir, APP_PATHS.data_root)
@@ -297,6 +301,7 @@ class SettingsPage(QWidget):
         test_button = QPushButton("Bağlantıyı sınayın")
         test_button.setObjectName("secondary")
         test_button.clicked.connect(self._test_platform_connection)
+        self._platform_test_button = test_button
         account_button = QPushButton("Merkezi hesabı aç")
         account_button.setObjectName("secondary")
         account_button.clicked.connect(self._open_platform_account)
@@ -324,17 +329,58 @@ class SettingsPage(QWidget):
         self._refresh_platform_status()
 
     def _test_platform_connection(self) -> None:
+        if self._platform_test_thread is not None:
+            return
         try:
             config = self._platform_store.save(self._platform_url_input.text())
         except PlatformConnectionError as error:
             QMessageBox.warning(self, "Merkezi platform adresi", str(error))
             return
-        status = PlatformApiClient(config).health()
+        self._platform_status.setText("Merkezi platform bağlantısı sınanıyor…")
+        if self._platform_test_button is not None:
+            self._platform_test_button.setEnabled(False)
+        thread = QThread(self)
+        worker = BackgroundWorker(lambda: PlatformApiClient(config).health())
+        worker.moveToThread(thread)
+        self._platform_test_thread = thread
+        self._platform_test_worker = worker
+        thread.started.connect(worker.run)
+        worker.finished.connect(
+            lambda status: self._platform_test_finished(thread, worker, status)
+        )
+        worker.failed.connect(
+            lambda error: self._platform_test_failed(thread, worker, error)
+        )
+        thread.finished.connect(lambda: self._clear_platform_test(thread, worker))
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+
+    def _platform_test_finished(self, thread, worker, status) -> None:
+        if self._platform_test_thread is not thread:
+            return
         self._platform_status.setText(status.message)
         if status.is_connected:
             QMessageBox.information(self, "Merkezi platform", status.message)
         else:
             QMessageBox.warning(self, "Merkezi platform", status.message)
+        if self._platform_test_button is not None:
+            self._platform_test_button.setEnabled(True)
+        thread.quit()
+
+    def _platform_test_failed(self, thread, worker, error) -> None:
+        if self._platform_test_thread is not thread:
+            return
+        self._platform_status.setText("Merkezi platform bağlantısı tamamlanamadı.")
+        if self._platform_test_button is not None:
+            self._platform_test_button.setEnabled(True)
+        QMessageBox.warning(self, "Merkezi platform", str(error))
+        thread.quit()
+
+    def _clear_platform_test(self, thread, worker) -> None:
+        if self._platform_test_thread is thread:
+            self._platform_test_thread = None
+            self._platform_test_worker = None
 
     def _open_platform_account(self) -> None:
         config = self._platform_store.get()

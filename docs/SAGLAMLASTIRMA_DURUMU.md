@@ -94,6 +94,9 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
   kesilmesiyle yerel oturumu bozmayacak şekilde kapanmayı bekliyor.
 - UI regresyon testi eklendi; merkezi hesabın bağlı ve bağlı olmadığı açılış
   senaryoları arka plan dönüşüyle doğrulandı.
+- Ayarlar ekranındaki merkezi platform sağlık/bağlantı sınaması da aynı ortak
+  arka plan işçisiyle çalışıyor; ağ beklerken kullanıcı diğer yerel ayarlara
+  erişimini kaybetmiyor.
 
 ## 8 Eylül 2026 — İlk küçük adım
 

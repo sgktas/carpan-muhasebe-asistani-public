@@ -1,25 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout
 
 from app.core.platform_auth_service import PlatformAuthService
-
-
-class _AuthWorker(QObject):
-    finished = Signal(object)
-    failed = Signal(object)
-
-    def __init__(self, operation):
-        super().__init__()
-        self._operation = operation
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            self.finished.emit(self._operation())
-        except Exception as error:  # UI thread must receive failures, not crash.
-            self.failed.emit(error)
+from app.ui.background_task import BackgroundWorker
 
 
 class PlatformAccountDialog(QDialog):
@@ -29,7 +14,7 @@ class PlatformAccountDialog(QDialog):
         super().__init__(parent)
         self._service = service
         self._auth_thread: QThread | None = None
-        self._auth_worker: _AuthWorker | None = None
+        self._auth_worker: BackgroundWorker | None = None
         self.setWindowTitle("Merkezi Hesap")
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
@@ -116,7 +101,7 @@ class PlatformAccountDialog(QDialog):
         self.login_button.setEnabled(False)
         self.logout_button.setEnabled(False)
         thread = QThread(self)
-        worker = _AuthWorker(operation)
+        worker = BackgroundWorker(operation)
         worker.moveToThread(thread)
         self._auth_thread = thread
         self._auth_worker = worker
