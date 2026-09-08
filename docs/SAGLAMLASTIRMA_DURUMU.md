@@ -98,6 +98,17 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
   arka plan işçisiyle çalışıyor; ağ beklerken kullanıcı diğer yerel ayarlara
   erişimini kaybetmiyor.
 
+## 8 Eylül 2026 — Cihaz aktivasyonu ve lisans sözleşmesi
+
+- Platform oturum servisine bağlı cihaz aktivasyonu ve lisans okuma işlemi
+  eklendi. Bu çağrılar yalnız mevcut yerel firma/kullanıcı ve doğrulanmış API
+  adresiyle eşleşen oturumda çalışıyor.
+- Aktivasyonda ham donanım, MAC adresi veya kullanıcı bilgisi gönderilmiyor;
+  yerel rastgele kurulum kimliği API istemcisinin sözleşmesine göre aktarılıyor.
+- Lisans bilgisi alınmadan modül yetkisi verilmemesi için servis metodu
+  `PlatformLicense` döndürüyor; arayüzdeki tam lisans/entitlement sunumu
+  sonraki küçük adımda bu sözleşmeye bağlanacak.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.core.platform_connection import PlatformAuthenticationError
+from app.core.platform_connection import PlatformAuthenticationError, PlatformLicense
 from app.core.platform_session import PlatformSession, PlatformSessionError, canonical_platform_url
 
 
@@ -15,6 +15,12 @@ class AuthenticationClient(Protocol):
     def refresh(self, refresh_token: str) -> PlatformSession: ...
 
     def logout(self, *, access_token: str, refresh_token: str) -> None: ...
+
+    def activate_device(
+        self, *, access_token: str, installation_id: str, device_label: str | None = None
+    ) -> None: ...
+
+    def license(self, access_token: str) -> PlatformLicense: ...
 
 
 class SessionStore(Protocol):
@@ -158,3 +164,23 @@ class PlatformAuthService:
             None,
             "Bu cihazdaki oturum silindi. Merkezi iptal bağlantı kurulamadığı için süre sonunda tamamlanacak.",
         )
+
+    def sync_device_and_license(
+        self,
+        session: PlatformSession,
+        *,
+        installation_id: str,
+        device_label: str | None = None,
+    ) -> PlatformLicense:
+        """Geçerli oturum için cihazı kaydeder ve merkezi lisansı okur."""
+        if not self._is_current_binding(session):
+            raise PlatformSessionError("Merkezi oturum yerel bağlamla eşleşmiyor.")
+        normalized_installation_id = str(installation_id).strip()
+        if len(normalized_installation_id) < 16:
+            raise ValueError("Kurulum kimliği geçersiz.")
+        self._client.activate_device(
+            access_token=session.access_token,
+            installation_id=normalized_installation_id,
+            device_label=device_label,
+        )
+        return self._client.license(session.access_token)

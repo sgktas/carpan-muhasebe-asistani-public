@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.core.platform_auth_service import LocalSessionScope, PlatformAuthService
-from app.core.platform_connection import PlatformAuthenticationError, PlatformConnectionConfig
+from app.core.platform_connection import PlatformAuthenticationError, PlatformConnectionConfig, PlatformLicense
 from app.core.platform_session import PlatformSession
 
 
@@ -37,6 +37,7 @@ class _Client:
         self.logout_error = logout_error
         self.logged_out = False
         self.refreshed = False
+        self.activated = False
         self.config = PlatformConnectionConfig("https://platform.carpan.example")
 
     def login(self, **_kwargs) -> PlatformSession:
@@ -53,6 +54,12 @@ class _Client:
             raise PlatformAuthenticationError("offline")
         self.logged_out = True
 
+    def activate_device(self, **_kwargs) -> None:
+        self.activated = True
+
+    def license(self, _access_token: str) -> PlatformLicense:
+        return PlatformLicense("PRO", "ACTIVE", None, frozenset({"manim_transfer"}), True)
+
 
 def test_sign_in_saves_a_central_session():
     store = _MemoryStore()
@@ -63,6 +70,21 @@ def test_sign_in_saves_a_central_session():
     assert result.is_connected
     assert store.load() == result.session
     assert result.session.belongs_to_local_session(company_id=1, user_id=2)
+
+
+def test_bound_session_activates_installation_and_reads_license():
+    client = _Client()
+    session = _session()
+    license_info = PlatformAuthService(
+        client, _MemoryStore(session), LocalSessionScope(1, 2)
+    ).sync_device_and_license(
+        session,
+        installation_id="installation-identity-123456789",
+        device_label="Test bilgisayarı",
+    )
+
+    assert client.activated
+    assert license_info.usable
 
 
 def test_restore_rotates_session_without_affecting_local_work_when_offline():
