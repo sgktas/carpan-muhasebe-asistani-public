@@ -36,3 +36,11 @@ def test_users_migration_scopes_global_identities_by_company_membership():
     assert "ALTER TABLE carpan.users ENABLE ROW LEVEL SECURITY" in migration
     assert "m.user_id = users.id" in migration
     assert "WITH CHECK" in migration
+
+
+def test_atomic_refresh_rotation_migration_replaces_token_in_one_transaction():
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "0004_atomic_refresh_rotation.sql").read_text(encoding="utf-8")
+    assert "carpan.rotate_refresh_token" in migration
+    assert "INSERT INTO carpan.refresh_tokens" in migration
+    assert "UPDATE carpan.refresh_tokens" in migration
+    assert "SECURITY DEFINER" in migration

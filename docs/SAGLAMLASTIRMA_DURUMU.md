@@ -74,6 +74,16 @@ getirilmesidir; şablon çalışma zamanı kilidi aşağıdaki adımda tamamland
 Bir sonraki öncelik merkezi anahtar yenilemesini atomik hale getirmek; ardından
 merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
 
+## 8 Eylül 2026 — Atomik merkezi oturum yenileme
+
+- Eski yenileme anahtarının iptali ve yeni anahtarın oluşturulması
+  `rotate_refresh_token` PostgreSQL fonksiyonunda tek işlem olarak yapılıyor.
+  Yeni anahtar kaydı başarısız olursa eski anahtar da tüketilmiş sayılmıyor.
+- Uygulama artık ikinci bir ayrı ekleme işlemi yapmıyor; sunucudan dönen yeni
+  anahtar doğrudan istemci oturumuna veriliyor.
+- Migrasyon sözleşmesi ve gerçek PostgreSQL akışındaki tek-kullanım testi
+  korunuyor. Yeni migrasyon uygulama sürümüne dahil edildi.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

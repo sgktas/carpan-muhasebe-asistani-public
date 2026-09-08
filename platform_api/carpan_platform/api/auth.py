@@ -87,7 +87,7 @@ def refresh(payload: RefreshRequest, settings: Settings = Depends(get_settings))
         repository = CentralIdentityRepository(settings)
         identity = repository.rotate_refresh_session(payload.refresh_token)
         access_token = create_access_token(settings, user_id=identity["user_id"], company_id=identity["company_id"], role=identity["role"])
-        refresh_token = repository.create_refresh_session(company_id=identity["company_id"], user_id=identity["user_id"])
+        refresh_token = identity["refresh_token"]
     except (LoginRejected, TokenError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Oturum geçersiz.") from None
     except (DatabaseConfigurationError, psycopg.Error):

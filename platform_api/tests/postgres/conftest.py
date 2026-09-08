@@ -55,7 +55,7 @@ def pg_database():
                 owner.execute(sql.SQL("GRANT INSERT, UPDATE ON carpan.licenses, carpan.refresh_tokens TO {}").format(sql.Identifier(role)))
                 owner.execute(sql.SQL("GRANT INSERT ON carpan.audit_events TO {}").format(sql.Identifier(role)))
                 owner.execute(sql.SQL("GRANT USAGE ON ALL SEQUENCES IN SCHEMA carpan TO {}").format(sql.Identifier(role)))
-                owner.execute(sql.SQL("GRANT EXECUTE ON FUNCTION carpan.resolve_company_code(text), carpan.consume_refresh_token(character) TO {}").format(sql.Identifier(role)))
+                owner.execute(sql.SQL("GRANT EXECUTE ON FUNCTION carpan.resolve_company_code(text), carpan.consume_refresh_token(character), carpan.rotate_refresh_token(character, character, timestamptz) TO {}").format(sql.Identifier(role)))
             settings = Settings("test", make_conninfo(database_dsn, user=role, password=password,
                                options="-c statement_timeout=15000 -c lock_timeout=10000"), None, "carpan-test", ())
             yield SyntheticCase(owner_dsn=database_dsn, settings=settings, role=role)

@@ -169,14 +169,16 @@ class CentralIdentityRepository:
         return raw_token
 
     def rotate_refresh_session(self, raw_token: str) -> dict:
-        """Tek kullanımlık yenileme ile eski oturumu iptal eder ve kimliği döndürür."""
+        """Eski anahtarı tüketip yenisini tek veritabanı işleminde üretir."""
         token_hash = hash_refresh_token(raw_token)
+        new_raw_token = create_refresh_token()
         if not self.settings.database_configured:
             raise DatabaseConfigurationError("PostgreSQL bağlantısı yapılandırılmamış.")
         with psycopg.connect(str(self.settings.database_url)) as connection:
             with connection.transaction():
                 row = connection.execute(
-                    "SELECT * FROM carpan.consume_refresh_token(%s)", (token_hash,)
+                    "SELECT * FROM carpan.rotate_refresh_token(%s, %s, %s)",
+                    (token_hash, hash_refresh_token(new_raw_token), refresh_token_expiry()),
                 ).fetchone()
         if row is None:
             raise LoginRejected("Oturum yenileme belirteci geçersiz.")
@@ -185,6 +187,7 @@ class CentralIdentityRepository:
             "user_id": UUID(str(row[1])),
             "display_name": str(row[2]),
             "role": str(row[3]),
+            "refresh_token": new_raw_token,
         }
 
     def revoke_refresh_session(self, *, company_id: UUID, user_id: UUID, raw_token: str) -> None:
