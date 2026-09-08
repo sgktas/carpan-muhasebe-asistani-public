@@ -84,6 +84,17 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
 - Migrasyon sözleşmesi ve gerçek PostgreSQL akışındaki tek-kullanım testi
   korunuyor. Yeni migrasyon uygulama sürümüne dahil edildi.
 
+## 8 Eylül 2026 — Merkezi hesap ağ çağrılarının arka plana alınması
+
+- Merkezi hesap penceresindeki ilk oturum geri yükleme, giriş ve çıkış çağrıları
+  artık Qt arka plan iş parçacığında çalışıyor. Ağ gecikmesi veya sunucu
+  yanıtı masaüstü arayüzünü kilitlemiyor.
+- İşlem sürerken düğmeler güvenli biçimde devre dışı kalıyor; sonuç veya hata
+  tekrar arayüz iş parçacığına taşınıyor. Pencere, devam eden çağrının yarıda
+  kesilmesiyle yerel oturumu bozmayacak şekilde kapanmayı bekliyor.
+- UI regresyon testi eklendi; merkezi hesabın bağlı ve bağlı olmadığı açılış
+  senaryoları arka plan dönüşüyle doğrulandı.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

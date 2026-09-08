@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.ui.platform_account_dialog import PlatformAccountDialog
@@ -18,6 +19,9 @@ def test_account_dialog_opens_with_and_without_saved_session(connected):
     )
     dialog = PlatformAccountDialog(SimpleNamespace(restore=lambda: result))
     try:
+        loop = QEventLoop()
+        QTimer.singleShot(100, loop.quit)
+        loop.exec()
         assert dialog.logout_button.isEnabled() is connected
         assert dialog.login_button.isEnabled()
         assert dialog.status.text()
