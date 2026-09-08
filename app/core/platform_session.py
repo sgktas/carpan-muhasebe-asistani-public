@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import ctypes
 from ctypes import wintypes
 import json
@@ -8,10 +8,26 @@ import os
 from pathlib import Path
 import sys
 from typing import Protocol
+from urllib.parse import urlparse
 
 
 class PlatformSessionError(RuntimeError):
     """Merkezi oturum bu cihazda güvenli biçimde saklanamadığında."""
+
+
+def canonical_platform_url(value: object) -> str:
+    """Return the single canonical API address allowed for a stored session."""
+    raw = str(value or "").strip()
+    parsed = urlparse(raw)
+    if not raw or parsed.scheme not in {"https", "http"} or not parsed.hostname:
+        raise PlatformSessionError("Merkezi platform adresi tam bir web adresi olmalı.")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise PlatformSessionError("Merkezi platform adresinde kullanıcı bilgisi veya ek parametre olmamalı.")
+    host = parsed.hostname.casefold()
+    if parsed.scheme == "http" and host not in {"127.0.0.1", "localhost", "::1"}:
+        raise PlatformSessionError("Merkezi platform bağlantısı HTTPS kullanmalı.")
+    path = parsed.path.rstrip("/")
+    return f"{parsed.scheme}://{parsed.netloc.casefold()}{path}"
 
 
 @dataclass(frozen=True)
@@ -27,17 +43,31 @@ class PlatformSession:
     api_url: str
     display_name: str
     role: str
+    local_company_id: int = 0
+    local_user_id: int = 0
 
     def is_valid(self) -> bool:
         return all(
             (
                 len(self.access_token.strip()) >= 16,
                 len(self.refresh_token.strip()) >= 40,
-                self.api_url.startswith("https://") or self.api_url.startswith("http://localhost"),
+                canonical_platform_url(self.api_url) == self.api_url,
                 bool(self.display_name.strip()),
                 bool(self.role.strip()),
             )
         )
+
+    @property
+    def has_local_scope(self) -> bool:
+        return self.local_company_id > 0 and self.local_user_id > 0
+
+    def bind_to_local_session(self, *, company_id: int, user_id: int) -> "PlatformSession":
+        if not self.is_valid() or int(company_id) <= 0 or int(user_id) <= 0:
+            raise PlatformSessionError("Merkezi oturum yerel firma ve kullanıcıyla bağlanamadı.")
+        return replace(self, local_company_id=int(company_id), local_user_id=int(user_id))
+
+    def belongs_to_local_session(self, *, company_id: int, user_id: int) -> bool:
+        return self.has_local_scope and self.local_company_id == int(company_id) and self.local_user_id == int(user_id)
 
 
 class DataProtector(Protocol):
@@ -146,7 +176,7 @@ class PlatformSessionStore:
         self._protector = protector or WindowsDataProtector()
 
     def save(self, session: PlatformSession) -> None:
-        if not session.is_valid():
+        if not session.is_valid() or not session.has_local_scope:
             raise PlatformSessionError("Merkezi oturum verisi eksik veya geçersiz.")
         payload = json.dumps(asdict(session), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         encrypted = self._protector.protect(payload)
@@ -170,6 +200,8 @@ class PlatformSessionStore:
                 api_url=str(payload["api_url"]),
                 display_name=str(payload["display_name"]),
                 role=str(payload["role"]),
+                local_company_id=int(payload.get("local_company_id", 0)),
+                local_user_id=int(payload.get("local_user_id", 0)),
             )
         except (OSError, UnicodeDecodeError, KeyError, TypeError, ValueError, json.JSONDecodeError, PlatformSessionError):
             return None

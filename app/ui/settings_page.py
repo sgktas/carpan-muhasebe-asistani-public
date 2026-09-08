@@ -29,7 +29,7 @@ from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
 from app.core.template_integrity import verify_approved_templates
 from app.core.platform_connection import PlatformApiClient, PlatformConnectionError, PlatformConnectionStore
-from app.core.platform_auth_service import PlatformAuthService
+from app.core.platform_auth_service import LocalSessionScope, PlatformAuthService
 from app.core.platform_session import PlatformSessionStore
 from app.ui.common import add_page_header
 from app.ui.platform_account_dialog import PlatformAccountDialog
@@ -42,7 +42,7 @@ from app.ui.region_management_dialog import RegionManagementDialog
 
 
 class SettingsPage(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, local_session=None, parent=None):
         super().__init__(parent)
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
         self._user_config_dir = APP_PATHS.data_root / "config"
@@ -60,6 +60,7 @@ class SettingsPage(QWidget):
         # kurulum alanına aittir. Finansal yerel veriler yine firma alanındadır.
         self._platform_store = PlatformConnectionStore(APP_PATHS.base_data_root)
         self._platform_session_store = PlatformSessionStore(APP_PATHS.base_data_root)
+        self._local_session = local_session
         self._profile_row_widgets: list[QWidget] = []
         self._build_ui()
 
@@ -344,9 +345,15 @@ class SettingsPage(QWidget):
                 "Önce merkezi platform adresini kaydedin. Yerel çalışma bundan etkilenmez.",
             )
             return
-        PlatformAccountDialog(
-            PlatformAuthService(PlatformApiClient(config), self._platform_session_store), self
-        ).exec()
+        if self._local_session is None:
+            QMessageBox.warning(self, "Merkezi hesap", "Yerel kullanıcı oturumu doğrulanamadı. Uygulamaya yeniden giriş yapın.")
+            return
+        service = PlatformAuthService(
+            PlatformApiClient(config),
+            self._platform_session_store,
+            LocalSessionScope(self._local_session.company_id, self._local_session.user_id),
+        )
+        PlatformAccountDialog(service, self).exec()
 
     def _refresh_region_summary(self) -> None:
         regions = self._region_store.config().regions()

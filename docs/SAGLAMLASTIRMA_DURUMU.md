@@ -20,6 +20,25 @@ işlem geçmişi sahipliği ve çıktı üretiminde zorunlu şablon doğrulamas�
 Atomik anahtar yenileme, cihaz/lisans yetkileri ve geri yükleme hâlâ tamamlanmış
 sayılmamalıdır.
 
+## 8 Eylül 2026 — Merkezi oturum bağlama
+
+- Merkezi oturum kaydı artık yalnız yerel firma ve kullanıcı kimliğiyle birlikte
+  şifrelenmiş olarak saklanır. Eski, bağlam içermeyen kayıtlar yeniden giriş
+  ister; anahtarları hiçbir yeni sunucuya gönderilmez.
+- API adresi değişirse, farklı yerel kullanıcı/firma açarsa veya oturum yanıtı
+  yapılandırılmış API adresiyle uyuşmazsa yenileme/çıkış isteği yapılmadan yerel
+  kayıt silinir.
+- Merkezi API adresi tek biçime getirilir; HTTPS dışı uzak adres, kullanıcı
+  bilgisi, sorgu parametresi ve parçalı adres kabul edilmez. İstemci yönlendirme
+  takip etmez; yetkilendirme veya yenileme anahtarı başka adrese taşınmaz.
+- 7 yeni oturum sınırı testi eklendi. İzole PostgreSQL testleriyle birlikte tüm
+  paket 287 testte başarılı. Bu adımda VPS, müşteri verisi ve onaylı Excel
+  şablonları değiştirilmedi.
+
+Sıradaki öncelik işlem geçmişinde firma kontrollü yazma, terminal durumların
+yeniden yazılmasının engellenmesi ve devam eden işin gerçek sahibi/süresi ile
+takibidir. Merkezi anahtar yenilemesinin atomik hale getirilmesi ayrıca kalır.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

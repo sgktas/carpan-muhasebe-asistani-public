@@ -84,7 +84,7 @@ class MainWindow(QWidget):
                 ("integrations", "Entegrasyonlar", "settings", IntegrationsPage)
             )
             self.management_items.append(
-                ("settings", "Ayarlar", "settings", SettingsPage)
+                ("settings", "Ayarlar", "settings", lambda: SettingsPage(self.session))
             )
 
         self.nav_buttons: list[QPushButton] = []

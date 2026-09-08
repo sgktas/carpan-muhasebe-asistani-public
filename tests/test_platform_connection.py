@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from app.core.platform_connection import (
     PlatformApiClient,
@@ -10,6 +10,7 @@ from app.core.platform_connection import (
     PlatformConnectionError,
     PlatformConnectionStore,
 )
+from app.core.platform_session import PlatformSessionError
 
 
 class _Response:
@@ -36,6 +37,14 @@ def test_platform_url_requires_https_except_local_development(tmp_path):
     saved = store.save("https://platform.carpan.example/")
     assert saved.api_url == "https://platform.carpan.example"
     assert PlatformConnectionStore(tmp_path).get() == saved
+
+
+def test_platform_url_is_canonical_and_rejects_credentials_or_query(tmp_path):
+    assert PlatformConnectionConfig("https://PLATFORM.CARPAN.EXAMPLE/central/").api_url == "https://platform.carpan.example/central"
+    with pytest.raises(PlatformConnectionError):
+        PlatformConnectionStore(tmp_path).save("https://username" + ":password" + "@platform.carpan.example")
+    with pytest.raises(PlatformSessionError):
+        PlatformConnectionConfig("https://platform.carpan.example/?secret=value")
 
 
 def test_platform_health_is_offline_safe_and_never_needs_database_access():
@@ -82,6 +91,14 @@ def test_platform_authentication_error_never_echoes_secret_values():
         client.refresh("refresh-secret-value")
 
     assert "refresh-secret-value" not in str(error.value)
+
+
+def test_default_client_does_not_follow_redirects_with_credentials(monkeypatch):
+    client = PlatformApiClient(PlatformConnectionConfig("https://platform.carpan.example"))
+    redirect = HTTPError("https://platform.carpan.example/v1/auth/refresh", 302, "redirect", {}, None)
+    monkeypatch.setattr(client, "_opener", lambda *_args, **_kwargs: (_ for _ in ()).throw(redirect))
+    with pytest.raises(PlatformAuthenticationError):
+        client.refresh("refresh-secret-value")
 
 
 def test_platform_license_uses_authorized_api_contract():

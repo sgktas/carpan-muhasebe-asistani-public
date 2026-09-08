@@ -6,8 +6,9 @@ import os
 from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from app.core.platform_session import PlatformSessionError, canonical_platform_url
 
 
 class PlatformConnectionError(ValueError):
@@ -25,6 +26,10 @@ class PlatformAuthenticationError(RuntimeError):
 @dataclass(frozen=True)
 class PlatformConnectionConfig:
     api_url: str = ""
+
+    def __post_init__(self) -> None:
+        if self.api_url:
+            object.__setattr__(self, "api_url", canonical_platform_url(self.api_url))
 
 
 @dataclass(frozen=True)
@@ -65,12 +70,15 @@ class PlatformConnectionStore:
             return PlatformConnectionConfig()
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            return PlatformConnectionConfig(api_url=self._normalize_url(payload.get("api_url", "")))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return PlatformConnectionConfig(api_url=payload.get("api_url", ""))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, PlatformSessionError):
             return PlatformConnectionConfig()
 
     def save(self, api_url: str) -> PlatformConnectionConfig:
-        config = PlatformConnectionConfig(api_url=self._normalize_url(api_url))
+        try:
+            config = PlatformConnectionConfig(api_url=api_url)
+        except PlatformSessionError as error:
+            raise PlatformConnectionError(str(error)) from None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(
@@ -80,20 +88,11 @@ class PlatformConnectionStore:
         os.replace(temporary, self.path)
         return config
 
-    @staticmethod
-    def _normalize_url(value: object) -> str:
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-        parsed = urlparse(raw)
-        if parsed.scheme not in {"https", "http"} or not parsed.hostname:
-            raise PlatformConnectionError("Merkezi platform adresi tam bir web adresi olmalı.")
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise PlatformConnectionError("Merkezi platform adresinde kullanıcı bilgisi veya ek parametre olmamalı.")
-        if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            raise PlatformConnectionError("Merkezi platform bağlantısı HTTPS kullanmalı.")
-        path = parsed.path.rstrip("/")
-        return f"{parsed.scheme}://{parsed.netloc}{path}"
+class _RejectRedirects(HTTPRedirectHandler):
+    """Bearer and refresh credentials must never follow a different URL."""
+
+    def redirect_request(self, *_args, **_kwargs):
+        return None
 
 
 class PlatformApiClient:
@@ -111,7 +110,7 @@ class PlatformApiClient:
         opener: Callable[..., object] | None = None,
     ):
         self.config = config
-        self._opener = opener or urlopen
+        self._opener = opener or build_opener(_RejectRedirects()).open
 
     def health(self, timeout_seconds: float = 4.0) -> PlatformConnectionStatus:
         if not self.config.api_url:
