@@ -75,6 +75,7 @@ $env:MUHASEBE_ASISTANI_OUTPUT_DIR="C:\MuhasebeAsistaniCiktilari"
 - Onaylı Netsis profilleri arayüzden değiştirilemez; özel formatlar ayrı kullanıcı profili olarak saklanır.
 - Oluşan Netsis dosyası başlık, sayfa, satır sayısı, tutar toplamı, banka kodu ve kritik hücre biçimleri açısından otomatik doğrulanır.
 - Psoft FOM entegrasyon dosyası `.xls` imzası, güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı açısından otomatik doğrulanır.
+- Ayarlar ekranındaki **Onaylı Şablon Kontrolü**, paket içindeki Netsis ve FOM özgün şablonlarının değiştirilmediğini yalnız okunur olarak doğrular.
 
 ## Excel çıktı biçimi
 

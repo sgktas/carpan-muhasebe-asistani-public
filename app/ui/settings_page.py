@@ -27,6 +27,7 @@ from app.core.input_profile import InputProfileStore
 from app.core.output_location import OutputLocationStore, resolve_output_dir
 from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
+from app.core.template_integrity import verify_approved_templates
 from app.core.platform_connection import PlatformApiClient, PlatformConnectionError, PlatformConnectionStore
 from app.ui.common import add_page_header
 from app.ui.profile_editor_dialogs import (
@@ -190,6 +191,71 @@ class SettingsPage(QWidget):
         layout.addWidget(subtitle)
         layout.addLayout(row)
         return card
+
+    def _template_integrity_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("Onaylı Şablon Kontrolü")
+        title.setObjectName("cardTitle")
+        description = QLabel(
+            "Netsis ve FOM için kullanılan özgün şablonların değişmediğini kontrol eder. "
+            "Kontrol yalnız okunur; hiçbir Excel dosyasını değiştirmez."
+        )
+        description.setObjectName("cardSubtitle")
+        description.setWordWrap(True)
+        self._template_integrity_status = QLabel()
+        self._template_integrity_status.setObjectName("miniInfoText")
+        self._template_integrity_status.setWordWrap(True)
+        button = QPushButton("Şablonları kontrol et")
+        button.setObjectName("secondary")
+        button.clicked.connect(self._check_template_integrity)
+
+        row = QHBoxLayout()
+        row.addWidget(self._template_integrity_status, 1)
+        row.addWidget(button)
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(row)
+        self._refresh_template_integrity_status()
+        return card
+
+    def _refresh_template_integrity_status(self) -> None:
+        snapshot = verify_approved_templates(APP_PATHS.resource_root)
+        if snapshot.is_valid:
+            self._template_integrity_status.setText(
+                f"{snapshot.valid_count} onaylı şablon doğrulandı."
+            )
+            return
+        first = next((check for check in snapshot.checks if check.status != "VALID"), None)
+        self._template_integrity_status.setText(
+            first.message if first else "Şablon kontrolü tamamlanamadı."
+        )
+
+    def _check_template_integrity(self) -> None:
+        snapshot = verify_approved_templates(APP_PATHS.resource_root)
+        self._refresh_template_integrity_status()
+        if snapshot.is_valid:
+            QMessageBox.information(
+                self,
+                "Şablon kontrolü",
+                f"{snapshot.valid_count} onaylı şablon özgün haliyle doğrulandı.",
+            )
+            return
+        problems = [
+            f"• {check.template_name}: {check.message}"
+            for check in snapshot.checks
+            if check.status != "VALID"
+        ]
+        QMessageBox.warning(
+            self,
+            "Şablon kontrolü gerekli",
+            "Şablonlarda uyuşmazlık bulundu. Dosyayı düzenlemeyin; onaylı özgün şablonu geri koyun.\n\n"
+            + "\n".join(problems),
+        )
 
     def _platform_connection_card(self) -> QFrame:
         card = QFrame()
@@ -506,6 +572,7 @@ class SettingsPage(QWidget):
         layout.addWidget(card)
 
         layout.addWidget(self._platform_connection_card())
+        layout.addWidget(self._template_integrity_card())
         layout.addWidget(self._region_management_card())
 
         profile_card = QFrame()
