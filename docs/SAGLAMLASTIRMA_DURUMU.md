@@ -128,6 +128,10 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
 - Log klasörü yedek kapsamı dışında kalıyor ve arşiv içindeki mutlak/üst dizin
   yolları reddediliyor. Böylece bozulmuş veya yol taşması içeren ZIP dosyaları
   ileride geri yükleme için güvenilir kabul edilmiyor.
+- Geri yükleme önce geçici klasöre çıkarılıp tekrar hash kontrolünden geçiriliyor;
+  mevcut firma alanı ancak bu kontrolden sonra zaman damgalı geri dönüş klasörüne
+  taşınıyor. Arayüz onay ister ve işlem sonunda uygulamanın yeniden başlatılmasını
+  bildirir.
 
 ## 8 Eylül 2026 — İlk küçük adım
 

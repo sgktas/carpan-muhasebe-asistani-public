@@ -3,7 +3,12 @@ import zipfile
 
 import pytest
 
-from app.core.backup_service import BackupError, create_local_backup, validate_local_backup
+from app.core.backup_service import (
+    BackupError,
+    create_local_backup,
+    restore_local_backup,
+    validate_local_backup,
+)
 
 
 def test_local_backup_contains_state_but_not_logs(tmp_path):
@@ -46,3 +51,20 @@ def test_local_backup_detects_tampered_file(tmp_path):
 
     with pytest.raises(BackupError, match="bozulmuş"):
         validate_local_backup(tampered)
+
+
+def test_local_backup_restore_keeps_previous_data_as_rollback(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "new.json").write_text("new", encoding="utf-8")
+    backup = tmp_path / "backup.zip"
+    create_local_backup(source, backup)
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "old.json").write_text("old", encoding="utf-8")
+    rollback = restore_local_backup(backup, target)
+
+    assert rollback is not None
+    assert (target / "new.json").read_text(encoding="utf-8") == "new"
+    assert (rollback / "old.json").read_text(encoding="utf-8") == "old"

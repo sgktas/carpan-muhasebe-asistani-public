@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.core.active_profile_store import ActiveProfileStore
 from app.core.app_paths import APP_PATHS
-from app.core.backup_service import BackupError, create_local_backup
+from app.core.backup_service import BackupError, create_local_backup, restore_local_backup
 from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
 from app.core.installation_identity import InstallationIdentityStore
@@ -172,6 +172,36 @@ class SettingsPage(QWidget):
             self,
             "Yedek oluşturuldu",
             f"Yerel ayarlar, eşleştirme hafızası ve işlem geçmişi yedeklendi.\n\n{created}",
+        )
+
+    def _restore_backup(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Yerel veri yedeğini seçin",
+            str(Path.home() / "Documents"),
+            "ZIP arşivi (*.zip)",
+        )
+        if not selected:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Yedeği geri yükle",
+            "Mevcut firma çalışma alanı geri dönüş klasörüne taşınacak ve seçilen yedek açılacak. Devam edilsin mi?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            rollback = restore_local_backup(selected, APP_PATHS.data_root)
+        except BackupError as error:
+            QMessageBox.critical(self, "Yedek geri yüklenemedi", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Yedek geri yüklendi",
+            "Yedek güvenli biçimde geri yüklendi. Değişikliklerin tüm ekranlarda görünmesi için uygulamayı yeniden başlatın.\n\n"
+            f"Geri dönüş klasörü: {rollback}",
         )
 
     def _region_management_card(self) -> QFrame:
@@ -656,8 +686,12 @@ class SettingsPage(QWidget):
         backup_button = QPushButton("Yedek oluştur...")
         backup_button.setObjectName("secondary")
         backup_button.clicked.connect(self._create_backup)
+        restore_button = QPushButton("Yedeği geri yükle...")
+        restore_button.setObjectName("secondary")
+        restore_button.clicked.connect(self._restore_backup)
         backup_layout.addLayout(backup_text, 1)
         backup_layout.addWidget(backup_button)
+        backup_layout.addWidget(restore_button)
         card_layout.addWidget(backup_row)
         layout.addWidget(card)
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
 import zipfile
 
 
@@ -119,3 +121,59 @@ def validate_local_backup(backup_path: str | Path) -> dict[str, object]:
         raise
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError) as error:
         raise BackupError(f"Yedek doğrulanamadı: {error}") from error
+
+
+def restore_local_backup(backup_path: str | Path, data_root: str | Path) -> Path | None:
+    """Doğrulanmış yedeği firma veri alanına atomik olarak geri yükler.
+
+    Eski veri klasörü aynı üst dizinde zaman damgalı geri dönüş klasörüne
+    taşınır. Yeni klasör hazırlama veya taşıma sırasında hata olursa mümkünse
+    eski klasör geri yerine alınır; kaynak ZIP hiçbir zaman değiştirilmez.
+    Dönen yol, geri dönüş için saklanan eski klasördür.
+    """
+    manifest = validate_local_backup(backup_path)
+    target = Path(data_root).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".carpan-restore-", dir=target.parent))
+    previous: Path | None = None
+    try:
+        with zipfile.ZipFile(Path(backup_path).resolve(), "r") as archive:
+            for item in manifest["files"]:
+                archive_name = _safe_archive_name(str(item["path"]))
+                relative = Path(archive_name).relative_to("CarpanMuhasebeAsistani")
+                destination = (staging / relative).resolve()
+                if staging not in destination.parents:
+                    raise BackupError("Yedek dışına çıkan geri yükleme yolu bulundu.")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(archive.read(archive_name))
+
+        # Extracted files are checked once more before the live directory is
+        # touched, so a read race or disk error cannot partially replace data.
+        for item in manifest["files"]:
+            archive_name = _safe_archive_name(str(item["path"]))
+            relative = Path(archive_name).relative_to("CarpanMuhasebeAsistani")
+            destination = staging / relative
+            data = destination.read_bytes()
+            if len(data) != int(item["size"]) or hashlib.sha256(data).hexdigest() != str(item["sha256"]):
+                raise BackupError(f"Geri yükleme doğrulaması başarısız: {relative}")
+
+        if target.exists():
+            previous = target.with_name(f"{target.name}.restore-backup-{datetime.now():%Y%m%d%H%M%S}")
+            suffix = 1
+            while previous.exists():
+                previous = target.with_name(
+                    f"{target.name}.restore-backup-{datetime.now():%Y%m%d%H%M%S}-{suffix}"
+                )
+                suffix += 1
+            os.replace(target, previous)
+        os.replace(staging, target)
+        staging = None  # type: ignore[assignment]
+        return previous
+    except Exception:
+        if previous is not None and not target.exists():
+            os.replace(previous, target)
+        raise
+    finally:
+        if staging is not None:
+            import shutil
+            shutil.rmtree(staging, ignore_errors=True)
