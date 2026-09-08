@@ -23,6 +23,10 @@ from app.core.output_contract import (
     FOM_SALES_OUTPUT_BASENAME,
     validate_fom_integration_output,
 )
+from app.core.template_integrity import (
+    assert_approved_template,
+    runtime_template_enforcement_enabled,
+)
 
 AMOUNT_FORMAT = "#,##0.00"
 AMOUNT_HEADERS = {
@@ -428,22 +432,28 @@ class ExcelTemplateWriter:
         if os.name != "nt":
             return self._write_xlwt(output_path, sheets, headers=headers)
 
-        try:
-            return self._write_pywin32(
-                template_path,
-                output_path,
-                sheets,
-                delete_extra_sheets=delete_extra_sheets,
-                number_formats=number_formats,
-            )
-        except ModuleNotFoundError:
-            return self._write_powershell(
-                template_path,
-                output_path,
-                sheets,
-                delete_extra_sheets=delete_extra_sheets,
-                number_formats=number_formats,
-            )
+        # Excel/COM bazı BIFF8 şablonlarını açarken kaynak dosyada kilit veya
+        # metadata değişikliği bırakabiliyor. Onaylı kaynak dosya yalnızca
+        # okunur; yazma işlemi geçici birebir kopyada yapılır.
+        with tempfile.TemporaryDirectory(prefix="carpan_fom_template_") as temp_dir:
+            working_template = Path(temp_dir) / template_path.name
+            shutil.copy2(template_path, working_template)
+            try:
+                return self._write_pywin32(
+                    working_template,
+                    output_path,
+                    sheets,
+                    delete_extra_sheets=delete_extra_sheets,
+                    number_formats=number_formats,
+                )
+            except ModuleNotFoundError:
+                return self._write_powershell(
+                    working_template,
+                    output_path,
+                    sheets,
+                    delete_extra_sheets=delete_extra_sheets,
+                    number_formats=number_formats,
+                )
 
     @staticmethod
     def _write_xlwt(
@@ -1026,6 +1036,8 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "sales_template.xls"
                 )
+                if runtime_template_enforcement_enabled():
+                    assert_approved_template(self.resource_root, template_path)
                 template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{SALES_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(
@@ -1086,6 +1098,8 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "collections_template.xls"
                 )
+                if runtime_template_enforcement_enabled():
+                    assert_approved_template(self.resource_root, template_path)
                 template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{COLLECTION_OUTPUT_BASENAME}.xls"
                 ExcelTemplateWriter().write(

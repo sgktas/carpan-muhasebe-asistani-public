@@ -54,9 +54,25 @@ takibidir. Merkezi anahtar yenilemesinin atomik hale getirilmesi ayrıca kalır.
   kurtarma senaryoları test edildi. Bu adımda merkezi API, VPS, müşteri verisi
   ve onaylı Excel şablonları değişmedi.
 
-Sıradaki öncelik, her Netsis/FOM çıktı üretiminde onaylı özgün şablonun zorunlu
-olarak doğrulanması ve şablonun ayrı çalışma kopyasında işlenmesidir. Merkezi
-anahtar yenilemesinin atomik hale getirilmesi hâlâ ayrıca tamamlanmalıdır.
+Bu aşamada sıradaki öncelik, merkezi anahtar yenilemesinin atomik hale
+getirilmesidir; şablon çalışma zamanı kilidi aşağıdaki adımda tamamlandı.
+
+## 8 Eylül 2026 — Çıktı şablonu çalışma zamanı kilidi
+
+- Netsis ve FOM üretimi Windows'ta başlamadan önce seçilen dosyanın
+  `config/local/template_checksums.json` içindeki onaylı özgün dosya olduğu
+  SHA-256 ile doğrulanıyor. Şablon eksik, değiştirilmiş veya liste dışıysa
+  işlem duruyor; genel Excel çıktısına sessizce düşülmüyor.
+- Microsoft Excel/COM yazma yolları, orijinal dosyayı açmak yerine geçici bir
+  birebir çalışma kopyası kullanıyor. Kullanıcının onaylı kaynak şablonuna veri,
+  kilit veya Excel metadata değişikliği yazılmıyor.
+- Public test kaynağında gerçek yerel şablon bulunmadığı için mevcut açık test
+  bayrağı korunuyor; bu istisna üretim Windows kurulumunda etkin değil.
+- Çalışma zamanı bütünlük kilidi ve değişmiş şablon senaryosu için regresyon
+  testleri eklendi. Şablon dosyaları ve kontrol değerleri değiştirilmedi.
+
+Bir sonraki öncelik merkezi anahtar yenilemesini atomik hale getirmek; ardından
+merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
 
 ## 8 Eylül 2026 — İlk küçük adım
 

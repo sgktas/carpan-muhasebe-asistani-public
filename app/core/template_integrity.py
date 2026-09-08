@@ -10,6 +10,23 @@ CHECKSUM_FILE = Path("config/local/template_checksums.json")
 TEMPLATE_ROOT = Path("templates/local")
 
 
+class TemplateIntegrityError(RuntimeError):
+    """Onaylı şablon değişmiş veya güvenilir kaynaktan gelmiyorsa yükselir."""
+
+
+def runtime_template_enforcement_enabled() -> bool:
+    """Üretim Windows çalıştırmasında yerel şablon denetimini etkinleştirir.
+
+    Public kaynak testleri gerçek şirket şablonlarını taşımaz ve bunu açıkça
+    ``MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG=1`` ile belirtir. Bu bayrak
+    yalnız test/public kaynak davranışını seçer; gerçek Windows kurulumunda
+    şablon doğrulaması atlanamaz.
+    """
+    import os
+
+    return os.name == "nt" and os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
+
+
 @dataclass(frozen=True)
 class TemplateIntegrityCheck:
     template_name: str
@@ -100,3 +117,42 @@ def verify_approved_templates(resource_root: str | Path) -> TemplateIntegritySna
             continue
         checks.append(TemplateIntegrityCheck(template_name, "VALID", "Doğrulandı."))
     return TemplateIntegritySnapshot(checks=tuple(checks), configured=True)
+
+
+def assert_approved_template(resource_root: str | Path, template_path: str | Path) -> Path:
+    """Tek bir çıktı şablonunun manifestteki özgün dosya olduğunu doğrular.
+
+    ``verify_approved_templates`` kullanıcı arayüzünde toplu durum gösterir;
+    bu fonksiyon ise yazma işleminden hemen önce çağrılan çalışma zamanı
+    kilididir. Böylece şablon bozulduğunda genel Excel üretimine düşülmez.
+    """
+    root = Path(resource_root).resolve()
+    path = Path(template_path).resolve()
+    local_root = (root / TEMPLATE_ROOT).resolve()
+    try:
+        manifest_name = path.relative_to(local_root).as_posix()
+    except ValueError as error:
+        raise TemplateIntegrityError(
+            f"Şablon onaylı yerel şablon klasörünün dışında: {path}"
+        ) from error
+
+    checksum_path = root / CHECKSUM_FILE
+    if not checksum_path.is_file():
+        raise TemplateIntegrityError("Onaylı şablon kontrol listesi bulunamadı.")
+    try:
+        raw_checksums = json.loads(checksum_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise TemplateIntegrityError("Onaylı şablon kontrol listesi okunamadı.") from error
+    expected_hash = raw_checksums.get(manifest_name) if isinstance(raw_checksums, dict) else None
+    if not expected_hash:
+        raise TemplateIntegrityError(
+            f"Şablon kontrol listesinde kayıtlı değil: {manifest_name}"
+        )
+    if not path.is_file():
+        raise TemplateIntegrityError(f"Onaylı şablon dosyası bulunamadı: {manifest_name}")
+    actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual_hash != str(expected_hash):
+        raise TemplateIntegrityError(
+            f"Onaylı şablon değişmiş: {manifest_name}. Genel Excel çıktısı üretilmedi."
+        )
+    return path

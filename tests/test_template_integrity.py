@@ -1,7 +1,13 @@
 import hashlib
 import json
 
-from app.core.template_integrity import verify_approved_templates
+import pytest
+
+from app.core.template_integrity import (
+    TemplateIntegrityError,
+    assert_approved_template,
+    verify_approved_templates,
+)
 
 
 def _write_approved_template(root, name: str, content: bytes = b"approved-template"):
@@ -44,3 +50,25 @@ def test_template_integrity_reports_missing_manifest(tmp_path):
     assert not snapshot.configured
     assert not snapshot.is_valid
     assert snapshot.checks[0].status == "MISSING"
+
+
+def test_runtime_guard_returns_only_unchanged_approved_path(tmp_path):
+    path = _write_approved_template(tmp_path, "report_editing/collections_template.xls")
+
+    assert assert_approved_template(tmp_path, path) == path.resolve()
+
+    path.write_bytes(b"tampered")
+    with pytest.raises(TemplateIntegrityError, match="değişmiş"):
+        assert_approved_template(tmp_path, path)
+
+
+def test_runtime_guard_rejects_unregistered_template(tmp_path):
+    path = tmp_path / "templates" / "local" / "custom.xls"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"custom")
+    checksum_path = tmp_path / "config" / "local" / "template_checksums.json"
+    checksum_path.parent.mkdir(parents=True)
+    checksum_path.write_text(json.dumps({}), encoding="utf-8")
+
+    with pytest.raises(TemplateIntegrityError, match="kayıtlı değil"):
+        assert_approved_template(tmp_path, path)

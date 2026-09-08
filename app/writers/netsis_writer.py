@@ -14,6 +14,10 @@ import xlwt
 
 from app.core.output_profile import OutputProfile, OutputProfileStore
 from app.core.output_contract import validate_netsis_output
+from app.core.template_integrity import (
+    assert_approved_template,
+    runtime_template_enforcement_enabled,
+)
 from app.models.records import NetsisRecord
 from app.writers.xls_utils import ensure_writable, make_styles, save_xls, write_cell, xls_path
 
@@ -92,6 +96,9 @@ class NetsisWriter:
 
     def write(self, records: list[NetsisRecord], output_path: str | Path) -> Path:
         records = sorted(records, key=self._sort_key)
+        if runtime_template_enforcement_enabled():
+            resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+            assert_approved_template(resource_root, self.template_path)
         if (
             os.name == "nt"
             and os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
