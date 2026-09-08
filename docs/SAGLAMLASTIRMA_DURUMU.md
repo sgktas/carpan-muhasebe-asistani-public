@@ -112,6 +112,10 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
   oturum yenileme akışında arka planda çalıştırıp planı ve geçerliliği gösteriyor.
   Lisans servisi geçici olarak erişilemiyorsa oturum bilgisi korunuyor ve yerel
   çalışma devam ediyor.
+- Ana pencere lisans yetkilerini yerel rol yetkileriyle kesiştiren ortak
+  `effective_entitlements` kararını kullanıyor. Merkezi lisans verilmediğinde
+  mevcut yerel davranış korunuyor; geçerli lisans verildiğinde lisans dışı
+  modüller menüye eklenmiyor.
 
 ## 8 Eylül 2026 — İlk küçük adım
 

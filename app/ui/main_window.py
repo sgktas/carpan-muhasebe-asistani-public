@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 from app.core.app_paths import APP_PATHS
 from app.core.identity import AuthenticatedSession, IdentityStore
 from app.core.operation_history import OperationHistory
+from app.core.entitlements import effective_entitlements
+from app.core.platform_connection import PlatformLicense
 from app.modules.registry import build_module_registry
 from app.ui.history_page import HistoryPage
 from app.ui.integrations_page import IntegrationsPage
@@ -32,6 +34,7 @@ class MainWindow(QWidget):
         session: AuthenticatedSession,
         identity_store: IdentityStore,
         on_logout=None,
+        central_license: PlatformLicense | None = None,
     ):
         super().__init__()
         self.session = session
@@ -45,8 +48,18 @@ class MainWindow(QWidget):
             user_id=session.user_id,
         )
         all_modules = build_module_registry(self.history)
+        local_module_ids = [
+            module.module_id
+            for module in all_modules
+            if session.allows_module(module.module_id)
+        ]
+        entitlements = effective_entitlements(
+            local_module_ids=local_module_ids,
+            central_module_ids=(central_license.enabled_modules if central_license else None),
+            central_license_usable=(central_license.usable if central_license else None),
+        )
         self.modules = [
-            module for module in all_modules if session.allows_module(module.module_id)
+            module for module in all_modules if entitlements.allows(module.module_id)
         ]
         self.management_items: list[tuple[str, str, str, object]] = []
         if session.can("history.read"):

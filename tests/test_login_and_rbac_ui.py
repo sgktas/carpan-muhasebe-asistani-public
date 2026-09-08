@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from app.core import identity
 from app.core.identity import IdentityStore
+from app.core.platform_connection import PlatformLicense
 from app.ui.login_window import LoginWindow
 from app.ui import main_window
 
@@ -96,5 +97,37 @@ def test_approver_sees_only_authorized_module_and_operations_views(tmp_path, mon
         "manim_transfer",
         "operations_center",
         "history",
+    ]
+    window.close()
+
+
+def test_main_window_intersects_local_modules_with_central_license(tmp_path, monkeypatch):
+    monkeypatch.setattr(identity, "PASSWORD_ITERATIONS", 1_000)
+    store = IdentityStore(tmp_path / "platform.sqlite3")
+    admin = store.create_initial_admin(
+        "Çarpan Test", "admin", "Test Yönetici", "Guvenli1234"
+    )
+    fake_modules = [
+        SimpleNamespace(module_id="manim_transfer", nav_label="MANİM", icon_name="transfer", page_factory=QWidget),
+        SimpleNamespace(module_id="bank_reconciliation", nav_label="Banka", icon_name="folder", page_factory=QWidget),
+    ]
+    monkeypatch.setattr(main_window, "build_module_registry", lambda _history: fake_modules)
+    monkeypatch.setattr(
+        main_window,
+        "APP_PATHS",
+        SimpleNamespace(
+            state_dir=tmp_path / "state",
+            assets_dir=Path(__file__).resolve().parents[1] / "assets",
+        ),
+    )
+
+    window = main_window.MainWindow(
+        admin,
+        store,
+        central_license=PlatformLicense("PRO", "ACTIVE", None, frozenset({"manim_transfer"}), True),
+    )
+
+    assert [item[0] for item in window.nav_items] == [
+        "manim_transfer", "operations_center", "history", "team", "audit", "integrations", "settings"
     ]
     window.close()
