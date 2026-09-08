@@ -120,6 +120,15 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
   açılışta kullanılıyor. Merkezi oturum kapatılırken önbellek temizleniyor;
   parola veya yenileme anahtarı bu dosyaya yazılmıyor.
 
+## 8 Eylül 2026 — Yedek bütünlüğü
+
+- Yerel ZIP yedeklerine sürüm, dosya boyutu ve SHA-256 manifesti ekleniyor.
+  Yedek oluşturulduktan sonra manifest tekrar doğrulanmadan işlem başarılı
+  sayılmıyor.
+- Log klasörü yedek kapsamı dışında kalıyor ve arşiv içindeki mutlak/üst dizin
+  yolları reddediliyor. Böylece bozulmuş veya yol taşması içeren ZIP dosyaları
+  ileride geri yükleme için güvenilir kabul edilmiyor.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

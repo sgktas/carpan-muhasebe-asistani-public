@@ -1,7 +1,9 @@
 from pathlib import Path
 import zipfile
 
-from app.core.backup_service import create_local_backup
+import pytest
+
+from app.core.backup_service import BackupError, create_local_backup, validate_local_backup
 
 
 def test_local_backup_contains_state_but_not_logs(tmp_path):
@@ -22,4 +24,25 @@ def test_local_backup_contains_state_but_not_logs(tmp_path):
     assert "CarpanMuhasebeAsistani/data/history.db" in names
     assert "CarpanMuhasebeAsistani/config/profile.json" in names
     assert "CarpanMuhasebeAsistani/YEDEK_BILGISI.txt" in names
+    assert "CarpanMuhasebeAsistani/YEDEK_MANIFEST.json" in names
     assert "CarpanMuhasebeAsistani/logs/uygulama.log" not in names
+    assert validate_local_backup(created)["version"] == 1
+
+
+def test_local_backup_detects_tampered_file(tmp_path):
+    data_root = tmp_path / "data-root"
+    data_root.mkdir()
+    (data_root / "state.json").write_text("original", encoding="utf-8")
+    destination = tmp_path / "backup.zip"
+    create_local_backup(data_root, destination)
+
+    tampered = tmp_path / "tampered.zip"
+    with zipfile.ZipFile(destination) as source, zipfile.ZipFile(tampered, "w") as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename.endswith("state.json"):
+                data = b"changed"
+            target.writestr(item, data)
+
+    with pytest.raises(BackupError, match="bozulmuş"):
+        validate_local_backup(tampered)
