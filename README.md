@@ -298,9 +298,10 @@ hedef BM kodu `Banka Hesap Kodu(*)` alanına yazılır ve yön değeri giden iş
 için `1` olur. Hedefi belirsiz olan veya şirket dışı ödemeler otomatik aktarılmaz;
 mevcut Referanslı inceleme dosyasında kalır.
 
-Virman çıktısı yalnız onaylı `HESAPLAR ARASI VİRMAN TOPLU.xlsx` şablonunun yerel
-birebir kopyasından üretilir. Sayfa adları, 32 sütunlu başlık dizilimi ve çalışma
-kitabı yapısı doğrulanmadan çıktı başarılı sayılmaz.
+Virman çıktısı tüm bölgeler için tek `HESAPLAR_ARASI_VIRMAN_*.xlsx` dosyasında,
+yalnız onaylı `HESAPLAR ARASI VİRMAN TOPLU.xlsx` şablonunun yerel birebir
+kopyasından üretilir. Sayfa adları, 32 sütunlu başlık dizilimi ve çalışma kitabı
+yapısı doğrulanmadan çıktı başarılı sayılmaz.
 
 Dekont durumu ile virman önceliği `app/core/movement_router.py` içindeki tek
 yönlendirme katmanında birleştirilmiştir. Karar sırası ve yeni rota ekleme

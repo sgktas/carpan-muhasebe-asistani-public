@@ -11,6 +11,9 @@ REGION_ORDER = DEFAULT_REGION_ORDER
 BANK_ORDER: tuple[str, ...] = ("GARANTI", "YKB", "ZIRAAT")
 
 _SPECIAL_OFFSETS = {
+    "HESAPLAR_ARASI_VIRMAN": 1,
+    # Virman tek toplu dosyadır; yerleşik Ödeme Onaylandı dosya adını
+    # değiştirmemek için aynı sıra ön ekini paylaşır.
     "ODEME_ONAYLANDI": 1,
     "REFERANSLI": 2,
     "KURAL_CALISTI": 3,

@@ -126,24 +126,23 @@ class ManimOutputService:
             finally:
                 writer.close()
 
-            virman_count = sum(len(records) for records in plan.virman_by_region.values())
-            if virman_count:
+            virman_rows = self._ordered_virman_records(plan)
+            if virman_rows:
                 virman_writer = NetsisWriter(profile=plan.reference_output_profile)
                 try:
-                    for region in self.regions:
-                        rows = plan.virman_by_region.get(region, [])
-                        if not rows:
-                            continue
-                        virman_name = (
-                            f"{region_file_prefix(region, self.regions)}_{region}_"
-                            f"HESAPLAR_ARASI_VIRMAN_{date_label}"
-                            f"{plan.reference_output_profile.output_extension}"
-                        )
-                        virman_writer.write(rows, staging_dir / virman_name)
-                        created_names.append(virman_name)
-                        logs.append(
-                            f"{virman_name}: {len(rows)} giden virman satırı oluşturuldu."
-                        )
+                    # Virman aktarımı bölge dosyası değildir: tüm kaynak
+                    # bölgelerdeki aynı-banka şube transferleri, kullanıcı
+                    # tarafından onaylanan tek toplu şablona yazılır.
+                    virman_name = (
+                        f"{special_file_prefix('HESAPLAR_ARASI_VIRMAN', self.regions)}_"
+                        f"HESAPLAR_ARASI_VIRMAN_{date_label}"
+                        f"{plan.reference_output_profile.output_extension}"
+                    )
+                    virman_writer.write(virman_rows, staging_dir / virman_name)
+                    created_names.append(virman_name)
+                    logs.append(
+                        f"{virman_name}: {len(virman_rows)} giden virman satırı oluşturuldu."
+                    )
                 finally:
                     virman_writer.close()
 
@@ -266,6 +265,23 @@ class ManimOutputService:
                     record.hedef_banka,
                 )
             )
+
+    def _ordered_virman_records(self, plan: ManimOutputPlan) -> list:
+        """Bölge ayrımı olmadan tek aktarım dosyası için kronolojik sıralama."""
+        rows = [
+            record
+            for records in plan.virman_by_region.values()
+            for record in records
+        ]
+        return sorted(
+            rows,
+            key=lambda record: (
+                record.islem_tarihi or datetime.max,
+                region_sort_key(record.bolge, self.regions),
+                record.kaynak_banka,
+                record.hedef_banka,
+            ),
+        )
 
     def _netsis_file_name(
         self,

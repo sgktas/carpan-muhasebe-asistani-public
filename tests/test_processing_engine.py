@@ -78,7 +78,7 @@ def test_odeme_onaylandi_ve_referansli_ayriliyor(synthetic_project):
     assert book.format_map[doviz_xf.format_key].format_str == "#,##0.00"
 
 
-def test_negatif_referansli_virman_bolge_bazli_toplu_ciktiya_ayrilir(
+def test_negatif_referansli_virman_tum_bolgeler_icin_tek_toplu_ciktiya_yazilir(
     synthetic_project,
     monkeypatch,
 ):
@@ -91,6 +91,12 @@ def test_negatif_referansli_virman_bolge_bazli_toplu_ciktiya_ayrilir(
     rows.loc[2, "Kod - Şube"] = "TEST-HESAP-1001"
     rows.loc[2, "Açıklama"] = "INT-HVL-1001 DEN 1005 HES VIRMAN"
     rows.loc[2, "Tutar"] = -777.0
+    rows = pd.concat([rows, pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "TEST-HESAP-1002",
+        "İşlem Tarihi": pd.Timestamp("2026-07-16"),
+        "Açıklama": "INT-HVL-1002 DEN 1001 HES VIRMAN", "Tutar": -555.0,
+        "Dekont Durumu": "Referanslı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }])], ignore_index=True)
     rows.to_excel(manim_path, index=False)
     written = []
 
@@ -113,16 +119,20 @@ def test_negatif_referansli_virman_bolge_bazli_toplu_ciktiya_ayrilir(
         project_root,
     ).run()
 
-    assert result.virman_records == 1
+    assert result.virman_records == 2
     assert result.skipped_reference == 0
     profile_id, virman_rows, output_path = next(
         item for item in written if item[0] == "netsis_virman_toplu"
     )
     assert profile_id == "netsis_virman_toplu"
-    assert output_path.name == "01_BODRUM_HESAPLAR_ARASI_VIRMAN_15-16.07.2026.xlsx"
+    assert output_path.name == "09_HESAPLAR_ARASI_VIRMAN_15-16.07.2026.xlsx"
+    assert len(virman_rows) == 2
     assert virman_rows[0].kaynak_banka_hesap_kodu == "BANK-G-01"
     assert virman_rows[0].hedef_banka_hesap_kodu == "BANK-G-05"
     assert virman_rows[0].tutar == 777.0
+    assert virman_rows[1].kaynak_banka_hesap_kodu == "BANK-G-02"
+    assert virman_rows[1].hedef_banka_hesap_kodu == "BANK-G-01"
+    assert virman_rows[1].tutar == 555.0
 
 
 def test_kural_calisti_eslestirmeye_girmeden_bolgesel_ciktiya_yazilir(synthetic_project):
