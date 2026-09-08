@@ -73,7 +73,8 @@ def pg_case(pg_database):
     users = [uuid4(), uuid4()]
     codes = ["TEST_" + uuid4().hex, "TEST_" + uuid4().hex]
     usernames = ["user_" + uuid4().hex, "user_" + uuid4().hex]
-    password = "Synthetic-Only-" + secrets.token_urlsafe(20)
+    # Fixed required character classes keep this test data non-flaky.
+    password = "Synthetic-Only-1-" + secrets.token_urlsafe(20)
     with psycopg.connect(pg_database.owner_dsn) as conn:
         for company, user, code, username in zip(firms, users, codes, usernames):
             conn.execute("INSERT INTO carpan.companies(id, code, name) VALUES (%s, %s, 'Synthetic test company')", (company, code))

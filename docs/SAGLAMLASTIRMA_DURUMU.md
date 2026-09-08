@@ -39,6 +39,25 @@ Sıradaki öncelik işlem geçmişinde firma kontrollü yazma, terminal durumlar
 yeniden yazılmasının engellenmesi ve devam eden işin gerçek sahibi/süresi ile
 takibidir. Merkezi anahtar yenilemesinin atomik hale getirilmesi ayrıca kalır.
 
+## 8 Eylül 2026 — İşlem geçmişi sahipliği
+
+- Her başlatılan işlem artık uygulama örneği sahibi ve süreli çalışma izniyle
+  kaydedilir. Yeni pencerenin veya farklı firma geçmişinin açılması, devam eden
+  canlı işlemi hemen `INTERRUPTED` durumuna çekmez.
+- Süresi gerçekten dolmuş devam eden işlem, kendi firma kapsamındaki sonraki
+  başlangıçta kesilmiş olarak kurtarılır. Önceki sürümden sahiplik bilgisi
+  olmayan devam eden kayıtlar ilk geçişte güvenle kesilmiş kabul edilir.
+- Tamamlama, hata, ara olay ve çalışma sinyali yalnız kaydı başlatan uygulama
+  örneği ve aynı firma tarafından yazılabilir. `SUCCESS`, `PARTIAL`, `FAILED`
+  veya `INTERRUPTED` kayıt yeniden yazılamaz.
+- Firma dışı yazma, terminal kaydı yeniden yazma ve süre dolmuş kayıt
+  kurtarma senaryoları test edildi. Bu adımda merkezi API, VPS, müşteri verisi
+  ve onaylı Excel şablonları değişmedi.
+
+Sıradaki öncelik, her Netsis/FOM çıktı üretiminde onaylı özgün şablonun zorunlu
+olarak doğrulanması ve şablonun ayrı çalışma kopyasında işlenmesidir. Merkezi
+anahtar yenilemesinin atomik hale getirilmesi hâlâ ayrıca tamamlanmalıdır.
+
 ## 8 Eylül 2026 — İlk küçük adım
 
 Tamamlananlar:

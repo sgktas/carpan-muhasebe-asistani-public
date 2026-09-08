@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Iterable
+from uuid import uuid4
+
+
+class OperationHistoryError(RuntimeError):
+    """An operation cannot be changed by this company or application instance."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,8 @@ class OperationHistory:
     kayıt bırakır.
     """
 
+    LEASE_SECONDS = 8 * 60 * 60
+
     def __init__(
         self,
         database_path: str | Path,
@@ -51,11 +58,13 @@ class OperationHistory:
         *,
         company_id: int | None = None,
         user_id: int | None = None,
+        instance_id: str | None = None,
     ):
         self.database_path = Path(database_path)
         self.actor = str(actor).strip()
         self.company_id = int(company_id) if company_id is not None else None
         self.user_id = int(user_id) if user_id is not None else None
+        self.instance_id = str(instance_id or uuid4())
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
         if self.company_id is not None:
@@ -98,6 +107,16 @@ class OperationHistory:
                 )
             if "user_id" not in columns:
                 connection.execute("ALTER TABLE operations ADD COLUMN user_id INTEGER")
+            if "owner_instance_id" not in columns:
+                connection.execute("ALTER TABLE operations ADD COLUMN owner_instance_id TEXT")
+            if "lease_expires_at" not in columns:
+                connection.execute("ALTER TABLE operations ADD COLUMN lease_expires_at TEXT")
+                # Old versions had no owner/lease. They cannot still be proven
+                # live after this application version starts.
+                connection.execute(
+                    "UPDATE operations SET lease_expires_at = ? WHERE status = 'RUNNING'",
+                    (self._now(),),
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS operation_events (
@@ -118,19 +137,7 @@ class OperationHistory:
                 ON operation_events(operation_id, id)
                 """
             )
-            # Uygulama elektrik kesintisi veya zorla kapatma nedeniyle yarım
-            # kaldıysa eski RUNNING kayıtları sonsuza kadar devam ediyor
-            # görünmesin.
-            now = self._now()
-            connection.execute(
-                """
-                UPDATE operations
-                SET status = 'INTERRUPTED', completed_at = ?,
-                    error_message = COALESCE(error_message, 'Uygulama beklenmeden kapandı.')
-                WHERE status = 'RUNNING'
-                """,
-                (now,),
-            )
+            self._recover_expired_operations(connection)
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_operations_started
@@ -143,16 +150,52 @@ class OperationHistory:
                 ON operations(module_id, started_at DESC)
                 """
             )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_operations_running_lease
+                ON operations(status, company_id, lease_expires_at)
+                """
+            )
 
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    def _lease_expires_at(self) -> str:
+        from datetime import timedelta
+
+        return (datetime.now(timezone.utc) + timedelta(seconds=self.LEASE_SECONDS)).isoformat(timespec="seconds")
+
+    def _recover_expired_operations(self, connection: sqlite3.Connection) -> None:
+        """Recover only operations whose owner lease is genuinely stale.
+
+        Constructing a second history object is not evidence that another live
+        process crashed, so it must never interrupt its work immediately.
+        """
+        clause = "status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?"
+        values: list[object] = [self._now()]
+        if self.company_id is not None:
+            clause += " AND company_id = ?"
+            values.append(self.company_id)
+        connection.execute(
+            f"""
+            UPDATE operations
+            SET status = 'INTERRUPTED', completed_at = ?,
+                error_message = COALESCE(error_message, 'Uygulama beklenmeden kapandı.')
+            WHERE {clause}
+            """,
+            (self._now(), *values),
+        )
+
     def _claim_legacy_records(self) -> None:
         """İlk firma kurulumunda eski firma kimliksiz geçmişi kaybetme."""
         with self._connect() as connection:
             connection.execute(
-                "UPDATE operations SET company_id = ? WHERE company_id IS NULL",
+                """
+                UPDATE operations SET company_id = ?
+                WHERE company_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM operations WHERE company_id IS NOT NULL)
+                """,
                 (self.company_id,),
             )
 
@@ -168,8 +211,8 @@ class OperationHistory:
                 """
                 INSERT INTO operations (
                     module_id, module_name, actor, company_id, user_id,
-                    status, started_at, input_files_json
-                ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?)
+                    status, started_at, input_files_json, owner_instance_id, lease_expires_at
+                ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?)
                 """,
                 (
                     module_id,
@@ -179,6 +222,8 @@ class OperationHistory:
                     self.user_id,
                     self._now(),
                     json.dumps(inputs, ensure_ascii=False),
+                    self.instance_id,
+                    self._lease_expires_at(),
                 ),
             )
             operation_id = int(cursor.lastrowid)
@@ -199,14 +244,17 @@ class OperationHistory:
         summary: dict | None = None,
         status: str = "SUCCESS",
     ) -> None:
+        if status not in {"SUCCESS", "PARTIAL"}:
+            raise OperationHistoryError("İşlem yalnız SUCCESS veya PARTIAL olarak tamamlanabilir.")
         outputs = [str(Path(path)) for path in output_files]
         with self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE operations
                 SET status = ?, completed_at = ?, output_files_json = ?,
                     summary_json = ?, error_message = NULL
-                WHERE id = ?
+                WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
+                  AND (? IS NULL OR company_id = ?)
                 """,
                 (
                     status,
@@ -214,8 +262,13 @@ class OperationHistory:
                     json.dumps(outputs, ensure_ascii=False),
                     json.dumps(summary or {}, ensure_ascii=False),
                     operation_id,
+                    self.instance_id,
+                    self.company_id,
+                    self.company_id,
                 ),
             )
+            if cursor.rowcount != 1:
+                raise OperationHistoryError("İşlem tamamlanamadı; kayıt başka firmaya, eski bir oturuma veya tamamlanmış duruma ait.")
             connection.execute(
                 """
                 INSERT INTO operation_events (
@@ -231,14 +284,17 @@ class OperationHistory:
 
     def fail(self, operation_id: int, error_message: str) -> None:
         with self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE operations
                 SET status = 'FAILED', completed_at = ?, error_message = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
+                  AND (? IS NULL OR company_id = ?)
                 """,
-                (self._now(), str(error_message), operation_id),
+                (self._now(), str(error_message), operation_id, self.instance_id, self.company_id, self.company_id),
             )
+            if cursor.rowcount != 1:
+                raise OperationHistoryError("İşlem başarısız olarak kaydedilemedi; kayıt başka firmaya, eski bir oturuma veya tamamlanmış duruma ait.")
             connection.execute(
                 """
                 INSERT INTO operation_events (
@@ -258,6 +314,16 @@ class OperationHistory:
         details: dict | None = None,
     ) -> None:
         with self._connect() as connection:
+            allowed = connection.execute(
+                """
+                SELECT 1 FROM operations
+                WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
+                  AND (? IS NULL OR company_id = ?)
+                """,
+                (int(operation_id), self.instance_id, self.company_id, self.company_id),
+            ).fetchone()
+            if allowed is None:
+                raise OperationHistoryError("İşlem olayı eklenemedi; kayıt bu uygulama oturumuna ait değil.")
             connection.execute(
                 """
                 INSERT INTO operation_events (
@@ -273,6 +339,20 @@ class OperationHistory:
                     json.dumps(details or {}, ensure_ascii=False),
                 ),
             )
+
+    def heartbeat(self, operation_id: int) -> None:
+        """Extend a running operation's lease while its owner is still working."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE operations SET lease_expires_at = ?
+                WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
+                  AND (? IS NULL OR company_id = ?)
+                """,
+                (self._lease_expires_at(), int(operation_id), self.instance_id, self.company_id, self.company_id),
+            )
+            if cursor.rowcount != 1:
+                raise OperationHistoryError("İşlem devam sinyali gönderilemedi; kayıt bu uygulama oturumuna ait değil.")
 
     def events(self, operation_id: int) -> list[OperationEvent]:
         with self._connect() as connection:
@@ -350,3 +430,4 @@ class OperationHistory:
                 )
             )
         return result
+    LEASE_SECONDS = 8 * 60 * 60

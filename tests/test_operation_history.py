@@ -1,4 +1,6 @@
-from app.core.operation_history import OperationHistory
+import pytest
+
+from app.core.operation_history import OperationHistory, OperationHistoryError
 
 
 def test_operation_history_records_success_and_failure(tmp_path):
@@ -28,12 +30,26 @@ def test_operation_history_records_success_and_failure(tmp_path):
     ]
 
 
-def test_running_operation_is_recovered_as_interrupted(tmp_path):
+def test_second_history_instance_does_not_interrupt_a_live_operation(tmp_path):
     database = tmp_path / "operations.sqlite3"
     history = OperationHistory(database)
     operation_id = history.start("manim_transfer", "MANİM Aktarma", ["m.xlsx"])
 
     recovered = OperationHistory(database).recent()
+
+    record = next(item for item in recovered if item.id == operation_id)
+    assert record.status == "RUNNING"
+    assert record.completed_at is None
+
+
+def test_expired_operation_is_recovered_as_interrupted(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    history = OperationHistory(database, company_id=1, instance_id="first")
+    operation_id = history.start("manim_transfer", "MANİM Aktarma", ["m.xlsx"])
+    with history._connect() as connection:
+        connection.execute("UPDATE operations SET lease_expires_at = '2000-01-01T00:00:00+00:00' WHERE id = ?", (operation_id,))
+
+    recovered = OperationHistory(database, company_id=1, instance_id="second").recent()
 
     record = next(item for item in recovered if item.id == operation_id)
     assert record.status == "INTERRUPTED"
@@ -81,3 +97,39 @@ def test_first_company_claims_legacy_operation_history(tmp_path):
     company_history = OperationHistory(database, company_id=7, user_id=8)
 
     assert company_history.recent()[0].company_id == 7
+
+
+def test_other_company_cannot_change_or_add_event_to_an_operation(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    first = OperationHistory(database, company_id=1, user_id=10, instance_id="first")
+    operation_id = first.start("manim_transfer", "MANİM", ["first.xlsx"])
+    second = OperationHistory(database, company_id=2, user_id=20, instance_id="second")
+
+    for operation in (
+        lambda: second.complete(operation_id, ["wrong.xls"]),
+        lambda: second.fail(operation_id, "wrong"),
+        lambda: second.add_event(operation_id, "WRONG", "wrong"),
+        lambda: second.heartbeat(operation_id),
+    ):
+        with pytest.raises(OperationHistoryError):
+            operation()
+    assert first.recent()[0].status == "RUNNING"
+    assert [event.code for event in first.events(operation_id)] == ["OPERATION_STARTED"]
+
+
+def test_terminal_operation_cannot_be_rewritten_or_receive_new_events(tmp_path):
+    history = OperationHistory(tmp_path / "operations.sqlite3", company_id=1, instance_id="only")
+    operation_id = history.start("manim_transfer", "MANİM", ["first.xlsx"])
+    history.complete(operation_id, ["first.xls"])
+
+    for operation in (
+        lambda: history.complete(operation_id, ["second.xls"]),
+        lambda: history.fail(operation_id, "wrong"),
+        lambda: history.add_event(operation_id, "LATE", "wrong"),
+        lambda: history.heartbeat(operation_id),
+    ):
+        with pytest.raises(OperationHistoryError):
+            operation()
+    record = history.recent()[0]
+    assert record.status == "SUCCESS"
+    assert record.output_files == ["first.xls"]
