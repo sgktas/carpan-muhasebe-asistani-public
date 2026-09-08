@@ -292,8 +292,8 @@ class ManimOutputService:
     ) -> str:
         prefix = region_file_prefix(region, self.regions)
         if output_profile.grouping == "region":
-            return f"{prefix}_{region}_{date_label}.xls"
-        return f"{prefix}_{region}_{bank}_{date_label}.xls"
+            return f"{prefix}_{region}_{date_label}{output_profile.output_extension}"
+        return f"{prefix}_{region}_{bank}_{date_label}{output_profile.output_extension}"
 
     @staticmethod
     def _write_review(rows: list[dict[str, object]], output_path: Path) -> Path:

@@ -5,11 +5,11 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
 
 - Normal havale `templates/local/netsis_template.xls` dosyasını kullanır.
   Bu, kullanıcının verdiği `NETSİS AKTARMA.xls` dosyasının birebir kopyasıdır.
-- Toplu banka kodlu havale `templates/local/netsis_toplu_template.xls`
-  dosyasını kullanır. Bu şablon, kullanıcının 4 Eylül 2026 tarihinde onayladığı
-  `01_BODRUM_03092026.xls` düzeninden yalnız işlem verileri temizlenerek alınmıştır.
-  Tek sayfası `Sheet1`'dır; `Muh.Ref.Kod(*)` sabiti `G01`'dir. Tarih, cari kod,
-  tutar ve masraf tutarı hücre biçimleri bu onaylı dosyadaki gibi korunur.
+- Toplu banka kodlu havale `templates/local/netsis_toplu_template.xlsx`
+  dosyasını kullanır. Bu şablon, kullanıcının 8 Eylül 2026 tarihinde Netsis'ten
+  doğrudan aldığı `TOPLUGELENHAVALEAKTARIMI.xlsx` dosyasının birebir kopyasıdır.
+  Tek sayfası `Sheet1`'dır; 32 başlık, sütun sırası ve çalışma sayfası adı aynen
+  korunur. Çıktı `.xlsx` olarak üretilir; `Muh.Ref.Kod(*)` sabiti `G01`'dir.
 - Toplu havale ve FOM çıktılarında da mevcut onaylı yerel şablonları koru.
 - Psoft/Netsis'e gidecek FOM entegrasyon dosyalarının güvenli adları
   `ENT_SATIS_FATURALARI.xls` ve `ENT_TAHSILATLAR.xls` olmalıdır. Çalışma

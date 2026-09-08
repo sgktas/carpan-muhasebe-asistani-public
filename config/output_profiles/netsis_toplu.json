@@ -6,7 +6,8 @@
   "category": "havale",
   "protected": true,
   "grouping": "region",
-  "template_file": "netsis_toplu_template.xls",
+  "template_file": "netsis_toplu_template.xlsx",
+  "output_extension": "xlsx",
   "columns": [
     {"header": "Banka Hes.Kodu(*)", "width": 18, "style": "text", "source": "field", "field": "banka_hesap_kodu"},
     {"header": "Gelen/Gönderilen (0/1)", "width": 18, "style": "integer", "source": "const", "value": 0},
