@@ -82,3 +82,18 @@ def test_platform_authentication_error_never_echoes_secret_values():
         client.refresh("refresh-secret-value")
 
     assert "refresh-secret-value" not in str(error.value)
+
+
+def test_platform_license_uses_authorized_api_contract():
+    captured = {}
+
+    def opener(request, timeout):
+        captured["method"] = request.get_method()
+        captured["authorization"] = request.get_header("Authorization")
+        return _Response(b'{"plan_code":"PRO","status":"ACTIVE","expires_at":null,"enabled_modules":["manim_transfer"],"usable":true}')
+
+    license_info = PlatformApiClient(PlatformConnectionConfig("https://platform.carpan.example"), opener=opener).license("access-token")
+
+    assert captured == {"method": "GET", "authorization": "Bearer access-token"}
+    assert license_info.usable
+    assert license_info.enabled_modules == {"manim_transfer"}

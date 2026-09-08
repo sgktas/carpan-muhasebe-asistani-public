@@ -17,6 +17,10 @@ class PlatformConnectionError(ValueError):
 class PlatformAuthenticationError(RuntimeError):
     """Merkezi platform giriş veya oturum yenileme isteği kabul edilmediğinde."""
 
+    def __init__(self, message: str, *, is_network_error: bool = False):
+        super().__init__(message)
+        self.is_network_error = is_network_error
+
 
 @dataclass(frozen=True)
 class PlatformConnectionConfig:
@@ -32,6 +36,15 @@ class PlatformConnectionStatus:
     @property
     def is_connected(self) -> bool:
         return self.state == "connected"
+
+
+@dataclass(frozen=True)
+class PlatformLicense:
+    plan_code: str
+    status: str
+    expires_at: str | None
+    enabled_modules: frozenset[str]
+    usable: bool
 
 
 class PlatformConnectionStore:
@@ -173,6 +186,58 @@ class PlatformApiClient:
             expect_json=False,
         )
 
+    def license(self, access_token: str, *, timeout_seconds: float = 8.0) -> PlatformLicense:
+        payload = self._get_json("/v1/license", access_token=access_token, timeout_seconds=timeout_seconds)
+        modules = payload.get("enabled_modules")
+        if not isinstance(modules, list):
+            modules = []
+        try:
+            return PlatformLicense(
+                plan_code=str(payload["plan_code"]),
+                status=str(payload["status"]),
+                expires_at=str(payload["expires_at"]) if payload.get("expires_at") else None,
+                enabled_modules=frozenset(str(item) for item in modules if str(item).strip()),
+                usable=bool(payload["usable"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise PlatformAuthenticationError("Merkezi platform lisans bilgisi geçersiz.") from None
+
+    def activate_device(
+        self, *, access_token: str, installation_id: str, device_label: str | None = None, timeout_seconds: float = 8.0
+    ) -> None:
+        self._post_json(
+            "/v1/devices/activate",
+            {"installation_id": str(installation_id), "device_label": str(device_label or "")},
+            access_token=access_token,
+            timeout_seconds=timeout_seconds,
+            expect_json=False,
+        )
+
+    def _get_json(self, path: str, *, access_token: str, timeout_seconds: float) -> dict:
+        if not self.config.api_url:
+            raise PlatformAuthenticationError("Merkezi platform adresi yapılandırılmadı.")
+        request = Request(
+            f"{self.config.api_url}{path}",
+            headers={"Accept": "application/json", "Authorization": f"Bearer {access_token}", "User-Agent": "Carpan-Muhasebe-Asistani"},
+            method="GET",
+        )
+        try:
+            with self._opener(request, timeout=timeout_seconds) as response:
+                raw = response.read()
+        except HTTPError as error:
+            if error.code in {401, 403}:
+                raise PlatformAuthenticationError("Merkezi oturum doğrulanamadı.") from None
+            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.", is_network_error=True) from None
+        except (URLError, OSError, TimeoutError):
+            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.", is_network_error=True) from None
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise PlatformAuthenticationError("Merkezi platform geçerli bir yanıt vermedi.") from None
+        if not isinstance(payload, dict):
+            raise PlatformAuthenticationError("Merkezi platform geçerli bir yanıt vermedi.")
+        return payload
+
     def _post_json(
         self,
         path: str,
@@ -204,9 +269,13 @@ class PlatformApiClient:
         except HTTPError as error:
             if error.code in {401, 403}:
                 raise PlatformAuthenticationError("Merkezi oturum doğrulanamadı.") from None
-            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.") from None
+            raise PlatformAuthenticationError(
+                "Merkezi platforma şu an ulaşılamıyor.", is_network_error=True
+            ) from None
         except (URLError, OSError, TimeoutError):
-            raise PlatformAuthenticationError("Merkezi platforma şu an ulaşılamıyor.") from None
+            raise PlatformAuthenticationError(
+                "Merkezi platforma şu an ulaşılamıyor.", is_network_error=True
+            ) from None
         if status_code not in {200, 201, 204}:
             raise PlatformAuthenticationError("Merkezi platform isteği tamamlanamadı.")
         if not expect_json:
