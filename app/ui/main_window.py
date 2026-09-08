@@ -16,6 +16,7 @@ from app.core.identity import AuthenticatedSession, IdentityStore
 from app.core.operation_history import OperationHistory
 from app.modules.registry import build_module_registry
 from app.ui.history_page import HistoryPage
+from app.ui.integrations_page import IntegrationsPage
 from app.ui.operation_center_page import OperationCenterPage
 from app.ui.audit_page import AuditPage
 from app.ui.settings_page import SettingsPage
@@ -79,6 +80,9 @@ class MainWindow(QWidget):
                 )
             )
         if session.can("settings.manage"):
+            self.management_items.append(
+                ("integrations", "Entegrasyonlar", "settings", IntegrationsPage)
+            )
             self.management_items.append(
                 ("settings", "Ayarlar", "settings", SettingsPage)
             )
