@@ -54,6 +54,18 @@ COLLECTION_OUTPUT_COLUMNS = [
 ]
 
 
+def _collection_template_value(column: str, value: object) -> object:
+    """Psoft tahsilat şablonunun metin alanlarını sayıya dönüştürmeden korur."""
+    if value is None:
+        return ""
+    if column == "TahsilatTuru":
+        return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
+    if column == "SatisElemani" and isinstance(value, (int, float)):
+        number = int(value)
+        return f"{number:09d}" if number >= 0 else str(number)
+    return value
+
+
 # Psoft, FOM'un kendi dışa aktarma dosya adlarını bekliyor. Bu adlar gerçek
 # aktarımda kullanıcı tarafından doğrulandığı için değiştirilmeden korunur.
 SALES_OUTPUT_BASENAME = FOM_SALES_OUTPUT_BASENAME
@@ -535,6 +547,23 @@ class ExcelTemplateWriter:
                     worksheet.Cells(clear_last, max(column_count, used_columns)),
                 ).ClearContents()
 
+                # Şablonda tanımlı son veri satırını aşan kayıtlarda Excel yeni
+                # hücreleri varsayılan biçimle açar. Bu, Psoft/Netsis'in alan
+                # türü denetimini bozduğu için yalnız biçimleri son şablon
+                # satırından çoğaltıyoruz; şablon dosyasına dokunulmuyor.
+                if row_count + 1 > used_rows and used_rows >= 2:
+                    source = worksheet.Range(
+                        worksheet.Cells(used_rows, 1),
+                        worksheet.Cells(used_rows, column_count),
+                    )
+                    target = worksheet.Range(
+                        worksheet.Cells(used_rows + 1, 1),
+                        worksheet.Cells(row_count + 1, column_count),
+                    )
+                    source.Copy()
+                    target.PasteSpecial(Paste=-4122)  # xlPasteFormats
+                    excel.CutCopyMode = False
+
                 if row_count:
                     worksheet.Range(
                         worksheet.Cells(2, 1),
@@ -677,6 +706,24 @@ try {
             $worksheet.Cells.Item(2, 1),
             $worksheet.Cells.Item($clearLast, $clearColumns)
         ).ClearContents()
+
+        # Şablon boyunu aşan satırlar için yalnız son veri satırının biçimini
+        # çoğalt. Böylece Psoft/Netsis'e giden hücre türleri sabit kalır.
+        if (($rows.Count + 1) -gt $usedRows -and $usedRows -ge 2) {
+            $sourceRange = $worksheet.Range(
+                $worksheet.Cells.Item($usedRows, 1),
+                $worksheet.Cells.Item($usedRows, $columnCount)
+            )
+            $targetRange = $worksheet.Range(
+                $worksheet.Cells.Item($usedRows + 1, 1),
+                $worksheet.Cells.Item($rows.Count + 1, $columnCount)
+            )
+            $sourceRange.Copy()
+            $targetRange.PasteSpecial(-4122)
+            $excel.CutCopyMode = $false
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($sourceRange)
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($targetRange)
+        }
 
         if ($rows.Count -gt 0) {
             $matrix = [System.Array]::CreateInstance(
@@ -892,7 +939,10 @@ class ReportEditingEngine:
         main_rows: list[dict] = []
         unmatched = 0
         for source in rows:
-            row = {column: source.get(column) for column in COLLECTION_OUTPUT_COLUMNS}
+            row = {
+                column: _collection_template_value(column, source.get(column))
+                for column in COLLECTION_OUTPUT_COLUMNS
+            }
             code = _normalize_code(row.get("MusteriKodu"))
             branch = branch_lookup.get(code) if code else None
             if not branch:
