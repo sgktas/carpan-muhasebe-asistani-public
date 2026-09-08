@@ -32,6 +32,7 @@ from app.core.template_integrity import verify_approved_templates
 from app.core.platform_connection import PlatformApiClient, PlatformConnectionError, PlatformConnectionStore
 from app.core.platform_auth_service import LocalSessionScope, PlatformAuthService
 from app.core.platform_session import PlatformSessionStore
+from app.core.platform_license_store import PlatformLicenseStore
 from app.ui.common import add_page_header
 from app.ui.background_task import BackgroundWorker
 from app.ui.platform_account_dialog import PlatformAccountDialog
@@ -401,6 +402,7 @@ class SettingsPage(QWidget):
             LocalSessionScope(self._local_session.company_id, self._local_session.user_id),
         )
         installation_store = InstallationIdentityStore(APP_PATHS.data_root)
+        license_store = PlatformLicenseStore(APP_PATHS.base_data_root)
         PlatformAccountDialog(
             service,
             self,
@@ -409,6 +411,8 @@ class SettingsPage(QWidget):
                 installation_id=installation_store.get_or_create(),
                 device_label="Çarpan Muhasebe Asistanı",
             ),
+            license_store=license_store,
+            license_scope=(self._local_session.company_id, self._local_session.user_id, config.api_url),
         ).exec()
 
     def _refresh_region_summary(self) -> None:

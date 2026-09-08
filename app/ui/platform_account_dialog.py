@@ -12,10 +12,12 @@ from app.ui.background_task import BackgroundWorker
 class PlatformAccountDialog(QDialog):
     """Merkezi hesap için sade giriş/çıkış ekranı; yerel kullanıcı hesabını değiştirmez."""
 
-    def __init__(self, service: PlatformAuthService, parent=None, license_sync: Callable | None = None):
+    def __init__(self, service: PlatformAuthService, parent=None, license_sync: Callable | None = None, license_store=None, license_scope=None):
         super().__init__(parent)
         self._service = service
         self._license_sync = license_sync
+        self._license_store = license_store
+        self._license_scope = license_scope
         self._auth_thread: QThread | None = None
         self._auth_worker: BackgroundWorker | None = None
         self.setWindowTitle("Merkezi Hesap")
@@ -67,7 +69,11 @@ class PlatformAccountDialog(QDialog):
         if not self._license_sync or not result.is_connected or not result.session:
             return result, None, None
         try:
-            return result, self._license_sync(result.session), None
+            license_info = self._license_sync(result.session)
+            if self._license_store and self._license_scope:
+                company_id, user_id, api_url = self._license_scope
+                self._license_store.save(license_info, company_id=company_id, user_id=user_id, api_url=api_url)
+            return result, license_info, None
         except Exception as error:
             # Oturum geçerli kalır; merkezi lisans geçici olarak okunamadığında
             # yerel muhasebe çalışması durdurulmaz.
@@ -117,6 +123,8 @@ class PlatformAccountDialog(QDialog):
         self._run_async(self._service.sign_out, self._apply_sign_out)
 
     def _apply_sign_out(self, result) -> None:
+        if self._license_store:
+            self._license_store.clear()
         self.status.setText(result.message)
         self.logout_button.setEnabled(False)
 

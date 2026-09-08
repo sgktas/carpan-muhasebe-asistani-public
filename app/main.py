@@ -15,6 +15,8 @@ from app.core.app_logging import configure_logging, install_exception_logging
 from app.core.app_paths import APP_PATHS
 from app.core.company_workspace import CompanyWorkspaceManager
 from app.core.identity import AuthenticatedSession, IdentityStore
+from app.core.platform_connection import PlatformConnectionStore
+from app.core.platform_license_store import PlatformLicenseStore
 from app.ui.login_window import LoginWindow
 from app.ui.main_window import MainWindow
 
@@ -76,10 +78,17 @@ def main():
         APP_PATHS.activate_company_workspace(workspace.root)
         if workspace.migrated_legacy_data:
             logger.info("Eski yerel çalışma verisi firma alanına kopyalandı.")
+        platform_url = PlatformConnectionStore(APP_PATHS.base_data_root).get().api_url
+        central_license = PlatformLicenseStore(APP_PATHS.base_data_root).load(
+            company_id=session.company_id,
+            user_id=session.user_id,
+            api_url=platform_url,
+        )
         _main_window = MainWindow(
             session=session,
             identity_store=identity_store,
             on_logout=show_login_window,
+            central_license=central_license,
         )
         _main_window.show()
 

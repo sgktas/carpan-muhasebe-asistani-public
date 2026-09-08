@@ -116,6 +116,9 @@ merkezi ağ işlemlerini güvenli arka plan yürütücüsüne taşımaktır.
   `effective_entitlements` kararını kullanıyor. Merkezi lisans verilmediğinde
   mevcut yerel davranış korunuyor; geçerli lisans verildiğinde lisans dışı
   modüller menüye eklenmiyor.
+- Doğrulanan lisans metadata'sı yalnız firma, kullanıcı ve API adresi eşleşirse
+  açılışta kullanılıyor. Merkezi oturum kapatılırken önbellek temizleniyor;
+  parola veya yenileme anahtarı bu dosyaya yazılmıyor.
 
 ## 8 Eylül 2026 — İlk küçük adım
 
