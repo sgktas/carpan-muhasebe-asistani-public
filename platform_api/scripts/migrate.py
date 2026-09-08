@@ -18,12 +18,18 @@ def main() -> None:
     if not settings.database_configured:
         raise SystemExit("CARPAN_DATABASE_URL tanımlanmadı; migrasyon uygulanmadı.")
 
+    apply_migrations(str(settings.database_url))
+
+
+def apply_migrations(database_url: str) -> None:
+    """Apply the same checksum-protected migrations in deployment and tests."""
+
     migrations_dir = PROJECT_ROOT / "migrations"
     migration_paths = sorted(migrations_dir.glob("*.sql"))
     if not migration_paths:
         raise SystemExit("Uygulanacak migrasyon bulunamadı.")
 
-    with psycopg.connect(str(settings.database_url)) as connection:
+    with psycopg.connect(database_url) as connection:
         with connection.transaction():
             connection.execute("CREATE SCHEMA IF NOT EXISTS carpan")
             connection.execute(

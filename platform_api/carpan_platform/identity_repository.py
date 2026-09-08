@@ -38,9 +38,24 @@ class CentralIdentityRepository:
         username: str,
         password: str,
     ) -> dict:
+        result = self._authenticate_and_record(
+            company_code=company_code, username=username, password=password
+        )
+        # Reject only after the transaction commits the failed-attempt counter
+        # and audit event. Unexpected storage errors must still roll back.
+        if result is None:
+            raise LoginRejected("Firma, kullanıcı adı veya parola hatalı.")
+        return result
+
+    def _authenticate_and_record(
+        self,
+        *,
+        company_code: str,
+        username: str,
+        password: str,
+    ) -> dict | None:
         company_id = self._resolve_company_id(company_code)
         normalized_username = str(username).strip().casefold()
-        now = datetime.now(timezone.utc)
         with tenant_transaction(self.settings, company_id) as connection:
             row = connection.execute(
                 """
@@ -58,9 +73,12 @@ class CentralIdentityRepository:
                 JOIN carpan.users u ON u.id = m.user_id
                 WHERE m.company_id = %s
                   AND lower(u.username) = %s
+                FOR UPDATE OF u
                 """,
                 (company_id, normalized_username),
             ).fetchone()
+            # Read the clock after acquiring the row lock, not before waiting.
+            now = datetime.now(timezone.utc)
             if row is None:
                 self._append_audit(
                     connection,
@@ -70,7 +88,7 @@ class CentralIdentityRepository:
                     outcome="FAILED",
                     event_data={"reason": "INVALID_CREDENTIALS"},
                 )
-                raise LoginRejected("Firma, kullanıcı adı veya parola hatalı.")
+                return None
 
             user_id = UUID(str(row["user_id"]))
             locked_until = row["locked_until"]
@@ -83,7 +101,7 @@ class CentralIdentityRepository:
                     outcome="BLOCKED",
                     event_data={"reason": "TEMPORARILY_LOCKED"},
                 )
-                raise LoginRejected("Firma, kullanıcı adı veya parola hatalı.")
+                return None
 
             valid = (
                 str(row["user_status"]) == "ACTIVE"
@@ -112,7 +130,7 @@ class CentralIdentityRepository:
                     outcome="FAILED",
                     event_data={"reason": "INVALID_CREDENTIALS"},
                 )
-                raise LoginRejected("Firma, kullanıcı adı veya parola hatalı.")
+                return None
 
             connection.execute(
                 """

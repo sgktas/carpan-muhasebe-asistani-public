@@ -29,3 +29,10 @@ def test_refresh_rotation_migration_consumes_each_token_once():
     assert "SECURITY DEFINER" in migration
     assert "FOR UPDATE OF t" in migration
     assert "SET revoked_at = now()" in migration
+
+
+def test_users_migration_scopes_global_identities_by_company_membership():
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "0003_users_tenant_scope.sql").read_text(encoding="utf-8")
+    assert "ALTER TABLE carpan.users ENABLE ROW LEVEL SECURITY" in migration
+    assert "m.user_id = users.id" in migration
+    assert "WITH CHECK" in migration

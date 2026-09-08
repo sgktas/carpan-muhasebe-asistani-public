@@ -39,7 +39,6 @@ class PlatformAccountDialog(QDialog):
         self.status.setObjectName("miniInfoText")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        self._refresh()
 
         buttons = QHBoxLayout()
         self.login_button = QPushButton("Güvenli giriş yap")
@@ -55,6 +54,7 @@ class PlatformAccountDialog(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close)
         layout.addLayout(buttons)
+        self._refresh()
 
     def _refresh(self) -> None:
         current = self._service.restore()

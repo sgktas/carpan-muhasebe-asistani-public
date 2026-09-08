@@ -5,10 +5,12 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -90,6 +92,21 @@ class OperationCenterPage(QWidget):
         header.addWidget(refresh_button)
         card_layout.addLayout(header)
 
+        filters = QHBoxLayout()
+        self.status_filter = QComboBox()
+        self.status_filter.addItem("Tüm dikkat kayıtları", "")
+        self.status_filter.addItem("Kısmi işlemler", "PARTIAL")
+        self.status_filter.addItem("Hatalı işlemler", "FAILED")
+        self.status_filter.addItem("Yarım kalanlar", "INTERRUPTED")
+        self.status_filter.currentIndexChanged.connect(self._render_attention_records)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Modül, kullanıcı veya kontrol nedeni ara")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self._render_attention_records)
+        filters.addWidget(self.status_filter)
+        filters.addWidget(self.search_input, 1)
+        card_layout.addLayout(filters)
+
         self.table = QTableWidget(0, 5)
         self.table.setObjectName("historyTable")
         self.table.setHorizontalHeaderLabels(["Tarih", "Modül", "Durum", "Kontrol nedeni", "Kullanıcı"])
@@ -139,8 +156,18 @@ class OperationCenterPage(QWidget):
         for key, value in values.items():
             self._metric_values[key].setText(str(value))
         self._attention_records = snapshot.attention_records
-        self.table.setRowCount(len(self._attention_records))
-        for row, record in enumerate(self._attention_records):
+        self._render_attention_records()
+
+    def _render_attention_records(self) -> None:
+        status = self.status_filter.currentData() if hasattr(self, "status_filter") else ""
+        needle = self.search_input.text().strip().casefold() if hasattr(self, "search_input") else ""
+        records = [
+            record for record in self._attention_records
+            if (not status or record.status == status)
+            and (not needle or needle in " ".join((record.module_name, record.actor, operation_attention_text(record))).casefold())
+        ]
+        self.table.setRowCount(len(records))
+        for row, record in enumerate(records):
             values = (
                 self._display_date(record.started_at),
                 record.module_name,
