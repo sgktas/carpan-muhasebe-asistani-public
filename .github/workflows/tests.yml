@@ -8,21 +8,21 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     env:
-      # PySide6'nin offscreen eklentisi Ubuntu/Python 3.13 birleşiminde aralıklı
-      # yerel hata verebiliyor. Uzak ekran sunucusu, masaüstü testlerini gerçek
-      # Qt pencere katmanında ancak görünür ekran olmadan çalıştırır.
-      QT_QPA_PLATFORM: xcb
+      QT_QPA_PLATFORM: offscreen
       MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # PySide6'nin Ubuntu koşucusunda Python 3.13 ile rastlantısal yerel
+          # çökmesi görüldü. Masaüstü kalite işi desteklenen kararlı 3.12'de
+          # çalışır; API/PostgreSQL işi güncel 3.13 doğrulamasını sürdürür.
+          python-version: "3.12"
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y xvfb libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
       - run: python -m pip install -r requirements.txt -r platform_api/requirements.txt
       - run: python scripts/check_public_data.py
-      - run: xvfb-run -a python -m pytest -q
+      - run: python -m pytest -q
 
   postgres-integration:
     runs-on: ubuntu-latest
