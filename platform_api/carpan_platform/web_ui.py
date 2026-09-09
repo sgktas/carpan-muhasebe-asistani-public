@@ -25,3 +25,11 @@ def admin_panel() -> FileResponse:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
+
+
+@router.get("/invite")
+def invitation_panel() -> FileResponse:
+    response = FileResponse(WEB_ROOT / "invite.html", media_type="text/html")
+    response.headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'; script-src 'self'; style-src 'self'"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response

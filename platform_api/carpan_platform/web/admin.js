@@ -66,4 +66,9 @@ async function signIn(event) {
 
 $("login-form").addEventListener("submit", signIn);
 $("logout-button").addEventListener("click", () => { sessionStorage.removeItem("carpan_admin_access"); sessionStorage.removeItem("carpan_admin_role"); accessToken = ""; dashboardView.classList.add("hidden"); loginView.classList.remove("hidden"); });
+$("invite-toggle").addEventListener("click", () => $("invite-form").classList.toggle("hidden"));
+$("invite-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); const error=$("invite-create-error"), output=$("invite-link"); error.textContent=""; output.textContent="";
+  try { const response=await fetch("/v1/management/invitations",{method:"POST",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify({username:$("invite-username").value.trim(),display_name:$("invite-name").value.trim(),role:$("invite-role").value})}); const payload=await response.json(); if(!response.ok) throw new Error(payload.detail||"Davet oluşturulamadı."); output.textContent=`Davet bağlantısı (bir kez kopyalayın): ${location.origin}/invite?token=${payload.invite_token}`; } catch(errorValue) { error.textContent=errorValue.message; }
+});
 if (accessToken) { loginView.classList.add("hidden"); dashboardView.classList.remove("hidden"); loadDashboard(); }
