@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -124,7 +125,15 @@ def test_main_window_intersects_local_modules_with_central_license(tmp_path, mon
     window = main_window.MainWindow(
         admin,
         store,
-        central_license=PlatformLicense("PRO", "ACTIVE", None, frozenset({"manim_transfer"}), True),
+        central_license=PlatformLicense(
+            "PRO",
+            "ACTIVE",
+            None,
+            frozenset({"manim_transfer"}),
+            True,
+            enforcement_required=True,
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+        ),
     )
 
     assert [item[0] for item in window.nav_items] == [
