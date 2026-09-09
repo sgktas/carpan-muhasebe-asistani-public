@@ -296,3 +296,6 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Son kaydedilen sonuç detay ekranında geçerli kabul durumu olarak görünür;
   önceki kabul/ret sonuçları silinmeden olay günlüğünde tutulur. Böylece gerçek
   Netsis/Psoft denemeleri için ilerideki kabul test matrisi izlenebilir hale gelir.
+- Son sonucu “reddedildi” olan işlem, teknik olarak dosya üretmiş olsa bile
+  Operasyon Merkezi'nin dikkat listesine girer. Böylece günlük ekranda gerçek
+  ERP aktarım sorunu, salt dosya oluşturma başarısından ayrı takip edilir.

@@ -461,7 +461,7 @@ class OperationHistory:
         with self._connect() as connection:
             allowed = connection.execute(
                 """
-                SELECT 1 FROM operations
+                SELECT summary_json FROM operations
                 WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
                   AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
                   AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
@@ -568,7 +568,7 @@ class OperationHistory:
         with self._connect() as connection:
             allowed = connection.execute(
                 """
-                SELECT 1 FROM operations
+                SELECT summary_json FROM operations
                 WHERE id = ? AND status IN ('SUCCESS', 'PARTIAL')
                   AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
                   AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
@@ -586,6 +586,20 @@ class OperationHistory:
                     "Dış aktarım sonucu kaydedilemedi; işlem bu firma ve kullanıcıya ait değil."
                 )
             accepted = normalized_verdict == "ACCEPTED"
+            try:
+                summary = json.loads(allowed["summary_json"] or "{}")
+            except json.JSONDecodeError:
+                summary = {}
+            if not isinstance(summary, dict):
+                summary = {}
+            summary["external_acceptance"] = {
+                "system": normalized_system,
+                "verdict": normalized_verdict,
+            }
+            connection.execute(
+                "UPDATE operations SET summary_json = ? WHERE id = ?",
+                (json.dumps(summary, ensure_ascii=False), int(operation_id)),
+            )
             connection.execute(
                 """
                 INSERT INTO operation_events (

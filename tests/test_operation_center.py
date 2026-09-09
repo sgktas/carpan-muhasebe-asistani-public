@@ -6,6 +6,11 @@ def test_operation_center_summarizes_attention_records_per_company(tmp_path):
     history = OperationHistory(tmp_path / "operations.sqlite3", company_id=7, user_id=3)
     success = history.start("manim_transfer", "MANİM Aktarma", ["a.xlsx"])
     history.complete(success, ["a.xls", "b.xls"])
+    history.record_external_acceptance(
+        success,
+        system="NETSIS",
+        verdict="REJECTED",
+    )
     partial = history.start("manim_transfer", "MANİM Aktarma", ["b.xlsx"])
     history.complete(partial, ["review.xls"], {"unresolved": 2}, status="PARTIAL")
     failed = history.start("report_editing", "FOM Rapor Düzenleme", ["c.xlsx"])
@@ -15,9 +20,10 @@ def test_operation_center_summarizes_attention_records_per_company(tmp_path):
 
     assert snapshot.total_operations == 3
     assert snapshot.successful_operations == 1
-    assert snapshot.attention_operations == 2
+    assert snapshot.attention_operations == 3
     assert snapshot.unresolved_items == 2
     assert snapshot.generated_files == 3
-    assert [record.id for record in snapshot.attention_records] == [failed, partial]
+    assert [record.id for record in snapshot.attention_records] == [failed, partial, success]
     assert operation_attention_text(snapshot.attention_records[0]) == "Şablon bulunamadı"
     assert operation_attention_text(snapshot.attention_records[1]) == "2 kayıt inceleme bekliyor."
+    assert operation_attention_text(snapshot.attention_records[2]).startswith("Netsis aktarımı reddedildi")
