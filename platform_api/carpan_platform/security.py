@@ -29,6 +29,12 @@ class AccessTokenClaims:
     expires_at: datetime
 
 
+@dataclass(frozen=True)
+class PlatformOperatorClaims:
+    user_id: UUID
+    expires_at: datetime
+
+
 def create_refresh_token() -> str:
     """İstemciye yalnız bir kez verilecek, yüksek entropili oturum yenileme değeri."""
     return secrets.token_urlsafe(48)
@@ -97,6 +103,47 @@ def read_access_token(settings: Settings, token: str) -> AccessTokenClaims:
         )
     except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
         raise TokenError("Geçersiz veya süresi dolmuş erişim belirteci.") from error
+
+
+def create_platform_operator_token(
+    settings: Settings, *, user_id: UUID, now: datetime | None = None,
+) -> str:
+    """Firma tokenından ayrık, yalnız merkezi platform paneli tokenı üretir."""
+    secret = _token_secret(settings)
+    issued_at = now or datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(minutes=ACCESS_TOKEN_MINUTES)
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "scope": "platform-owner",
+            "iss": settings.jwt_issuer,
+            "iat": issued_at,
+            "exp": expires_at,
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+
+def read_platform_operator_token(settings: Settings, token: str) -> PlatformOperatorClaims:
+    try:
+        payload = jwt.decode(
+            token,
+            _token_secret(settings),
+            algorithms=["HS256"],
+            issuer=settings.jwt_issuer,
+            options={"require": ["sub", "scope", "exp", "iss"]},
+        )
+        if payload.get("scope") != "platform-owner":
+            raise TokenError("Platform oturumu gerekli.")
+        return PlatformOperatorClaims(
+            user_id=UUID(str(payload["sub"])),
+            expires_at=datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc),
+        )
+    except TokenError:
+        raise
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
+        raise TokenError("Geçersiz veya süresi dolmuş platform oturumu.") from error
 
 
 def _token_secret(settings: Settings) -> str:

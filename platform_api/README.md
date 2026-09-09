@@ -91,6 +91,24 @@ python scripts/bootstrap_company.py --company-code CARPAN --company-name "Çarpa
 Bu komut ilk firmadan sonra tekrar çalışmaz. Sonraki firmalar, ileride eklenecek
 yetkili yönetim paneli akışından oluşturulur.
 
+## Platform sahibi yönetimi
+
+Firma yöneticisi ile Çarpan platform sahibi farklı oturum türleridir. Platform
+sahibi uçları yalnız firma/lisans/cihaz sağlığı özetini verir; müşteri, banka,
+IBAN, Excel ve finansal hareket verisi taşımaz. Bu katman yalnız API
+sunucusundaki `CARPAN_OWNER_DATABASE_URL` ile etkinleşir; masaüstü uygulamasına
+bu bağlantı kesinlikle verilmez.
+
+İlk platform sahibi, tüm migrasyonlar uygulandıktan sonra yalnız sunucu
+terminalinde ve parolayı komut satırına yazmadan oluşturulur:
+
+```powershell
+python scripts/bootstrap_platform_operator.py --username platform.owner --display-name "Platform Sahibi"
+```
+
+Bu araç ikinci bir ilk-sahip hesabı oluşturmaz. Platform paneli arayüzü sonraki
+aşamada bu ayrı oturumu kullanacaktır; şu an yalnız güvenli API sözleşmesi vardır.
+
 ## Gizli bilgiler
 
 - `.env` dosyası Git'e eklenmez.

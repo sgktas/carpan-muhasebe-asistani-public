@@ -8,6 +8,7 @@ from carpan_platform.api.auth import router as auth_router
 from carpan_platform.api.licensing import router as licensing_router
 from carpan_platform.api.invitations import router as invitations_router
 from carpan_platform.api.management import router as management_router
+from carpan_platform.api.platform_owner import router as platform_owner_router
 from carpan_platform.config import Settings
 from carpan_platform.database import database_health, database_schema_ready
 from carpan_platform.web_ui import WEB_ROOT, router as web_router
@@ -33,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(licensing_router)
     app.include_router(invitations_router)
     app.include_router(management_router)
+    app.include_router(platform_owner_router)
     app.include_router(web_router)
     app.mount("/admin/assets", StaticFiles(directory=WEB_ROOT), name="admin-assets")
 

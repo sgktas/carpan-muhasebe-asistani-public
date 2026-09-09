@@ -44,3 +44,11 @@ def test_atomic_refresh_rotation_migration_replaces_token_in_one_transaction():
     assert "INSERT INTO carpan.refresh_tokens" in migration
     assert "UPDATE carpan.refresh_tokens" in migration
     assert "SECURITY DEFINER" in migration
+
+
+def test_platform_operator_migration_is_separate_from_company_scope():
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "0008_platform_operators.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS carpan.platform_operators" in migration
+    assert "CREATE TABLE IF NOT EXISTS carpan.platform_audit_events" in migration
+    assert "ALTER TABLE carpan.platform_operators ENABLE ROW LEVEL SECURITY" in migration

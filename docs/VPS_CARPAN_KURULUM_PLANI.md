@@ -76,5 +76,8 @@ onaylı ve geçici bir geri-yükleme denemesiyle uygulanacaktır.
 
 - `CARPAN_DATABASE_URL` ve `CARPAN_JWT_SECRET` yalnız
   `/etc/carpan-platform/api.env` içinde bulunur.
+- `CARPAN_OWNER_DATABASE_URL` yalnız merkezi API servisinin okuyabildiği ayrı
+  sahip bağlantısıdır. Masaüstü uygulaması, Nginx yapılandırması ve destek
+  süreçleri bu değere erişemez.
 - Anahtarlar terminal çıktısına, loglara, Git'e veya destek kayıtlarına yazılmaz.
 - Masaüstü uygulaması PostgreSQL'e doğrudan bağlanmaz; yalnız HTTPS API kullanır.

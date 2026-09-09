@@ -11,6 +11,7 @@ class Settings:
     jwt_secret: str | None
     jwt_issuer: str
     allowed_origins: tuple[str, ...]
+    owner_database_url: str | None = None
 
     @property
     def database_configured(self) -> bool:
@@ -20,6 +21,11 @@ class Settings:
     def token_signing_configured(self) -> bool:
         secret = self.jwt_secret or ""
         return len(secret) >= 32 and not secret.startswith("CHANGE_ME")
+
+    @property
+    def platform_owner_configured(self) -> bool:
+        """Firma dışı platform yönetimi için ayrı, yalnız sunucudaki bağlantı."""
+        return bool(self.owner_database_url and self.token_signing_configured)
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -34,4 +40,5 @@ class Settings:
             jwt_secret=os.getenv("CARPAN_JWT_SECRET") or None,
             jwt_issuer=os.getenv("CARPAN_JWT_ISSUER", "carpan-platform").strip(),
             allowed_origins=origins,
+            owner_database_url=os.getenv("CARPAN_OWNER_DATABASE_URL") or None,
         )

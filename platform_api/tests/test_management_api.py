@@ -7,7 +7,8 @@ from carpan_platform.api.dependencies import get_settings
 from carpan_platform.config import Settings
 from carpan_platform.main import create_app
 from carpan_platform.management import AuditEventSummary, Invitation, ManagementOverview, ManagementRepository
-from carpan_platform.security import create_access_token
+from carpan_platform.platform_owner import PlatformCompanySummary, PlatformOperator, PlatformOverview, PlatformOwnerRepository
+from carpan_platform.security import create_access_token, create_platform_operator_token
 
 
 def _settings() -> Settings:
@@ -17,6 +18,17 @@ def _settings() -> Settings:
         jwt_secret="x" * 48,
         jwt_issuer="carpan-test",
         allowed_origins=(),
+    )
+
+
+def _platform_settings() -> Settings:
+    return Settings(
+        environment="test",
+        database_url=None,
+        jwt_secret="x" * 48,
+        jwt_issuer="carpan-test",
+        allowed_origins=(),
+        owner_database_url="postgresql://owner:test@127.0.0.1:5432/carpan_platform",
     )
 
 
@@ -221,3 +233,69 @@ def test_management_audit_events_are_admin_only_and_hide_metadata(monkeypatch):
         "actor_display_name": "Yönetici",
     }
     assert observed == [(company_id, 10)]
+
+
+def test_platform_owner_overview_rejects_company_token_before_owner_lookup(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    company_token = create_access_token(settings, user_id=uuid4(), company_id=uuid4(), role="ADMIN")
+
+    def unexpected_lookup(*_):  # pragma: no cover - assertion guard
+        raise AssertionError("Firma tokenı sahip sorgusuna ulaşmamalı.")
+
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", unexpected_lookup)
+
+    response = _get(app, company_token, "/v1/platform/overview")
+
+    assert response.status_code == 401
+
+
+def test_platform_owner_overview_is_data_minimum_and_owner_only(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator_id = uuid4()
+    token = create_platform_operator_token(settings, user_id=operator_id)
+    observed = []
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", lambda self, user_id: user_id == operator_id)
+
+    def overview(self):
+        observed.append(True)
+        return PlatformOverview(
+            company_count=2,
+            active_company_count=1,
+            active_device_count=3,
+            companies=(PlatformCompanySummary("CARPAN", "Çarpan", "ACTIVE", "PRO", "ACTIVE", 3),),
+        )
+
+    monkeypatch.setattr(PlatformOwnerRepository, "overview", overview)
+    response = _get(app, token, "/v1/platform/overview")
+
+    assert response.status_code == 200
+    assert observed == [True]
+    assert response.json() == {
+        "companies": {
+            "total_count": 2,
+            "active_count": 1,
+            "items": [{
+                "code": "CARPAN", "name": "Çarpan", "status": "ACTIVE",
+                "license": {"plan_code": "PRO", "status": "ACTIVE"},
+                "devices": {"active_count": 3},
+            }],
+        },
+        "devices": {"active_count": 3},
+    }
+
+
+def test_platform_owner_login_returns_separate_owner_token(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator = PlatformOperator(user_id=uuid4(), display_name="Platform Sahibi")
+    monkeypatch.setattr(PlatformOwnerRepository, "authenticate", lambda self, **_: operator)
+
+    response = _post(app, "", "/v1/platform/auth/login", {"username": "owner", "password": "Guvenli12345"})
+
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "Platform Sahibi"

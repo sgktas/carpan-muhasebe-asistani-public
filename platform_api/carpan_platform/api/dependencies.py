@@ -11,7 +11,9 @@ import psycopg
 
 from carpan_platform.config import Settings
 from carpan_platform.database import tenant_transaction
+from carpan_platform.platform_owner import PlatformOwnerRepository
 from carpan_platform.security import AccessTokenClaims, TokenError, read_access_token
+from carpan_platform.security import PlatformOperatorClaims, read_platform_operator_token
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -71,3 +73,26 @@ def require_roles(*roles: str) -> Callable[[AccessTokenClaims], AccessTokenClaim
         return claims
 
     return dependency
+
+
+def current_platform_operator(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    settings: Settings = Depends(get_settings),
+) -> PlatformOperatorClaims:
+    """Firma tokenını kabul etmeyen, ayrı merkezi sahip oturumu kapısı."""
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Platform girişi gerekli.")
+    if not settings.platform_owner_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Platform sahibi yönetimi henüz yapılandırılmadı.",
+        )
+    try:
+        claims = read_platform_operator_token(settings, credentials.credentials)
+        if not PlatformOwnerRepository(settings).operator_is_active(claims.user_id):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Platform erişimi artık etkin değil.")
+        return claims
+    except HTTPException:
+        raise
+    except (TokenError, psycopg.Error, OSError, RuntimeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Platform oturumu geçersiz.") from None
