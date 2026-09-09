@@ -267,3 +267,19 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Parmak izi yerel işlem geçmişinde kalır. Excel hücre içeriği, müşteri, banka
   veya tahsilat verisi merkezi API'ye aktarılmaz; Netsis ve FOM şablonlarına
   müdahale edilmez.
+
+## 9 Eylül 2026 — Kalıcı finansal hareket defteri
+
+- Başarıyla tamamlanan MANİM işlemlerinin kararları, işlem tamamlanmasıyla aynı
+  yerel veritabanı işlemi içinde ayrı bir finansal hareket defterine yazılır.
+  Böylece çıktı oluşmadığı veya işlem tamamlanmadığı durumda yarım bir hareket
+  kaydı bırakılmaz.
+- Defter yalnız karar türü, sonuç, bölge, banka, tutar, kural kodu ve kaynak
+  dosyanın adı/satırını taşır. Müşteri adı, müşteri kodu, IBAN, ham dekont
+  açıklaması ve kullanıcının klasör yolu bu kayda alınmaz.
+- Geçmiş İşlemler ayrıntısında kayıtlar sonuç-bölge-banka bazında gruplanarak
+  toplam tutar ve hareket sayısıyla görünür. Böylece işlem sonrası hangi tutarın
+  hangi rotaya gittiği, kaynak karar günlüğüne dokunmadan izlenebilir.
+- Defter sorguları firma kapsamına bağlıdır; başka firmanın işlemine ait özet
+  hareketler yerel geçmiş ekranından dahi okunamaz. Netsis/FOM şablonları ve
+  çıktı yazım biçimleri bu adımda değiştirilmedi.

@@ -8,6 +8,7 @@ import sqlite3
 from typing import Iterable
 from uuid import uuid4
 
+from app.core.financial_ledger import financial_movement_from_decision
 from app.core.output_evidence import build_output_evidence
 
 
@@ -45,6 +46,20 @@ class OperationEvent:
     code: str
     message: str
     details: dict
+
+
+@dataclass(frozen=True)
+class FinancialMovementRecord:
+    id: int
+    operation_id: int
+    decision: str
+    outcome: str
+    region: str
+    bank: str
+    amount: float
+    rule_code: str
+    source_file: str
+    source_row: int
 
 
 class OperationHistory:
@@ -141,6 +156,37 @@ class OperationHistory:
                 """
                 CREATE INDEX IF NOT EXISTS idx_operation_events_operation
                 ON operation_events(operation_id, id)
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS financial_movements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id INTEGER NOT NULL,
+                    company_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    region TEXT NOT NULL,
+                    bank TEXT NOT NULL DEFAULT '',
+                    amount REAL NOT NULL,
+                    rule_code TEXT NOT NULL,
+                    source_file TEXT NOT NULL,
+                    source_row INTEGER NOT NULL,
+                    FOREIGN KEY(operation_id) REFERENCES operations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_financial_movements_operation
+                ON financial_movements(operation_id, id)
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_financial_movements_company_outcome
+                ON financial_movements(company_id, outcome, id)
                 """
             )
             self._recover_expired_operations(connection)
@@ -254,17 +300,24 @@ class OperationHistory:
         output_files: Iterable[str | Path],
         summary: dict | None = None,
         status: str = "SUCCESS",
+        financial_movements: Iterable[dict] | None = None,
     ) -> None:
         if status not in {"SUCCESS", "PARTIAL"}:
             raise OperationHistoryError("İşlem yalnız SUCCESS veya PARTIAL olarak tamamlanabilir.")
         outputs = [str(Path(path)) for path in output_files]
         output_evidence = build_output_evidence(outputs)
+        movements = [
+            financial_movement_from_decision(payload)
+            for payload in (financial_movements or ())
+        ]
         summary_payload = dict(summary or {})
         summary_payload["output_integrity"] = (
             "DOĞRULANDI"
             if output_evidence["state"] == "VERIFIED"
             else "KONTROL GEREKLİ"
         )
+        if movements:
+            summary_payload["financial_movement_count"] = len(movements)
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -302,6 +355,44 @@ class OperationHistory:
                     json.dumps({"status": status, "output_count": len(outputs)}, ensure_ascii=False),
                 ),
             )
+            if movements:
+                connection.executemany(
+                    """
+                    INSERT INTO financial_movements (
+                        operation_id, company_id, created_at, decision, outcome,
+                        region, bank, amount, rule_code, source_file, source_row
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            operation_id,
+                            self.company_id,
+                            self._now(),
+                            item.decision,
+                            item.outcome,
+                            item.region,
+                            item.bank,
+                            item.amount,
+                            item.rule_code,
+                            item.source_file,
+                            item.source_row,
+                        )
+                        for item in movements
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO operation_events (
+                        operation_id, created_at, level, code, message, details_json
+                    ) VALUES (?, ?, 'INFO', 'FINANCIAL_LEDGER_RECORDED', ?, ?)
+                    """,
+                    (
+                        operation_id,
+                        self._now(),
+                        f"{len(movements)} finansal hareket özeti kaydedildi.",
+                        json.dumps({"movement_count": len(movements)}, ensure_ascii=False),
+                    ),
+                )
             connection.execute(
                 """
                 INSERT INTO operation_events (
@@ -499,6 +590,45 @@ class OperationHistory:
                 code=str(row["code"]),
                 message=str(row["message"]),
                 details=json.loads(row["details_json"] or "{}"),
+            )
+            for row in rows
+        ]
+
+    def financial_movements(self, operation_id: int) -> list[FinancialMovementRecord]:
+        """Seçili firma kapsamındaki kalıcı hareket özetlerini döndürür."""
+        with self._connect() as connection:
+            if self.company_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT m.* FROM financial_movements m
+                    JOIN operations o ON o.id = m.operation_id
+                    WHERE m.operation_id = ? AND o.company_id IS NULL
+                    ORDER BY m.id
+                    """,
+                    (int(operation_id),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT m.* FROM financial_movements m
+                    JOIN operations o ON o.id = m.operation_id
+                    WHERE m.operation_id = ? AND o.company_id = ?
+                    ORDER BY m.id
+                    """,
+                    (int(operation_id), self.company_id),
+                ).fetchall()
+        return [
+            FinancialMovementRecord(
+                id=int(row["id"]),
+                operation_id=int(row["operation_id"]),
+                decision=str(row["decision"]),
+                outcome=str(row["outcome"]),
+                region=str(row["region"]),
+                bank=str(row["bank"]),
+                amount=round(float(row["amount"]), 2),
+                rule_code=str(row["rule_code"]),
+                source_file=str(row["source_file"]),
+                source_row=int(row["source_row"]),
             )
             for row in rows
         ]

@@ -170,6 +170,7 @@ class HistoryPage(QWidget):
             ("collection_rows", "Tahsilat"),
             ("created_file_count", "Dosya"),
             ("output_integrity", "Bütünlük"),
+            ("financial_movement_count", "Finansal kayıt"),
             ("bolge", "Bölge"),
             ("banka_adi", "Banka"),
             ("islem_sayisi", "İşlem"),
@@ -323,6 +324,9 @@ class HistoryPage(QWidget):
         events = self.history.events(record.id)
         decision_events = [event for event in events if event.code == "DECISION_AUDIT"]
         evidence_events = [event for event in events if event.code == "OUTPUT_EVIDENCE"]
+        movement_lines = self._financial_movement_lines(
+            self.history.financial_movements(record.id)
+        )
         decision_lines = self._decision_lines(decision_events)
         evidence_lines = self._evidence_lines(evidence_events)
         lines = [
@@ -339,6 +343,9 @@ class HistoryPage(QWidget):
             "",
             "Çıktı bütünlüğü:",
             *(evidence_lines or ["  • Bu eski işlem için bütünlük kaydı yok."]),
+            "",
+            f"Finansal hareket özeti ({len(movement_lines)} grup):",
+            *(movement_lines or ["  • Bu işlem için finansal hareket özeti yok."]),
             "",
             f"Karar özeti ({len(decision_events)} kayıt):",
             *(decision_lines or ["  • Bu işlem için yapılandırılmış karar kaydı yok."]),
@@ -410,6 +417,21 @@ class HistoryPage(QWidget):
             label = labels.get(str(item.get("comparison", "")), "kontrol edilemedi")
             lines.append(f"  • {item.get('name', '-')} — {size} — {label}")
         return lines or ["  • Bu işlemde çıktı dosyası oluşmadı."]
+
+    @staticmethod
+    def _financial_movement_lines(movements) -> list[str]:
+        grouped: dict[tuple[str, str, str], list] = {}
+        for movement in movements:
+            key = (movement.outcome, movement.region, movement.bank or "-")
+            grouped.setdefault(key, []).append(movement)
+        lines = []
+        for (outcome, region, bank), items in sorted(grouped.items()):
+            total = sum(item.amount for item in items)
+            lines.append(
+                f"  • {HistoryPage._outcome_text(outcome)} — {region} / {bank} — "
+                f"{len(items)} hareket — {total:,.2f} TL"
+            )
+        return lines
 
     def open_selected_output(self) -> None:
         row = self.table.currentRow()

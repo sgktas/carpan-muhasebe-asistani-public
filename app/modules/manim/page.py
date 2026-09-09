@@ -615,6 +615,7 @@ class ManimModulePage(QWidget):
                     "unresolved": result.unresolved,
                 },
                 status=status,
+                financial_movements=result.decision_audits,
             )
         self.last_output_dir = result.output_dir
         self.last_odeme_onaylandi_items = result.odeme_onaylandi_items
