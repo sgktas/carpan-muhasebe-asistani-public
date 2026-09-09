@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
+import re
+import secrets
 from uuid import UUID
+
+import psycopg
 
 from carpan_platform.config import Settings
 from carpan_platform.database import tenant_transaction
@@ -84,6 +89,12 @@ class DeviceSummary:
             "last_seen_at": self.last_seen_at,
             "created_at": self.created_at,
         }
+
+
+@dataclass(frozen=True)
+class Invitation:
+    token: str
+    expires_at: datetime
 
 
 class ManagementRepository:
@@ -198,3 +209,36 @@ class ManagementRepository:
             )
             for row in rows
         )
+
+    def create_invitation(self, *, company_id: UUID, actor_user_id: UUID, username: str, display_name: str, role: str) -> Invitation:
+        normalized_username = str(username).strip().casefold()
+        if not re.fullmatch(r"[a-z0-9._-]{3,80}", normalized_username):
+            raise ValueError("Kullanıcı adı 3-80 karakter; küçük harf, rakam, ., _ veya - içermeli.")
+        safe_name = " ".join(str(display_name).split())
+        normalized_role = str(role).strip().upper()
+        if not safe_name or len(safe_name) > 160 or normalized_role not in {"ADMIN", "OPERATOR", "APPROVER", "AUDITOR"}:
+            raise ValueError("Davet bilgileri geçersiz.")
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        with tenant_transaction(self.settings, company_id) as connection:
+            member = connection.execute(
+                "SELECT 1 FROM carpan.company_memberships m JOIN carpan.users u ON u.id=m.user_id WHERE m.company_id=%s AND u.username=%s",
+                (company_id, normalized_username),
+            ).fetchone()
+            if member:
+                raise ValueError("Bu kullanıcı zaten firma ekibinde.")
+            connection.execute("UPDATE carpan.user_invitations SET revoked_at=now() WHERE company_id=%s AND username=%s AND accepted_at IS NULL AND revoked_at IS NULL", (company_id, normalized_username))
+            connection.execute(
+                "INSERT INTO carpan.user_invitations(company_id, username, display_name, role, token_hash, expires_at, created_by_user_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (company_id, normalized_username, safe_name, normalized_role, token_hash, expires_at, actor_user_id),
+            )
+        return Invitation(token=token, expires_at=expires_at)
+
+    def accept_invitation(self, *, token: str, password_hash: str) -> dict[str, str] | None:
+        token_hash = hashlib.sha256(str(token).strip().encode("utf-8")).hexdigest()
+        with psycopg.connect(str(self.settings.database_url)) as connection:
+            row = connection.execute("SELECT * FROM carpan.accept_user_invitation(%s, %s)", (token_hash, password_hash)).fetchone()
+        if row is None:
+            return None
+        return {"company_code": str(row[0]), "username": str(row[1]), "display_name": str(row[2]), "role": str(row[3])}

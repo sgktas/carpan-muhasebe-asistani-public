@@ -98,14 +98,14 @@ def _grant_application_access(owner_url: str, app_role: str) -> None:
         connection.execute(sql.SQL("GRANT USAGE ON SCHEMA carpan TO {}") .format(sql.Identifier(app_role)))
         for table in (
             "companies", "users", "company_memberships", "licenses",
-            "device_registrations", "refresh_tokens", "audit_events",
+            "device_registrations", "refresh_tokens", "audit_events", "user_invitations",
         ):
             connection.execute(sql.SQL("GRANT SELECT ON carpan.{} TO {}") .format(sql.Identifier(table), sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT UPDATE(failed_attempts, locked_until, last_login_at) ON carpan.users TO {}") .format(sql.Identifier(app_role)))
-        connection.execute(sql.SQL("GRANT INSERT, UPDATE ON carpan.licenses, carpan.refresh_tokens TO {}") .format(sql.Identifier(app_role)))
+        connection.execute(sql.SQL("GRANT INSERT, UPDATE ON carpan.licenses, carpan.refresh_tokens, carpan.user_invitations TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT INSERT ON carpan.audit_events TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT USAGE ON ALL SEQUENCES IN SCHEMA carpan TO {}") .format(sql.Identifier(app_role)))
-        connection.execute(sql.SQL("GRANT EXECUTE ON FUNCTION carpan.resolve_company_code(text), carpan.consume_refresh_token(character), carpan.rotate_refresh_token(character, character, timestamptz) TO {}") .format(sql.Identifier(app_role)))
+        connection.execute(sql.SQL("GRANT EXECUTE ON FUNCTION carpan.resolve_company_code(text), carpan.consume_refresh_token(character), carpan.rotate_refresh_token(character, character, timestamptz), carpan.accept_user_invitation(character, text) TO {}") .format(sql.Identifier(app_role)))
 
 
 def initialize(bin_dir: Path, root: Path) -> None:

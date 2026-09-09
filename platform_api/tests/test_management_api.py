@@ -6,7 +6,7 @@ import httpx
 from carpan_platform.api.dependencies import get_settings
 from carpan_platform.config import Settings
 from carpan_platform.main import create_app
-from carpan_platform.management import ManagementOverview, ManagementRepository
+from carpan_platform.management import Invitation, ManagementOverview, ManagementRepository
 from carpan_platform.security import create_access_token
 
 
@@ -130,3 +130,30 @@ def test_management_team_and_device_lists_are_admin_only(monkeypatch):
     assert _get(app, admin_token, "/v1/management/team").json() == {"members": []}
     assert _get(app, admin_token, "/v1/management/devices").json() == {"devices": []}
     assert observed == [("team", company_id), ("devices", company_id)]
+
+
+def test_management_invitation_is_admin_only_and_returns_token_once(monkeypatch):
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    company_id, user_id = uuid4(), uuid4()
+    admin = create_access_token(settings, user_id=user_id, company_id=company_id, role="ADMIN")
+    operator = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="OPERATOR")
+    observed = []
+
+    def create_invitation(self, **payload):
+        observed.append(payload)
+        return Invitation(token="t" * 43, expires_at=None)
+
+    monkeypatch.setattr(ManagementRepository, "create_invitation", create_invitation)
+
+    async def post(token):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post("/v1/management/invitations", headers={"Authorization": f"Bearer {token}"}, json={"username":"new.user","display_name":"Yeni Kullanıcı","role":"OPERATOR"})
+
+    assert asyncio.run(post(operator)).status_code == 403
+    response = asyncio.run(post(admin))
+    assert response.status_code == 201
+    assert response.json()["invite_token"] == "t" * 43
+    assert observed == [{"company_id": company_id, "actor_user_id": user_id, "username": "new.user", "display_name": "Yeni Kullanıcı", "role": "OPERATOR"}]

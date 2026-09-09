@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 import psycopg
 
 from carpan_platform.api.dependencies import get_settings, require_roles
@@ -11,6 +12,12 @@ from carpan_platform.security import AccessTokenClaims
 
 
 router = APIRouter(prefix="/v1/management", tags=["management"])
+
+
+class InvitationRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    display_name: str = Field(min_length=1, max_length=160)
+    role: str = Field(min_length=4, max_length=30)
 
 
 @router.get("/overview")
@@ -57,3 +64,21 @@ def devices(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Merkezi cihaz verisine şu an ulaşılamıyor.",
         ) from None
+
+
+@router.post("/invitations", status_code=status.HTTP_201_CREATED)
+def create_invitation(
+    payload: InvitationRequest,
+    claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    try:
+        invitation = ManagementRepository(settings).create_invitation(
+            company_id=claims.company_id, actor_user_id=claims.user_id,
+            username=payload.username, display_name=payload.display_name, role=payload.role,
+        )
+        return {"invite_token": invitation.token, "expires_at": invitation.expires_at}
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Merkezi davet servisine şu an ulaşılamıyor.") from None
