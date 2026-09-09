@@ -62,6 +62,13 @@ class FinancialMovementRecord:
     source_row: int
 
 
+@dataclass(frozen=True)
+class ExternalAcceptance:
+    system: str
+    verdict: str
+    created_at: str
+
+
 class OperationHistory:
     """Modüllerin ortak işlem geçmişi.
 
@@ -535,6 +542,106 @@ class OperationHistory:
                 "source_row": normalized_row,
             },
         )
+
+    def record_external_acceptance(
+        self,
+        operation_id: int,
+        *,
+        system: str,
+        verdict: str,
+    ) -> None:
+        """Kaydı dış ERP aktarım sonucuyla işaretler.
+
+        Bu kayıt, çıktı dosyasının oluştuğunu değil kullanıcının Netsis/Psoft
+        aktarımını gerçekten denediğini gösterir. Serbest metin alınmaz; böylece
+        hataya ait müşteri veya finansal ayrıntılar işlem geçmişine taşınmaz.
+        Aynı sonuç daha sonra tekrar kaydedilebilir; son kayıt ekranlarda geçerli
+        kabul sonucu olarak görünür ve önceki kararlar denetim izi olarak kalır.
+        """
+        normalized_system = str(system).strip().upper()
+        normalized_verdict = str(verdict).strip().upper()
+        labels = {"NETSIS": "Netsis", "PSOFT": "Psoft"}
+        if normalized_system not in labels:
+            raise OperationHistoryError("Dış aktarım sistemi Netsis veya Psoft olmalıdır.")
+        if normalized_verdict not in {"ACCEPTED", "REJECTED"}:
+            raise OperationHistoryError("Dış aktarım sonucu kabul veya ret olmalıdır.")
+        with self._connect() as connection:
+            allowed = connection.execute(
+                """
+                SELECT 1 FROM operations
+                WHERE id = ? AND status IN ('SUCCESS', 'PARTIAL')
+                  AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
+                  AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
+                """,
+                (
+                    int(operation_id),
+                    self.company_id,
+                    self.company_id,
+                    self.user_id,
+                    self.user_id,
+                ),
+            ).fetchone()
+            if allowed is None:
+                raise OperationHistoryError(
+                    "Dış aktarım sonucu kaydedilemedi; işlem bu firma ve kullanıcıya ait değil."
+                )
+            accepted = normalized_verdict == "ACCEPTED"
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, ?, 'ERP_ACCEPTANCE_RECORDED', ?, ?)
+                """,
+                (
+                    int(operation_id),
+                    self._now(),
+                    "INFO" if accepted else "WARNING",
+                    f"{labels[normalized_system]} aktarımı kullanıcı tarafından "
+                    f"{'kabul edildi' if accepted else 'reddedildi'}.",
+                    json.dumps(
+                        {"system": normalized_system, "verdict": normalized_verdict},
+                        ensure_ascii=False,
+                    ),
+                ),
+            )
+
+    def external_acceptance(self, operation_id: int) -> list[ExternalAcceptance]:
+        """Firma/kullanıcı kapsamındaki dış aktarım sonuçlarını döndürür.
+
+        Aynı sistem için son öğe geçerli sonuçtur. Önceki sonuçlar denetim
+        zincirinde silinmeden kalır.
+        """
+        with self._connect() as connection:
+            if self.company_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT e.* FROM operation_events e
+                    JOIN operations o ON o.id = e.operation_id
+                    WHERE e.operation_id = ? AND e.code = 'ERP_ACCEPTANCE_RECORDED'
+                      AND o.company_id IS NULL
+                    ORDER BY e.id
+                    """,
+                    (int(operation_id),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT e.* FROM operation_events e
+                    JOIN operations o ON o.id = e.operation_id
+                    WHERE e.operation_id = ? AND e.code = 'ERP_ACCEPTANCE_RECORDED'
+                      AND o.company_id = ?
+                    ORDER BY e.id
+                    """,
+                    (int(operation_id), self.company_id),
+                ).fetchall()
+        return [
+            ExternalAcceptance(
+                system=str(json.loads(row["details_json"] or "{}").get("system", "")),
+                verdict=str(json.loads(row["details_json"] or "{}").get("verdict", "")),
+                created_at=str(row["created_at"]),
+            )
+            for row in rows
+        ]
 
     def heartbeat(self, operation_id: int) -> None:
         """Extend a running operation's lease while its owner is still working."""

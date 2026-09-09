@@ -283,3 +283,16 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Defter sorguları firma kapsamına bağlıdır; başka firmanın işlemine ait özet
   hareketler yerel geçmiş ekranından dahi okunamaz. Netsis/FOM şablonları ve
   çıktı yazım biçimleri bu adımda değiştirilmedi.
+
+## 9 Eylül 2026 — Gerçek ERP aktarım kabul kaydı
+
+- Çıktı dosyasının teknik olarak üretilmesi, ERP'nin onu kabul ettiği anlamına
+  gelmez. Geçmiş İşlemler ekranında MANİM çıktısı için Netsis, FOM çıktısı için
+  Psoft aktarım sonucu kullanıcı tarafından ayrıca “kabul edildi” veya
+  “reddedildi” olarak kaydedilebilir.
+- Bu sonuç Excel'e, şablona veya aktarımın kendisine müdahale etmez. Yalnız
+  firma-kullanıcı kapsamındaki işlem günlüğüne zaman damgalı denetim olayı
+  ekler; serbest hata metni alınmadığı için müşteri veya finansal bilgi çoğalmaz.
+- Son kaydedilen sonuç detay ekranında geçerli kabul durumu olarak görünür;
+  önceki kabul/ret sonuçları silinmeden olay günlüğünde tutulur. Böylece gerçek
+  Netsis/Psoft denemeleri için ilerideki kabul test matrisi izlenebilir hale gelir.

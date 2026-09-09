@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -85,6 +86,12 @@ class HistoryPage(QWidget):
         self.detail_button.setEnabled(False)
         self.detail_button.clicked.connect(self.show_selected_details)
         header.addWidget(self.detail_button)
+
+        self.acceptance_button = QPushButton("Aktarım sonucunu kaydet")
+        self.acceptance_button.setObjectName("secondary")
+        self.acceptance_button.setEnabled(False)
+        self.acceptance_button.clicked.connect(self.record_external_acceptance)
+        header.addWidget(self.acceptance_button)
 
         self.open_button = QPushButton("Çıktı klasörünü aç")
         self.open_button.setObjectName("primary")
@@ -315,6 +322,61 @@ class HistoryPage(QWidget):
         )
         self.open_button.setEnabled(enabled)
         self.detail_button.setEnabled(0 <= row < len(self._records))
+        record = self._records[row] if 0 <= row < len(self._records) else None
+        self.acceptance_button.setEnabled(
+            bool(record)
+            and record.status in {"SUCCESS", "PARTIAL"}
+            and bool(record.output_files)
+            and bool(self._acceptance_system(record))
+        )
+
+    @staticmethod
+    def _acceptance_system(record) -> str:
+        return {
+            "manim_transfer": "NETSIS",
+            "report_editing": "PSOFT",
+        }.get(record.module_id, "")
+
+    def record_external_acceptance(self) -> None:
+        row = self.table.currentRow()
+        if not (0 <= row < len(self._records)):
+            return
+        record = self._records[row]
+        system = self._acceptance_system(record)
+        if not system:
+            return
+        label = "Netsis" if system == "NETSIS" else "Psoft"
+        prompt = QMessageBox(self)
+        prompt.setWindowTitle("Dış aktarım sonucu")
+        prompt.setIcon(QMessageBox.Question)
+        prompt.setText(f"{label} aktarımı bu çıktı için kabul edildi mi?")
+        prompt.setInformativeText(
+            "Bu seçim yalnız işlem geçmişine denetim sonucu olarak yazılır; "
+            "Excel dosyasını veya aktarımı değiştirmez."
+        )
+        prompt.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+        prompt.button(QMessageBox.Yes).setText("Kabul edildi")
+        prompt.button(QMessageBox.No).setText("Reddedildi")
+        prompt.button(QMessageBox.Cancel).setText("Vazgeç")
+        selected = prompt.exec()
+        if selected == QMessageBox.Cancel:
+            return
+        verdict = "ACCEPTED" if selected == QMessageBox.Yes else "REJECTED"
+        try:
+            self.history.record_external_acceptance(
+                record.id,
+                system=system,
+                verdict=verdict,
+            )
+        except Exception as error:
+            QMessageBox.warning(self, "Sonuç kaydedilemedi", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Aktarım sonucu kaydedildi",
+            f"{label} aktarımı için {'kabul' if verdict == 'ACCEPTED' else 'ret'} sonucu işlem geçmişine eklendi.",
+        )
+        self.refresh()
 
     def show_selected_details(self) -> None:
         row = self.table.currentRow()
@@ -324,6 +386,7 @@ class HistoryPage(QWidget):
         events = self.history.events(record.id)
         decision_events = [event for event in events if event.code == "DECISION_AUDIT"]
         evidence_events = [event for event in events if event.code == "OUTPUT_EVIDENCE"]
+        acceptances = self.history.external_acceptance(record.id)
         movement_lines = self._financial_movement_lines(
             self.history.financial_movements(record.id)
         )
@@ -343,6 +406,9 @@ class HistoryPage(QWidget):
             "",
             "Çıktı bütünlüğü:",
             *(evidence_lines or ["  • Bu eski işlem için bütünlük kaydı yok."]),
+            "",
+            "Dış aktarım sonucu:",
+            *(self._external_acceptance_lines(acceptances) or ["  • Henüz Netsis/Psoft sonucu kaydedilmedi."]),
             "",
             f"Finansal hareket özeti ({len(movement_lines)} grup):",
             *(movement_lines or ["  • Bu işlem için finansal hareket özeti yok."]),
@@ -432,6 +498,19 @@ class HistoryPage(QWidget):
                 f"{len(items)} hareket — {total:,.2f} TL"
             )
         return lines
+
+    @staticmethod
+    def _external_acceptance_lines(acceptances) -> list[str]:
+        latest_by_system = {}
+        for acceptance in acceptances:
+            latest_by_system[acceptance.system] = acceptance
+        labels = {"ACCEPTED": "kabul edildi", "REJECTED": "REDDEDİLDİ"}
+        systems = {"NETSIS": "Netsis", "PSOFT": "Psoft"}
+        return [
+            f"  • {systems.get(item.system, item.system)} — "
+            f"{labels.get(item.verdict, item.verdict)} — {HistoryPage._display_date(item.created_at)}"
+            for item in sorted(latest_by_system.values(), key=lambda item: item.system)
+        ]
 
     def open_selected_output(self) -> None:
         row = self.table.currentRow()

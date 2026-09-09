@@ -189,6 +189,42 @@ def test_terminal_operation_cannot_be_rewritten_or_receive_new_events(tmp_path):
     assert record.output_files == ["first.xls"]
 
 
+def test_external_erp_acceptance_is_scoped_and_keeps_latest_result(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    owner = OperationHistory(database, company_id=7, user_id=41, instance_id="owner")
+    operation_id = owner.start("manim_transfer", "MANİM", ["first.xlsx"])
+    owner.complete(operation_id, ["first.xls"])
+
+    owner.record_external_acceptance(
+        operation_id,
+        system="netsis",
+        verdict="accepted",
+    )
+    owner.record_external_acceptance(
+        operation_id,
+        system="NETSIS",
+        verdict="rejected",
+    )
+
+    results = owner.external_acceptance(operation_id)
+    assert [(item.system, item.verdict) for item in results] == [
+        ("NETSIS", "ACCEPTED"),
+        ("NETSIS", "REJECTED"),
+    ]
+    assert owner.events(operation_id)[-1].code == "ERP_ACCEPTANCE_RECORDED"
+
+    different_user = OperationHistory(database, company_id=7, user_id=42)
+    with pytest.raises(OperationHistoryError):
+        different_user.record_external_acceptance(
+            operation_id,
+            system="NETSIS",
+            verdict="ACCEPTED",
+        )
+
+    other_company = OperationHistory(database, company_id=8, user_id=41)
+    assert other_company.external_acceptance(operation_id) == []
+
+
 def test_decision_audit_is_normalized_and_scoped_to_running_operation(tmp_path):
     history = OperationHistory(tmp_path / "operations.sqlite3", company_id=4, user_id=9)
     operation_id = history.start("manim_transfer", "MANİM", ["movement.xlsx"])
