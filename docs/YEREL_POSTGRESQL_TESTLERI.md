@@ -60,9 +60,11 @@ basılmaz. Ardından API'yi yerelde çalıştırmak için:
 powershell -ExecutionPolicy Bypass -File platform_api/scripts/start_local_api.ps1
 ```
 
-Sağlık kontrolü tarayıcıdan `http://127.0.0.1:8010/health` adresinde görünür.
-API'yi durdurmak için aynı pencereye `Ctrl+C` yeterlidir; PostgreSQL verisi
-korunur. İlk firma ve yönetici hesabı, marka/firma bilgileri netleştiğinde
+Sağlık kontrolü tarayıcıdan `http://127.0.0.1:8010/health`, yerel yönetim
+paneli ise `http://127.0.0.1:8010/admin` adresinde görünür. Panelde firma
+kodu, merkezi kullanıcı adı ve parola ile giriş yapılır; tarayıcı oturumu
+kapatıldığında erişim belirteci silinir. API'yi durdurmak için aynı pencereye
+`Ctrl+C` yeterlidir; PostgreSQL verisi korunur. İlk firma ve yönetici hesabı, marka/firma bilgileri netleştiğinde
 ayrı bir yönetim adımıyla oluşturulur; bu işlemde parola yalnız yerel terminale
 girilir.
 

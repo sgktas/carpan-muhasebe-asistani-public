@@ -35,6 +35,9 @@ uvicorn carpan_platform.main:app --reload --port 8010
 
 Yerel geliştirmede API belgeleri `http://127.0.0.1:8010/docs` altında görünür.
 Üretimde doğrudan internete açılmaz; Nginx ve HTTPS arkasında çalışır.
+Yerel merkezi yönetim paneli `http://127.0.0.1:8010/admin` adresindedir.
+Bu panel yalnız kullanıcı, rol, cihaz ve lisans özetlerini okur; finansal dosya
+ve müşteri verisi kabul etmez.
 
 ## PostgreSQL şema kurulumu
 

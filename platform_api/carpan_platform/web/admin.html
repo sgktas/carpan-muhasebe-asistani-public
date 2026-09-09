@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Çarpan | Yönetim Merkezi</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="login-card" id="login-view" aria-labelledby="login-title">
+      <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <p class="eyebrow">ÇARPAN · YÖNETİM MERKEZİ</p>
+      <h1 id="login-title">Güvenli yönetim girişi</h1>
+      <p class="lead">Ekip, cihaz ve lisans durumunuzu tek ekrandan izleyin.</p>
+      <form id="login-form" novalidate>
+        <label>Firma kodu<input id="company-code" autocomplete="organization" value="CARPAN" required></label>
+        <label>Kullanıcı adı<input id="username" autocomplete="username" required></label>
+        <label>Parola<input id="password" type="password" autocomplete="current-password" required></label>
+        <p class="form-error" id="login-error" role="alert"></p>
+        <button type="submit" id="login-button">Yönetim merkezine gir</button>
+      </form>
+      <p class="privacy-note">Banka, müşteri ve Excel verileri bu panele gönderilmez.</p>
+    </section>
+
+    <section class="dashboard hidden" id="dashboard-view" aria-live="polite">
+      <header class="topbar">
+        <div><p class="eyebrow">ÇARPAN · YÖNETİM MERKEZİ</p><h1 id="company-name">Yükleniyor…</h1></div>
+        <div class="top-actions"><span class="role-pill" id="role-label">YÖNETİCİ</span><button class="quiet-button" id="logout-button">Çıkış yap</button></div>
+      </header>
+      <p class="dashboard-note">Bu alan yalnız kullanıcı, cihaz ve lisans operasyonlarını gösterir. Muhasebe verileri yerelde kalır.</p>
+      <p class="load-error" id="dashboard-error" role="alert"></p>
+
+      <div class="metric-grid" aria-label="Yönetim özeti">
+        <article class="metric"><span>Etkin kullanıcı</span><strong id="user-count">—</strong><small id="role-counts">—</small></article>
+        <article class="metric"><span>Etkin cihaz</span><strong id="device-count">—</strong><small id="revoked-count">—</small></article>
+        <article class="metric"><span>Lisans</span><strong id="license-plan">Tanımlı değil</strong><small id="license-status">Lisans bekleniyor</small></article>
+      </div>
+
+      <div class="panel-grid">
+        <article class="panel"><div class="panel-heading"><div><p class="eyebrow">EKİP</p><h2>Kullanıcılar</h2></div><span id="team-total" class="count-badge">0</span></div><div id="team-list" class="list empty">Kayıt yükleniyor…</div></article>
+        <article class="panel"><div class="panel-heading"><div><p class="eyebrow">CİHAZLAR</p><h2>Kurulumlar</h2></div><span id="device-total" class="count-badge">0</span></div><div id="device-list" class="list empty">Kayıt yükleniyor…</div></article>
+      </div>
+    </section>
+  </main>
+  <script src="/admin/assets/admin.js" defer></script>
+</body>
+</html>
