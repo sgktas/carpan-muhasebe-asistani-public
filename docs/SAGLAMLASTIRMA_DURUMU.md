@@ -214,3 +214,16 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Bu kontrol şablonu değiştirmez, yeni kontrol değeri üretmez ve yalnız seçilen
   FOM çıktısının şablonunu etkiler. MANİM şablonları kendi doğrulamalarından
   geçmeye devam eder.
+
+## 9 Eylül 2026 — Manuel ve birleşik kararların denetimi
+
+- Eşleştirme ekranındaki havale, kısmi havale, ödeme onaylandı, referanslı,
+  aynı banka virmanı ve incelemede bırakma kararları artık ilk otomatik öneriden
+  ayrı birer `MANUAL` kararı olarak işlem geçmişine yazılıyor.
+- Aynı müşteriye ait birden fazla banka hareketinin kuruşu kuruşuna otomatik
+  birleşmesi veya tutar farkıyla incelemeye kalması, hareketlerin her biri için
+  ayrı kaynak dosya/satır izi ve açık kural koduyla kaydediliyor.
+- Reddedilen manuel kararlar da kaybolmuyor: negatif ödeme onayı, eksik BM kodu,
+  hatalı toplam ve eksik manuel seçim `REVIEW` sonucu olarak görülebiliyor.
+- Karar kayıtlarında müşteri adı, IBAN ve ham dekont açıklaması tutulmuyor;
+  bu geliştirme Netsis/FOM şablonlarını veya çıktı üretim biçimini değiştirmiyor.

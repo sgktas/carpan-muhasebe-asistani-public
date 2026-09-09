@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 from app.core.money import money, money_sum
 from app.core.movement_classifier import MovementRoute
@@ -41,6 +42,31 @@ class ResolutionOutcome:
     skipped_payment: int = 0
     logs: list[str] = field(default_factory=list)
     mapping_updates: list[tuple[str, list[dict]]] = field(default_factory=list)
+    decision_audits: list[dict] = field(default_factory=list)
+
+
+def build_decision_audit(
+    record: ManimRecord,
+    region: str,
+    bank: str,
+    *,
+    decision: str,
+    outcome: str,
+    rule_code: str,
+    reason: str = "",
+) -> dict:
+    """Kişisel dekont içeriğini çoğaltmadan denetlenebilir karar özeti üretir."""
+    return {
+        "decision": decision,
+        "outcome": outcome,
+        "region": region,
+        "bank": bank,
+        "amount": round(float(record.tutar), 2),
+        "source_file": Path(record.kaynak_dosya).name,
+        "source_row": int(record.kaynak_satir),
+        "rule_code": rule_code,
+        "reason": reason,
+    }
 
 
 def output_key(
@@ -172,6 +198,7 @@ class CombinedBankMovementMatcher:
         manual_groups: list[UnresolvedItem] = []
         produced = 0
         logs: list[str] = []
+        decision_audits: list[dict] = []
         for (region, bank, _day, _signature), indexed_items in candidate_groups.items():
             if len(indexed_items) < 2:
                 continue
@@ -199,6 +226,17 @@ class CombinedBankMovementMatcher:
                     )
                     produced += 1
                 consumed.update(indexes)
+                decision_audits.extend(
+                    build_decision_audit(
+                        item.record,
+                        region,
+                        bank,
+                        decision="MATCH",
+                        outcome="HAVALE",
+                        rule_code="COMBINED_BANK_MOVEMENTS_EXACT",
+                    )
+                    for item in items
+                )
                 logs.append(
                     f"Birleşik havale eşleşti: {movements} TL = {target:,.2f} TL "
                     f"({len(items)} banka hareketi)."
@@ -206,6 +244,21 @@ class CombinedBankMovementMatcher:
                 continue
 
             consumed.update(indexes)
+            review_reason = (
+                f"{len(items)} banka hareketinin toplamı tahsilat hedefiyle eşleşmiyor."
+            )
+            decision_audits.extend(
+                build_decision_audit(
+                    item.record,
+                    region,
+                    bank,
+                    decision="MATCH",
+                    outcome="REVIEW",
+                    rule_code="COMBINED_BANK_MOVEMENTS_DIFFERENCE",
+                    reason=review_reason,
+                )
+                for item in items
+            )
             manual_groups.append(
                 UnresolvedItem(
                     record=items[0].record,
@@ -231,6 +284,7 @@ class CombinedBankMovementMatcher:
             pending=remaining,
             produced_netsis_records=produced,
             logs=logs,
+            decision_audits=decision_audits,
         )
 
     @staticmethod
@@ -268,16 +322,48 @@ class ManualResolutionService:
         skipped_payment = 0
         logs: list[str] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
+        decision_audits: list[dict] = []
+
+        def audit(
+            item: UnresolvedItem,
+            outcome: str,
+            rule_code: str,
+            reason: str = "",
+            records: list[ManimRecord] | None = None,
+        ) -> None:
+            for record in records or [item.record]:
+                decision_audits.append(
+                    build_decision_audit(
+                        record,
+                        item.region,
+                        bank_key(record.banka),
+                        decision="MANUAL",
+                        outcome=outcome,
+                        rule_code=rule_code,
+                        reason=reason,
+                    )
+                )
 
         for index, item in enumerate(pending):
             resolution = resolutions.get(index)
-            if not resolution or resolution.route == "ATLA":
+            if not resolution:
                 still_pending.append(item)
+                continue
+            if resolution.route == "ATLA":
+                still_pending.append(item)
+                audit(item, "SKIPPED", "MANUAL_SKIPPED")
                 continue
 
             if resolution.route == "ODEME_ONAYLANDI":
                 if item.record.tutar < 0:
                     still_pending.append(item)
+                    rejection = "Negatif tutarlı kayıt Ödeme Onaylandı'ya taşınamaz."
+                    audit(
+                        item,
+                        "REVIEW",
+                        "MANUAL_PAYMENT_NEGATIVE_REJECTED",
+                        rejection,
+                    )
                     logs.append(
                         "UYARI: Negatif tutarlı kayıt manuel olarak da Ödeme Onaylandı'ya "
                         "taşınamaz; inceleme listesinde bırakıldı."
@@ -287,6 +373,7 @@ class ManualResolutionService:
                     (item.record, item.region, bank_key(item.record.banka))
                 )
                 skipped_payment += 1
+                audit(item, "ODEME_ONAYLANDI", "MANUAL_ROUTE")
                 logs.append(
                     "Manuel olarak Ödeme Onaylandı'ya taşındı: "
                     f"{item.record.aciklama[:60]}..."
@@ -296,11 +383,13 @@ class ManualResolutionService:
             if resolution.route == "REFERANSLI":
                 decision = movement_router.route_reference(item.record, item.region)
                 if decision.route == MovementRoute.SAME_BANK_VIRMAN:
+                    audit(item, "SAME_BANK_VIRMAN", "MANUAL_ROUTE")
                     logs.append(
                         append_virman_decision(decision, item.region, virman_by_region)
                     )
                 else:
                     referansli_by_region[item.region].append(item.record)
+                    audit(item, "REFERANSLI", "MANUAL_ROUTE", decision.reason)
                     candidate_log = reference_candidate_log(decision, item.record)
                     if candidate_log:
                         logs.append(candidate_log)
@@ -312,6 +401,12 @@ class ManualResolutionService:
 
             if resolution.route != "HAVALE" or not resolution.rows:
                 still_pending.append(item)
+                audit(
+                    item,
+                    "REVIEW",
+                    "MANUAL_RESOLUTION_INCOMPLETE",
+                    "Manuel karar için geçerli rota ve satır bilgisi bulunamadı.",
+                )
                 continue
 
             if item.group_records:
@@ -322,6 +417,13 @@ class ManualResolutionService:
                 )
                 if validation_error:
                     still_pending.append(item)
+                    audit(
+                        item,
+                        "REVIEW",
+                        "MANUAL_COMBINED_REJECTED",
+                        validation_error,
+                        records=item.group_records,
+                    )
                     logs.append(
                         "UYARI: Toplu havale manuel eşleştirmesi kabul edilmedi: "
                         f"{validation_error}"
@@ -344,6 +446,12 @@ class ManualResolutionService:
                         )
                     )
                     produced += 1
+                audit(
+                    item,
+                    "HAVALE",
+                    "MANUAL_COMBINED_MATCH",
+                    records=item.group_records,
+                )
                 logs.append(
                     f"Toplu havale manuel onaylandı: {len(item.group_records)} hareket, "
                     f"{len(validated_rows)} cari dağılımı, {item.group_target_amount:,.2f} TL."
@@ -355,14 +463,16 @@ class ManualResolutionService:
                 requires_bank_account_code(output_profile)
                 and not self.region_config.banka_kodu(item.region, bank)
             ):
+                reason = missing_bank_account_code_reason(item.region, bank)
                 still_pending.append(
                     UnresolvedItem(
                         record=item.record,
                         region=item.region,
-                        reason=missing_bank_account_code_reason(item.region, bank),
+                        reason=reason,
                         suggested_rows=item.suggested_rows,
                     )
                 )
+                audit(item, "REVIEW", "MISSING_BANK_ACCOUNT_CODE", reason)
                 logs.append(
                     "UYARI: BM kodu olmadığı için manuel havale aktarımı bekletildi: "
                     f"{item.record.aciklama[:60]}..."
@@ -382,6 +492,12 @@ class ManualResolutionService:
                         reason=f"Manuel eşleştirme reddedildi: {validation_error}",
                         suggested_rows=item.suggested_rows,
                     )
+                )
+                audit(
+                    item,
+                    "REVIEW",
+                    "MANUAL_MATCH_REJECTED",
+                    validation_error,
                 )
                 logs.append(
                     f"UYARI: Manuel eşleştirme kabul edilmedi ({validation_error}): "
@@ -409,12 +525,14 @@ class ManualResolutionService:
             manual_total = round(sum(row.tutar for row in validated_rows), 2)
             remaining = round(float(item.record.tutar) - manual_total, 2)
             if resolution.allow_partial and remaining > 0.01:
+                audit(item, "HAVALE", "MANUAL_PARTIAL_MATCH")
                 logs.append(
                     f"Manuel kısmi eşleştirme: {manual_total:,.2f} TL Netsis'e aktarıldı, "
                     f"{remaining:,.2f} TL bekleyen bakiye olarak bırakıldı: "
                     f"{item.record.aciklama[:60]}..."
                 )
             else:
+                audit(item, "HAVALE", "MANUAL_CUSTOMER_MATCH")
                 mapping_updates.append(
                     (
                         item.record.aciklama,
@@ -435,4 +553,5 @@ class ManualResolutionService:
             skipped_payment=skipped_payment,
             logs=logs,
             mapping_updates=mapping_updates,
+            decision_audits=decision_audits,
         )

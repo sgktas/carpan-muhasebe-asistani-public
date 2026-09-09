@@ -25,6 +25,7 @@ from app.core.manim_resolution import (
     ManualResolutionService,
     UnresolvedItem,
     append_virman_decision,
+    build_decision_audit,
     missing_bank_account_code_reason,
     output_key,
     reference_candidate_log,
@@ -118,17 +119,15 @@ class ProcessingEngine:
     ) -> None:
         """Karar günlüğü için müşteri/IBAN açıklaması taşımayan özet üretir."""
         result.decision_audits.append(
-            {
-                "decision": decision,
-                "outcome": outcome,
-                "region": region,
-                "bank": bank,
-                "amount": round(float(record.tutar), 2),
-                "source_file": Path(record.kaynak_dosya).name,
-                "source_row": int(record.kaynak_satir),
-                "rule_code": rule_code,
-                "reason": reason,
-            }
+            build_decision_audit(
+                record,
+                region,
+                bank,
+                decision=decision,
+                outcome=outcome,
+                rule_code=rule_code,
+                reason=reason,
+            )
         )
 
     def run(self, resolver=None, allow_duplicate_files: set[str] | None = None) -> ProcessingResult:
@@ -427,6 +426,7 @@ class ProcessingEngine:
             result.skipped_payment += manual_outcome.skipped_payment
             result.logs.extend(manual_outcome.logs)
             mapping_updates.extend(manual_outcome.mapping_updates)
+            result.decision_audits.extend(manual_outcome.decision_audits)
 
         result.virman_records = sum(len(records) for records in virman_by_region.values())
         result.skipped_reference = sum(len(records) for records in referansli_by_region.values())
@@ -486,4 +486,5 @@ class ProcessingEngine:
         )
         result.produced_netsis_records += outcome.produced_netsis_records
         result.logs.extend(outcome.logs)
+        result.decision_audits.extend(outcome.decision_audits)
         return outcome.pending

@@ -241,6 +241,12 @@ def test_manuel_eslestirme_resolver_cagriliyor_ve_hafizaya_yaziliyor(synthetic_p
     assert called["count"] == 1
     assert result.unresolved == 0
     assert result.produced_netsis_records == 2  # ABC001 (normal) + XYZ999 (elle)
+    assert any(
+        audit["decision"] == "MANUAL"
+        and audit["outcome"] == "HAVALE"
+        and audit["rule_code"] == "MANUAL_CUSTOMER_MATCH"
+        for audit in result.decision_audits
+    )
 
     # Hafizaya yazildi mi?
     from app.core.mapping_store import MappingStore
@@ -489,6 +495,10 @@ def test_manuel_eslestirmede_fazla_odemeden_borc_kadari_onaylanabilir(synthetic_
     assert result.unresolved == 0
     assert result.produced_netsis_records == 2
     assert any("174.50 TL bekleyen bakiye" in line for line in result.logs)
+    assert any(
+        audit["rule_code"] == "MANUAL_PARTIAL_MATCH"
+        for audit in result.decision_audits
+    )
 
     from app.core.mapping_store import MappingStore
     store = MappingStore(project_root / "data" / "customer_mappings.json")

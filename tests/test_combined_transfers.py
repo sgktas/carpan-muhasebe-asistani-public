@@ -70,6 +70,11 @@ def test_three_matching_bank_movements_are_combined_automatically(synthetic_proj
     assert result.produced_netsis_records == 2
     assert sum(row.tutar for rows in outputs.values() for row in rows) == 600
     assert any("3 banka hareketi" in log for log in result.logs)
+    assert len(result.decision_audits) == 3
+    assert {
+        audit["rule_code"] for audit in result.decision_audits
+    } == {"COMBINED_BANK_MOVEMENTS_EXACT"}
+    assert {audit["outcome"] for audit in result.decision_audits} == {"HAVALE"}
 
 
 def test_multiple_bank_movements_with_difference_become_one_manual_group(synthetic_project):
@@ -78,10 +83,11 @@ def test_multiple_bank_movements_with_difference_become_one_manual_group(synthet
     profile = OutputProfileStore(project_root / "config").get("netsis")
     suggestions = [TahsilatRecord("C001", "TEST", None, 600)]
 
+    result = ProcessingResult()
     remaining = engine._match_combined_bank_movements(
         _pending([100, 200, 250], suggestions),
         defaultdict(list),
-        ProcessingResult(),
+        result,
         profile,
         _Processor(),
     )
@@ -89,6 +95,11 @@ def test_multiple_bank_movements_with_difference_become_one_manual_group(synthet
     assert len(remaining) == 1
     assert len(remaining[0].group_records) == 3
     assert remaining[0].group_target_amount == 600
+    assert len(result.decision_audits) == 3
+    assert {audit["outcome"] for audit in result.decision_audits} == {"REVIEW"}
+    assert {
+        audit["rule_code"] for audit in result.decision_audits
+    } == {"COMBINED_BANK_MOVEMENTS_DIFFERENCE"}
 
 
 def test_one_cent_difference_is_not_combined_automatically(synthetic_project):

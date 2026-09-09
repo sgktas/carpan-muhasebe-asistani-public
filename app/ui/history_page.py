@@ -216,7 +216,14 @@ class HistoryPage(QWidget):
         )
         outcomes = [str(item.get("outcome", "")) for item in decisions]
         summary = [f"Karar kaydı: {len(decisions)}"]
-        for outcome in ("REVIEW", "HAVALE", "ODEME_ONAYLANDI", "REFERANSLI", "SAME_BANK_VIRMAN"):
+        for outcome in (
+            "REVIEW",
+            "SKIPPED",
+            "HAVALE",
+            "ODEME_ONAYLANDI",
+            "REFERANSLI",
+            "SAME_BANK_VIRMAN",
+        ):
             count = outcomes.count(outcome)
             if count:
                 summary.append(f"{self._outcome_text(outcome)}: {count}")
@@ -243,6 +250,7 @@ class HistoryPage(QWidget):
             "SAME_BANK_VIRMAN": "Aynı banka virmanı",
             "KURAL_CALISTI": "Kural çalıştı",
             "REVIEW": "İnceleme",
+            "SKIPPED": "İncelemede bırakıldı",
         }.get(str(outcome), str(outcome) or "-")
 
     def _render_records(self) -> None:
