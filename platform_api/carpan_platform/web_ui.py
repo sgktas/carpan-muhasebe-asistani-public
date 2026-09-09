@@ -27,6 +27,19 @@ def admin_panel() -> FileResponse:
     return response
 
 
+@router.get("/platform")
+def platform_owner_panel() -> FileResponse:
+    """Firma yönetiminden ayrı platform sahibi paneli."""
+    response = FileResponse(WEB_ROOT / "platform.html", media_type="text/html")
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+        "connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @router.get("/invite")
 def invitation_panel() -> FileResponse:
     response = FileResponse(WEB_ROOT / "invite.html", media_type="text/html")
