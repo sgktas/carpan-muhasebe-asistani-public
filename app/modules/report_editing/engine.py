@@ -895,6 +895,27 @@ class ReportEditingEngine:
             raise ValueError("Düzenlenecek müşteri, satış veya tahsilat raporu bulunamadı.")
         return recognized
 
+    def _assert_required_templates(self, recognized: dict[str, Path]) -> None:
+        """Çıktı klasörü oluşturmadan önce gerekli özgün şablonları doğrular.
+
+        Böylece tahsilat veya satış şablonu değişmişse temiz ara raporlar dahi
+        oluşmaz; kullanıcı başarısız bir işlemden kalan klasörleri ayıklamak
+        zorunda kalmaz.
+        """
+        if not self.create_template_outputs or not runtime_template_enforcement_enabled():
+            return
+        templates = {
+            "sales": "sales_template.xls",
+            "collections": "collections_template.xls",
+        }
+        for report_type, template_name in templates.items():
+            if report_type not in recognized:
+                continue
+            assert_approved_template(
+                self.resource_root,
+                _report_template_path(self.resource_root, template_name),
+            )
+
     @staticmethod
     def _customer_rows(path: Path) -> tuple[str, list[dict], dict[str, str]]:
         sheet_name, headers, rows = _read_rows(path)
@@ -971,6 +992,7 @@ class ReportEditingEngine:
     def run(self) -> ReportEditingResult:
         result = ReportEditingResult()
         recognized = self._classify()
+        self._assert_required_templates(recognized)
         result.recognized_files = dict(recognized)
 
         operation_dates: list[datetime] = []

@@ -1,6 +1,9 @@
 from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 
+import pytest
 import xlrd
 import xlwt
 from openpyxl import Workbook, load_workbook
@@ -17,6 +20,7 @@ from app.modules.report_editing.engine import (
     refresh_customer_list_cache,
 )
 from app.core.customer_list_cache import CustomerListCache
+from app.core.template_integrity import TemplateIntegrityError
 
 
 def _save_xls(path: Path, sheet_name: str, headers: list[str], rows: list[list[object]]) -> Path:
@@ -400,3 +404,42 @@ def test_xls_ve_xlsx_ayni_satis_verisini_ayni_sekilde_isler(tmp_path):
     assert len(rows_xlsx) == len(rows_xls) == 1
     for key in headers:
         assert rows_xlsx[0][key] == rows_xls[0][key]
+
+
+def test_invalid_fom_template_stops_before_any_output_is_created(tmp_path, monkeypatch):
+    """Şablon bozuksa temiz ara raporlar veya çıktı klasörü bırakılmamalı."""
+    monkeypatch.delenv("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG", raising=False)
+    collections = _save(
+        tmp_path / "collections.xlsx",
+        COLLECTION_OUTPUT_COLUMNS,
+        [[
+            "C001", "TEST", "B001", "09.09.2026", "N", "1", "P01", 0,
+            "PERSONEL", "AYDIN-DD-01", "Müşteri", "Müşteri", "Bağımsız",
+            "Market", "Liste", "GARANTİ", 500,
+        ]],
+    )
+    template = tmp_path / "templates" / "local" / "report_editing" / "collections_template.xls"
+    template.parent.mkdir(parents=True)
+    template.write_bytes(b"changed-template")
+    checksums = tmp_path / "config" / "local" / "template_checksums.json"
+    checksums.parent.mkdir(parents=True)
+    checksums.write_text(
+        json.dumps(
+            {
+                "report_editing/collections_template.xls": hashlib.sha256(
+                    b"approved-template"
+                ).hexdigest()
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TemplateIntegrityError, match="değişmiş"):
+        ReportEditingEngine(
+            [collections],
+            resource_root=tmp_path,
+            output_root=tmp_path / "out",
+            create_template_outputs=True,
+        ).run()
+
+    assert not (tmp_path / "out").exists()
