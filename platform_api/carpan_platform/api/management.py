@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 import psycopg
 
@@ -73,6 +73,22 @@ def devices(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Merkezi cihaz verisine şu an ulaşılamıyor.",
+        ) from None
+
+
+@router.get("/audit-events")
+def audit_events(
+    limit: int = Query(default=25, ge=1, le=50),
+    claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    try:
+        events = ManagementRepository(settings).audit_events(claims.company_id, limit=limit)
+        return {"events": [event.as_payload() for event in events]}
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Güvenlik kayıtları şu an okunamıyor.",
         ) from None
 
 

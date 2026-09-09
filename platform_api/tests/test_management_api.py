@@ -6,7 +6,7 @@ import httpx
 from carpan_platform.api.dependencies import get_settings
 from carpan_platform.config import Settings
 from carpan_platform.main import create_app
-from carpan_platform.management import Invitation, ManagementOverview, ManagementRepository
+from carpan_platform.management import AuditEventSummary, Invitation, ManagementOverview, ManagementRepository
 from carpan_platform.security import create_access_token
 
 
@@ -192,3 +192,30 @@ def test_management_device_revocation_is_admin_only_and_scoped(monkeypatch):
         "assigned_username": "operator.1",
         "device_label": "Muhasebe PC",
     }]
+
+
+def test_management_audit_events_are_admin_only_and_hide_metadata(monkeypatch):
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    company_id = uuid4()
+    admin = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="ADMIN")
+    operator = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="OPERATOR")
+    observed = []
+
+    def audit_events(self, requested_company_id, *, limit):
+        observed.append((requested_company_id, limit))
+        return (AuditEventSummary("DEVICE_REVOKED", "SUCCESS", None, "Yönetici"),)
+
+    monkeypatch.setattr(ManagementRepository, "audit_events", audit_events)
+
+    assert _get(app, operator, "/v1/management/audit-events").status_code == 403
+    response = _get(app, admin, "/v1/management/audit-events?limit=10")
+    assert response.status_code == 200
+    assert response.json()["events"][0] == {
+        "event_type": "DEVICE_REVOKED",
+        "outcome": "SUCCESS",
+        "created_at": None,
+        "actor_display_name": "Yönetici",
+    }
+    assert observed == [(company_id, 10)]

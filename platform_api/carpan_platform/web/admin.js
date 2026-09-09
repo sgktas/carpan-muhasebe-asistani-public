@@ -57,10 +57,16 @@ function deviceRow(device) {
   actions.append(revoke); item.firstChild.append(actions); return item;
 }
 
+function auditRow(event) {
+  const when = event.created_at ? new Date(event.created_at).toLocaleString("tr-TR") : "Zaman bilgisi yok";
+  const actor = event.actor_display_name || "Sistem";
+  return row(statusLabel(event.event_type), `${actor} · ${when}`, statusLabel(event.outcome), event.outcome !== "SUCCESS");
+}
+
 async function loadDashboard() {
   $("dashboard-error").textContent = "";
   try {
-    const [overview, team, devices] = await Promise.all([api("/v1/management/overview"), api("/v1/management/team"), api("/v1/management/devices")]);
+    const [overview, team, devices, audits] = await Promise.all([api("/v1/management/overview"), api("/v1/management/team"), api("/v1/management/devices"), api("/v1/management/audit-events")]);
     $("company-name").textContent = overview.company.name;
     $("role-label").textContent = currentRole || "YÖNETİCİ";
     $("user-count").textContent = text(overview.users.active_count, "0");
@@ -71,8 +77,10 @@ async function loadDashboard() {
     $("license-status").textContent = overview.license.status ? statusLabel(overview.license.status) : "Lisans henüz tanımlanmadı";
     $("team-total").textContent = team.members.length;
     $("device-total").textContent = devices.devices.length;
+    $("audit-total").textContent = audits.events.length;
     renderRows("team-list", team.members, teamRow, "Ekip kullanıcısı yok.");
     renderRows("device-list", devices.devices, deviceRow, "Cihaz kaydı yok.");
+    renderRows("audit-list", audits.events, auditRow, "Henüz yönetim kaydı yok.");
   } catch (error) {
     $("dashboard-error").textContent = error.message;
   }

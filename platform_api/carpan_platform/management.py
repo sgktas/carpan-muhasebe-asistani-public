@@ -93,6 +93,22 @@ class DeviceSummary:
 
 
 @dataclass(frozen=True)
+class AuditEventSummary:
+    event_type: str
+    outcome: str
+    created_at: datetime
+    actor_display_name: str | None
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "event_type": self.event_type,
+            "outcome": self.outcome,
+            "created_at": self.created_at,
+            "actor_display_name": self.actor_display_name,
+        }
+
+
+@dataclass(frozen=True)
 class Invitation:
     token: str
     expires_at: datetime
@@ -207,6 +223,31 @@ class ManagementRepository:
                 assigned_username=str(row["username"]),
                 last_seen_at=row["last_seen_at"],
                 created_at=row["created_at"],
+            )
+            for row in rows
+        )
+
+    def audit_events(self, company_id: UUID, *, limit: int = 25) -> tuple[AuditEventSummary, ...]:
+        """Yönetim kararlarının özetini verir; olay metadatasını dışarı taşımaz."""
+        safe_limit = min(max(int(limit), 1), 50)
+        with tenant_transaction(self.settings, company_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT e.event_type, e.outcome, e.created_at, u.display_name
+                FROM carpan.audit_events e
+                LEFT JOIN carpan.users u ON u.id = e.actor_user_id
+                WHERE e.company_id = %s
+                ORDER BY e.id DESC
+                LIMIT %s
+                """,
+                (company_id, safe_limit),
+            ).fetchall()
+        return tuple(
+            AuditEventSummary(
+                event_type=str(row["event_type"]),
+                outcome=str(row["outcome"]),
+                created_at=row["created_at"],
+                actor_display_name=str(row["display_name"]) if row["display_name"] else None,
             )
             for row in rows
         )
