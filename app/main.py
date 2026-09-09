@@ -16,7 +16,11 @@ from app.core.app_paths import APP_PATHS
 from app.core.company_workspace import CompanyWorkspaceManager
 from app.core.identity import AuthenticatedSession, IdentityStore
 from app.core.platform_connection import PlatformConnectionStore
+from app.core.platform_connection import PlatformApiClient
+from app.core.platform_auth_service import LocalSessionScope, PlatformAuthService
+from app.core.platform_session import PlatformSessionStore
 from app.core.platform_license_store import PlatformLicenseStore
+from app.core.installation_identity import InstallationIdentityStore
 from app.ui.login_window import LoginWindow
 from app.ui.main_window import MainWindow
 
@@ -91,6 +95,38 @@ def main():
             central_license=central_license,
         )
         _main_window.show()
+        # Merkezi kontrol yalnız arka planda yapılır: masaüstü açılışı ve yerel
+        # muhasebe akışı bağlantı hızına bağımlı değildir.
+        if platform_url:
+            installation_root = APP_PATHS.base_data_root
+            session_store = PlatformSessionStore(installation_root)
+            # Merkezi hesaba hiç giriş yapmamış kullanıcıya gereksiz ağ isteği
+            # ya da durum metni göstermeyiz.
+            if session_store.load() is None:
+                return
+            service = PlatformAuthService(
+                PlatformApiClient(PlatformConnectionStore(installation_root).get()),
+                session_store,
+                LocalSessionScope(session.company_id, session.user_id),
+            )
+            license_store = PlatformLicenseStore(installation_root)
+            installation_store = InstallationIdentityStore(APP_PATHS.data_root)
+
+            def refresh_license():
+                refreshed = service.refresh_current_license(
+                    installation_id=installation_store.get_or_create(),
+                    device_label="Çarpan Muhasebe Asistanı",
+                )
+                if refreshed.license is not None:
+                    license_store.save(
+                        refreshed.license,
+                        company_id=session.company_id,
+                        user_id=session.user_id,
+                        api_url=platform_url,
+                    )
+                return refreshed
+
+            _main_window.refresh_central_license_async(refresh_license)
 
     show_login_window()
 

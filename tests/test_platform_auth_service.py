@@ -90,6 +90,30 @@ def test_bound_session_activates_installation_and_reads_license():
     assert license_info.usable
 
 
+def test_saved_central_session_refreshes_license_without_user_interaction():
+    client = _Client()
+    stored = _session().bind_to_local_session(company_id=1, user_id=2)
+    result = PlatformAuthService(client, _MemoryStore(stored), LocalSessionScope(1, 2)).refresh_current_license(
+        installation_id="installation-identity-123456789",
+        device_label="Test bilgisayarı",
+    )
+
+    assert result.state == "refreshed"
+    assert result.license is not None and result.license.usable
+    assert client.refreshed
+    assert client.activated
+
+
+def test_offline_background_license_refresh_keeps_local_work_available():
+    stored = _session().bind_to_local_session(company_id=1, user_id=2)
+    result = PlatformAuthService(
+        _Client(refresh_error="network"), _MemoryStore(stored), LocalSessionScope(1, 2)
+    ).refresh_current_license(installation_id="installation-identity-123456789")
+
+    assert result.state == "offline"
+    assert result.license is None
+
+
 def test_restore_rotates_session_without_affecting_local_work_when_offline():
     store = _MemoryStore(_session())
     result = PlatformAuthService(_Client(refresh_error="network"), store, LocalSessionScope(1, 2)).restore()

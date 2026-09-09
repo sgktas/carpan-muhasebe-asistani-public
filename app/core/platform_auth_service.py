@@ -44,6 +44,13 @@ class CentralSessionResult:
 
 
 @dataclass(frozen=True)
+class CentralLicenseRefreshResult:
+    state: str
+    license: PlatformLicense | None
+    message: str
+
+
+@dataclass(frozen=True)
 class LocalSessionScope:
     """The local user allowed to use one encrypted central session."""
 
@@ -186,3 +193,28 @@ class PlatformAuthService:
             device_label=device_label,
         )
         return self._client.license(session.access_token)
+
+    def refresh_current_license(
+        self,
+        *,
+        installation_id: str,
+        device_label: str | None = None,
+    ) -> CentralLicenseRefreshResult:
+        """Kaydedilmiş merkezi oturumla lisansı sessizce yeniler.
+
+        Bu yöntem uygulamanın açılışını durdurmaz; arka plan işçisinde
+        çağrılır. Ağ hatasında yerel çalışma devam eder, geçersiz oturumda ise
+        güvenli oturum kaydı ``restore`` tarafından temizlenir.
+        """
+        restored = self.restore()
+        if not restored.is_connected or restored.session is None:
+            return CentralLicenseRefreshResult(restored.state, None, restored.message)
+        try:
+            license_info = self.sync_device_and_license(
+                restored.session,
+                installation_id=installation_id,
+                device_label=device_label,
+            )
+        except (PlatformAuthenticationError, PlatformSessionError, ValueError) as error:
+            return CentralLicenseRefreshResult("unavailable", None, str(error))
+        return CentralLicenseRefreshResult("refreshed", license_info, "Merkezi lisans güncellendi.")

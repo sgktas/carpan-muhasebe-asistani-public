@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Slot, QThread
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from app.ui.history_page import HistoryPage
 from app.ui.integrations_page import IntegrationsPage
 from app.ui.operation_center_page import OperationCenterPage
 from app.ui.audit_page import AuditPage
+from app.ui.background_task import BackgroundWorker
 from app.ui.settings_page import SettingsPage
 from app.ui.team_page import ROLE_LABELS, TeamPage
 from app.ui.theme import BRAND_ORANGE, MAIN_STYLE, asset_icon, crisp_pixmap
@@ -114,6 +115,9 @@ class MainWindow(QWidget):
         self.nav_buttons: list[QPushButton] = []
         self.nav_icon_names: list[str] = []
         self.nav_items: list[tuple[str, str]] = []
+        self._central_refresh_thread: QThread | None = None
+        self._central_refresh_worker: BackgroundWorker | None = None
+        self._pending_logout = False
 
         self.setObjectName("mainRoot")
         self.setWindowTitle("Çarpan Muhasebe Asistanı")
@@ -226,6 +230,9 @@ class MainWindow(QWidget):
         )
         status_label.setObjectName("userStatus")
         status_label.setWordWrap(True)
+        self._central_status_label = QLabel()
+        self._central_status_label.setObjectName("userStatus")
+        self._central_status_label.setWordWrap(True)
         logout_button = QPushButton("Çıkış yap")
         logout_button.setObjectName("logoutButton")
         logout_button.setCursor(Qt.PointingHandCursor)
@@ -233,15 +240,70 @@ class MainWindow(QWidget):
 
         user_col.addWidget(name_label)
         user_col.addWidget(status_label)
+        user_col.addWidget(self._central_status_label)
         user_col.addWidget(logout_button)
         user_layout.addLayout(user_col, 1)
         return user_card
 
     def _logout(self) -> None:
         self.identity_store.record_logout(self.session)
+        if self._central_refresh_thread is not None:
+            self._pending_logout = True
+            self._central_status_label.setText("Merkezi kontrol tamamlanıyor; ardından çıkış yapılacak.")
+            return
+        self._complete_logout()
+
+    def _complete_logout(self) -> None:
         if callable(self.on_logout):
             self.on_logout()
         self.close()
+
+    def refresh_central_license_async(self, operation) -> None:
+        """Açılışta merkezi lisansı arayüzü bekletmeden yeniler."""
+        if self._central_refresh_thread is not None:
+            return
+        thread = QThread(self)
+        worker = BackgroundWorker(operation)
+        worker.moveToThread(thread)
+        self._central_refresh_thread = thread
+        self._central_refresh_worker = worker
+        self._central_status_label.setText("Merkezi lisans kontrol ediliyor…")
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._apply_central_refresh)
+        worker.failed.connect(self._central_refresh_failed)
+        thread.finished.connect(self._clear_central_refresh)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+
+    @Slot(object)
+    def _apply_central_refresh(self, result) -> None:
+        message = str(getattr(result, "message", "Merkezi lisans kontrol edildi."))
+        self._central_status_label.setText(message)
+        if self._central_refresh_thread is not None:
+            self._central_refresh_thread.quit()
+
+    @Slot(object)
+    def _central_refresh_failed(self, _error) -> None:
+        # Ağ/servis sorunu yerel muhasebe iş akışını durdurmaz.
+        self._central_status_label.setText("Merkezi lisans şu an doğrulanamadı; yerel çalışma devam ediyor.")
+        if self._central_refresh_thread is not None:
+            self._central_refresh_thread.quit()
+
+    @Slot()
+    def _clear_central_refresh(self) -> None:
+        self._central_refresh_thread = None
+        self._central_refresh_worker = None
+        if self._pending_logout:
+            self._pending_logout = False
+            self._complete_logout()
+
+    def closeEvent(self, event) -> None:
+        if self._central_refresh_thread is not None:
+            self._central_status_label.setText("Merkezi kontrol tamamlanıyor; pencere birazdan kapanacak.")
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _add_nav_button(
         self,
