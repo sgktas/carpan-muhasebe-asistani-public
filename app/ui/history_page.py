@@ -3,14 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QSignalBlocker, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -29,6 +31,8 @@ class HistoryPage(QWidget):
         super().__init__(parent)
         self.history = history
         self._records = []
+        self._all_records = []
+        self._events_by_operation: dict[int, list] = {}
         self._build_ui()
         self.refresh()
 
@@ -87,6 +91,29 @@ class HistoryPage(QWidget):
         self.open_button.clicked.connect(self.open_selected_output)
         header.addWidget(self.open_button)
         card_layout.addLayout(header)
+
+        filters = QHBoxLayout()
+        filters.setSpacing(8)
+        self.outcome_filter = QComboBox()
+        self.outcome_filter.addItem("Tüm karar sonuçları", "")
+        self.region_filter = QComboBox()
+        self.region_filter.addItem("Tüm bölgeler", "")
+        self.bank_filter = QComboBox()
+        self.bank_filter.addItem("Tüm bankalar", "")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("İşlem, kullanıcı veya kural ara")
+        self.search_input.setClearButtonEnabled(True)
+        for widget in (self.outcome_filter, self.region_filter, self.bank_filter):
+            widget.currentIndexChanged.connect(self._render_records)
+            filters.addWidget(widget)
+        self.search_input.textChanged.connect(self._render_records)
+        filters.addWidget(self.search_input, 1)
+        card_layout.addLayout(filters)
+
+        self.decision_summary = QLabel()
+        self.decision_summary.setObjectName("cardSubtitle")
+        self.decision_summary.setWordWrap(True)
+        card_layout.addWidget(self.decision_summary)
 
         self.table = QTableWidget(0, 8)
         self.table.setObjectName("historyTable")
@@ -154,12 +181,103 @@ class HistoryPage(QWidget):
         return " • ".join(parts) or "-"
 
     def refresh(self) -> None:
-        self._records = self.history.recent(100)
+        self._all_records = self.history.recent(100)
+        self._events_by_operation = {
+            record.id: self.history.events(record.id)
+            for record in self._all_records
+        }
+        self._populate_decision_filters()
+        self._render_records()
+
+    def _populate_decision_filters(self) -> None:
+        decisions = [
+            event.details
+            for events in self._events_by_operation.values()
+            for event in events
+            if event.code == "DECISION_AUDIT"
+        ]
+        self._replace_filter_items(
+            self.outcome_filter,
+            "Tüm karar sonuçları",
+            sorted({str(item.get("outcome", "")).strip() for item in decisions if item.get("outcome")}),
+            self._outcome_text,
+        )
+        self._replace_filter_items(
+            self.region_filter,
+            "Tüm bölgeler",
+            sorted({str(item.get("region", "")).strip() for item in decisions if item.get("region")}),
+            lambda value: value,
+        )
+        self._replace_filter_items(
+            self.bank_filter,
+            "Tüm bankalar",
+            sorted({str(item.get("bank", "")).strip() for item in decisions if item.get("bank")}),
+            lambda value: value,
+        )
+        outcomes = [str(item.get("outcome", "")) for item in decisions]
+        summary = [f"Karar kaydı: {len(decisions)}"]
+        for outcome in ("REVIEW", "HAVALE", "ODEME_ONAYLANDI", "REFERANSLI", "SAME_BANK_VIRMAN"):
+            count = outcomes.count(outcome)
+            if count:
+                summary.append(f"{self._outcome_text(outcome)}: {count}")
+        self.decision_summary.setText(" • ".join(summary) if decisions else "Bu ekrandaki işlemlerde henüz karar günlüğü bulunmuyor.")
+
+    @staticmethod
+    def _replace_filter_items(combo: QComboBox, default_text: str, values: list[str], label) -> None:
+        selected = str(combo.currentData() or "")
+        blocker = QSignalBlocker(combo)
+        combo.clear()
+        combo.addItem(default_text, "")
+        for value in values:
+            combo.addItem(label(value), value)
+        index = combo.findData(selected)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        del blocker
+
+    @staticmethod
+    def _outcome_text(outcome: str) -> str:
+        return {
+            "HAVALE": "Havale",
+            "ODEME_ONAYLANDI": "Ödeme Onaylandı",
+            "REFERANSLI": "Referanslı",
+            "SAME_BANK_VIRMAN": "Aynı banka virmanı",
+            "KURAL_CALISTI": "Kural çalıştı",
+            "REVIEW": "İnceleme",
+        }.get(str(outcome), str(outcome) or "-")
+
+    def _render_records(self) -> None:
+        outcome = str(self.outcome_filter.currentData() or "")
+        region = str(self.region_filter.currentData() or "")
+        bank = str(self.bank_filter.currentData() or "")
+        needle = self.search_input.text().strip().casefold()
+
+        def matches(record) -> bool:
+            decisions = [
+                event.details for event in self._events_by_operation.get(record.id, [])
+                if event.code == "DECISION_AUDIT"
+            ]
+            if outcome and not any(str(item.get("outcome", "")) == outcome for item in decisions):
+                return False
+            if region and not any(str(item.get("region", "")) == region for item in decisions):
+                return False
+            if bank and not any(str(item.get("bank", "")) == bank for item in decisions):
+                return False
+            if not needle:
+                return True
+            searchable = [record.module_name, record.actor, record.status]
+            for item in decisions:
+                searchable.extend(
+                    str(item.get(key, ""))
+                    for key in ("outcome", "region", "bank", "rule_code", "reason")
+                )
+            return needle in " ".join(searchable).casefold()
+
+        self._records = [record for record in self._all_records if matches(record)]
         self.table.setRowCount(len(self._records))
         for row_index, record in enumerate(self._records):
             decision_count = sum(
                 event.code == "DECISION_AUDIT"
-                for event in self.history.events(record.id)
+                for event in self._events_by_operation.get(record.id, [])
             )
             values = [
                 self._display_date(record.started_at),
@@ -235,18 +353,10 @@ class HistoryPage(QWidget):
 
     @staticmethod
     def _decision_lines(events) -> list[str]:
-        labels = {
-            "HAVALE": "Havale",
-            "ODEME_ONAYLANDI": "Ödeme Onaylandı",
-            "REFERANSLI": "Referanslı",
-            "SAME_BANK_VIRMAN": "Aynı banka virmanı",
-            "KURAL_CALISTI": "Kural çalıştı",
-            "REVIEW": "İnceleme",
-        }
         lines = []
         for event in events:
             details = event.details
-            outcome = labels.get(str(details.get("outcome", "")), details.get("outcome", "-"))
+            outcome = HistoryPage._outcome_text(str(details.get("outcome", "")))
             region = details.get("region", "-")
             bank = details.get("bank", "-") or "-"
             raw_amount = details.get("amount")

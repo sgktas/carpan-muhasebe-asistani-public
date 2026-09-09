@@ -195,6 +195,15 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Eski işlemlerde karar olayı bulunmuyorsa ekran bunu açıkça belirtiyor;
   geçmiş veriler geriye dönük değiştirilmedi.
 
+## 9 Eylül 2026 — Karar günlüğü filtreleri
+
+- Geçmiş İşlemler ekranında karar sonucu, bölge ve banka filtreleri eklendi.
+  Arama alanı modül, kullanıcı ve uygulanan kural üzerinden çalışıyor.
+- Ekran, seçili son 100 işlemdeki kararların havale, inceleme, ödeme onaylandı,
+  referanslı ve aynı banka virmanı dağılımını özetliyor.
+- Filtreler yalnız yerel firma kapsamındaki işlem geçmişi üzerinde çalışır;
+  merkezi sisteme Excel, banka veya müşteri verisi göndermez.
+
 ## 9 Eylül 2026 — FOM şablon ön kontrolü
 
 - FOM Rapor Düzenleme ekranı seçilen satış veya tahsilat raporunun gerektirdiği
