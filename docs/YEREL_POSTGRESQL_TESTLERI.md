@@ -98,6 +98,15 @@ okunabilirlik sınaması yapar; veritabanına yazmaz:
 python platform_api/scripts/verify_database_backup.py --pg-bin local_data/postgresql_test_runtime/17.11/pgsql/bin --backup local_data/carpan_platform/backups/<yedek-adı>.dump
 ```
 
+Geri dönüşün gerçekten çalıştığını sınamak gerektiğinde aşağıdaki komut,
+yalnız açık onayla rastgele adlı geçici bir veritabanı oluşturur. Yedek oraya
+açılır; kontrol bitince sadece bu geçici veritabanı silinir. Canlı yerel
+platform veritabanına geri yükleme yapmaz:
+
+```powershell
+python platform_api/scripts/rehearse_database_restore.py --pg-bin local_data/postgresql_test_runtime/17.11/pgsql/bin --backup local_data/carpan_platform/backups/<yedek-adı>.dump --allow-restore-rehearsal
+```
+
 ## Testlerin güvenlik sınırı
 
 - Testler yalnız açıkça tanımlanan `CARPAN_TEST_PG_ADMIN_DSN` üzerinden, `127.0.0.1`

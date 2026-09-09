@@ -63,6 +63,10 @@ ise yedeği geri yazmadan hem bütünlük değerini hem de `pg_restore` okunabil
 denetler. Bu iki araç hiçbir dosya silmez ve veritabanı parolasını komut satırına
 veya ekrana yazmaz.
 
+`rehearse_database_restore.py`, yalnız açık parametreyle rastgele adlı geçici
+bir veritabanında yedeği açar ve tatbikat sonunda yalnız kendi oluşturduğu
+veritabanını siler. Canlı veritabanına geri yükleme yapılmaz.
+
 VPS kurulduğunda `carpan` servis kullanıcısının günlük zamanlayıcısı önce yedeği
 alacak, ardından doğrulayacak; başarılı dosya ayrıca sunucu dışı hedefe
 aktarılacaktır. Canlı veriye geri dönüş işlemi otomatik komutla değil, ayrı

@@ -60,6 +60,13 @@ python scripts/verify_database_backup.py --pg-bin "C:\PostgreSQL\bin" --backup "
 
 VPS'te zamanlayıcı önce yedeği alacak, ardından bu ikinci doğrulamayı çalıştıracak;
 harici ve şifreli kopyalama ile geri-dönüş tatbikatı ayrı dağıtım adımında eklenecek.
+Tatbikat komutu gerçek merkezi veritabanına yazmaz: geçici, rastgele adlı bir
+veritabanı oluşturur, yedeği yalnız oraya açar ve iş bitince o geçici veritabanını
+silerek şema okunabilirliğini sınar. Açık onay olmadan çalışmaz:
+
+```powershell
+python scripts/rehearse_database_restore.py --pg-bin "C:\PostgreSQL\bin" --backup "local_data\carpan_platform\backups\carpan_platform_YYYYMMDD_HHMMSS.dump" --allow-restore-rehearsal
+```
 
 ## PostgreSQL şema kurulumu
 
