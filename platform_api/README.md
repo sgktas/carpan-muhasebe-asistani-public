@@ -39,6 +39,14 @@ Yerel merkezi yönetim paneli `http://127.0.0.1:8010/admin` adresindedir.
 Bu panel yalnız kullanıcı, rol, cihaz ve lisans özetlerini okur; finansal dosya
 ve müşteri verisi kabul etmez.
 
+`/health` servis sürecinin ayakta olduğunu, `/ready` ise imzalama anahtarı,
+veritabanı ve tüm şema migrasyonlarının canlı çalışmaya uygun olduğunu denetler.
+VPS dağıtımından hemen önce salt-okunur ön kontrol için şunu çalıştırın:
+
+```powershell
+python scripts/preflight_deployment.py
+```
+
 ## PostgreSQL şema kurulumu
 
 `.env` içindeki `CARPAN_DATABASE_URL` değerini yalnız yerel/sunucu gizli

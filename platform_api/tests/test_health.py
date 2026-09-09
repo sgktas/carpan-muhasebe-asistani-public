@@ -39,6 +39,24 @@ def test_health_is_available_before_database_deployment():
     }
 
 
+def test_ready_requires_database_schema_and_signing_configuration():
+    settings = Settings(
+        environment="test", database_url=None, jwt_secret=None,
+        jwt_issuer="carpan-test", allowed_origins=(),
+    )
+    app = create_app(settings)
+
+    async def get_ready():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get("/ready")
+
+    response = asyncio.run(get_ready())
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Merkezi servis henüz güvenli çalışmaya hazır değil."
+
+
 def test_login_is_unavailable_until_central_database_is_configured():
     settings = Settings(
         environment="test",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -9,7 +9,7 @@ from carpan_platform.api.licensing import router as licensing_router
 from carpan_platform.api.invitations import router as invitations_router
 from carpan_platform.api.management import router as management_router
 from carpan_platform.config import Settings
-from carpan_platform.database import database_health
+from carpan_platform.database import database_health, database_schema_ready
 from carpan_platform.web_ui import WEB_ROOT, router as web_router
 
 
@@ -45,6 +45,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": "ok" if not settings.database_configured or database_ok else "degraded",
             "database": "connected" if database_ok else "not-configured",
         }
+
+    @app.get("/ready", tags=["system"])
+    def ready() -> dict[str, str]:
+        """Yük dengeleyici ve dağıtım işlemleri için sıkı hazır olma denetimi."""
+        if not settings.token_signing_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Merkezi servis henüz güvenli çalışmaya hazır değil.",
+            )
+        if not database_schema_ready(settings):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Merkezi veri altyapısı hazır değil.",
+            )
+        return {"status": "ready"}
 
     return app
 

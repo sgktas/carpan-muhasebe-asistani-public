@@ -97,7 +97,7 @@ def _grant_application_access(owner_url: str, app_role: str) -> None:
         connection.execute(sql.SQL("GRANT CONNECT ON DATABASE carpan_platform TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT USAGE ON SCHEMA carpan TO {}") .format(sql.Identifier(app_role)))
         for table in (
-            "companies", "users", "company_memberships", "licenses",
+            "schema_migrations", "companies", "users", "company_memberships", "licenses",
             "device_registrations", "refresh_tokens", "audit_events", "user_invitations",
         ):
             connection.execute(sql.SQL("GRANT SELECT ON carpan.{} TO {}") .format(sql.Identifier(table), sql.Identifier(app_role)))
