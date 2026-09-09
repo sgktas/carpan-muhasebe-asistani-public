@@ -254,3 +254,16 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Regresyon testi, arka plandaki merkezi oturum sonucunun gerçekten ana arayüz
   iş parçacığında işlendiğini doğrular. Finansal Excel/banka verisi merkezi
   platforma gönderilmez ve şablonlara dokunulmaz.
+
+## 9 Eylül 2026 — Çıktı bütünlüğü kanıtı
+
+- Tamamlanan her işlem, üretilen her yerel çıktı dosyası için SHA-256 özeti ve
+  bayt boyutunu işlem geçmişine kaydeder. Dosya sonradan değiştirilir, silinir
+  veya okunamaz hale gelirse Geçmiş İşlemler ayrıntısında açıkça belirtilir.
+- İlk kayıt anında dosya oluşmamışsa ya da güvenli olmayan bir yol kullanılmışsa
+  işlem özeti `KONTROL GEREKLİ` gösterir; bütünlük doğrulanmış gibi görünmez.
+- Önceki sürümlerdeki işlemler değiştirilmez. Bunlar ayrıntı ekranında
+  “bütünlük kaydı yok” olarak anlaşılır biçimde ayrılır.
+- Parmak izi yerel işlem geçmişinde kalır. Excel hücre içeriği, müşteri, banka
+  veya tahsilat verisi merkezi API'ye aktarılmaz; Netsis ve FOM şablonlarına
+  müdahale edilmez.

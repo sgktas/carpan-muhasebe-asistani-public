@@ -27,6 +27,7 @@ def test_operation_history_records_success_and_failure(tmp_path):
     assert [event.code for event in history.events(success_id)] == [
         "OPERATION_STARTED",
         "OPERATION_COMPLETED",
+        "OUTPUT_EVIDENCE",
     ]
     assert [event.code for event in history.events(failed_id)] == [
         "OPERATION_STARTED",

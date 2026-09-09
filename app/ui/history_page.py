@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.operation_history import OperationHistory
+from app.core.output_evidence import verify_output_evidence
 from app.ui.common import add_page_header
 
 
@@ -168,6 +169,7 @@ class HistoryPage(QWidget):
             ("sales_rows", "Satış"),
             ("collection_rows", "Tahsilat"),
             ("created_file_count", "Dosya"),
+            ("output_integrity", "Bütünlük"),
             ("bolge", "Bölge"),
             ("banka_adi", "Banka"),
             ("islem_sayisi", "İşlem"),
@@ -320,7 +322,9 @@ class HistoryPage(QWidget):
         record = self._records[row]
         events = self.history.events(record.id)
         decision_events = [event for event in events if event.code == "DECISION_AUDIT"]
+        evidence_events = [event for event in events if event.code == "OUTPUT_EVIDENCE"]
         decision_lines = self._decision_lines(decision_events)
+        evidence_lines = self._evidence_lines(evidence_events)
         lines = [
             f"İşlem #{record.id}",
             f"Kullanıcı: {record.actor or '-'}",
@@ -332,6 +336,9 @@ class HistoryPage(QWidget):
             "",
             "Çıktılar:",
             *([f"  • {path}" for path in record.output_files] or ["  • -"]),
+            "",
+            "Çıktı bütünlüğü:",
+            *(evidence_lines or ["  • Bu eski işlem için bütünlük kaydı yok."]),
             "",
             f"Karar özeti ({len(decision_events)} kayıt):",
             *(decision_lines or ["  • Bu işlem için yapılandırılmış karar kaydı yok."]),
@@ -379,6 +386,30 @@ class HistoryPage(QWidget):
                 line += f" ({reason})"
             lines.append(line)
         return lines
+
+    @staticmethod
+    def _evidence_lines(events) -> list[str]:
+        if not events:
+            return []
+        details = events[-1].details
+        comparisons = verify_output_evidence(details)
+        labels = {
+            "VERIFIED": "doğrulandı",
+            "CHANGED": "DEĞİŞMİŞ",
+            "MISSING": "DOSYA BULUNAMADI",
+            "UNREADABLE": "OKUNAMADI",
+            "UNSAFE_PATH": "GÜVENSİZ YOL",
+            "BASELINE_UNAVAILABLE": "ilk kayıt doğrulanamadı",
+        }
+        lines = []
+        for item in comparisons:
+            try:
+                size = f"{int(item.get('size')):,} bayt"
+            except (TypeError, ValueError):
+                size = "boyut bilinmiyor"
+            label = labels.get(str(item.get("comparison", "")), "kontrol edilemedi")
+            lines.append(f"  • {item.get('name', '-')} — {size} — {label}")
+        return lines or ["  • Bu işlemde çıktı dosyası oluşmadı."]
 
     def open_selected_output(self) -> None:
         row = self.table.currentRow()

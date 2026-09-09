@@ -8,6 +8,8 @@ import sqlite3
 from typing import Iterable
 from uuid import uuid4
 
+from app.core.output_evidence import build_output_evidence
+
 
 class OperationHistoryError(RuntimeError):
     """An operation cannot be changed by this company or application instance."""
@@ -256,6 +258,13 @@ class OperationHistory:
         if status not in {"SUCCESS", "PARTIAL"}:
             raise OperationHistoryError("İşlem yalnız SUCCESS veya PARTIAL olarak tamamlanabilir.")
         outputs = [str(Path(path)) for path in output_files]
+        output_evidence = build_output_evidence(outputs)
+        summary_payload = dict(summary or {})
+        summary_payload["output_integrity"] = (
+            "DOĞRULANDI"
+            if output_evidence["state"] == "VERIFIED"
+            else "KONTROL GEREKLİ"
+        )
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -270,7 +279,7 @@ class OperationHistory:
                     status,
                     self._now(),
                     json.dumps(outputs, ensure_ascii=False),
-                    json.dumps(summary or {}, ensure_ascii=False),
+                    json.dumps(summary_payload, ensure_ascii=False),
                     operation_id,
                     self.instance_id,
                     self.company_id,
@@ -291,6 +300,22 @@ class OperationHistory:
                     operation_id,
                     self._now(),
                     json.dumps({"status": status, "output_count": len(outputs)}, ensure_ascii=False),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO operation_events (
+                    operation_id, created_at, level, code, message, details_json
+                ) VALUES (?, ?, ?, 'OUTPUT_EVIDENCE', ?, ?)
+                """,
+                (
+                    operation_id,
+                    self._now(),
+                    "INFO" if output_evidence["state"] == "VERIFIED" else "WARNING",
+                    "Çıktı bütünlüğü doğrulandı."
+                    if output_evidence["state"] == "VERIFIED"
+                    else "Çıktı bütünlüğü için dikkat gerekli.",
+                    json.dumps(output_evidence, ensure_ascii=False),
                 ),
             )
 
