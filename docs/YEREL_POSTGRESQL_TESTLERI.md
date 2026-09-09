@@ -39,6 +39,33 @@ Resmi dağıtım kaynakları: [PostgreSQL Windows](https://www.postgresql.org/do
 [EDB taşınabilir dosyalar](https://www.enterprisedb.com/download-postgresql-binaries).
 SCRAM ve başlangıç seçenekleri: [initdb belgesi](https://www.postgresql.org/docs/17/app-initdb.html).
 
+## Kalıcı yerel platform geliştirme ortamı
+
+Merkezi platform geliştirmesi için test kümesinden ayrı, kalıcı ancak yalnız
+bu bilgisayarda çalışan bir PostgreSQL kümesi kullanılabilir. Bu küme de
+Windows hizmeti, güvenlik duvarı kuralı veya uzak erişim oluşturmaz; yalnız
+`127.0.0.1` üzerinde rastgele bir port dinler.
+
+İlk hazırlık yalnız bir kez yapılır:
+
+```powershell
+py -3 platform_api/scripts/initialize_local_platform.py --bin local_data/postgresql_test_runtime/17.11/pgsql/bin
+```
+
+Parolalar ve bağlantı bilgileri yalnız Git dışındaki
+`local_data/carpan_platform/platform.env` dosyasına yazılır ve ekrana
+basılmaz. Ardından API'yi yerelde çalıştırmak için:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File platform_api/scripts/start_local_api.ps1
+```
+
+Sağlık kontrolü tarayıcıdan `http://127.0.0.1:8010/health` adresinde görünür.
+API'yi durdurmak için aynı pencereye `Ctrl+C` yeterlidir; PostgreSQL verisi
+korunur. İlk firma ve yönetici hesabı, marka/firma bilgileri netleştiğinde
+ayrı bir yönetim adımıyla oluşturulur; bu işlemde parola yalnız yerel terminale
+girilir.
+
 ## Testlerin güvenlik sınırı
 
 - Testler yalnız açıkça tanımlanan `CARPAN_TEST_PG_ADMIN_DSN` üzerinden, `127.0.0.1`
