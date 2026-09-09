@@ -1,44 +1,27 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 import psycopg
 
-from carpan_platform.api.auth import get_settings
+from carpan_platform.api.dependencies import current_claims, get_settings
 from carpan_platform.config import Settings
 from carpan_platform.database import DatabaseConfigurationError
 from carpan_platform.licensing import LicensingRepository
-from carpan_platform.security import TokenError, read_access_token
+from carpan_platform.security import AccessTokenClaims
 
 
 router = APIRouter(prefix="/v1", tags=["licensing"])
-bearer_scheme = HTTPBearer(auto_error=False)
-
-
 class InstallationActivationRequest(BaseModel):
     installation_id: str = Field(min_length=16, max_length=200)
     device_label: str | None = Field(default=None, max_length=160)
 
 
-def _claims(
-    credentials: HTTPAuthorizationCredentials | None,
-    settings: Settings,
-):
-    if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Giriş gerekli.")
-    try:
-        return read_access_token(settings, credentials.credentials)
-    except TokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Oturum geçersiz.") from None
-
-
 @router.get("/license")
 def current_license(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    claims: AccessTokenClaims = Depends(current_claims),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    claims = _claims(credentials, settings)
     try:
         license_info = LicensingRepository(settings).current_license(claims.company_id)
     except (DatabaseConfigurationError, psycopg.Error):
@@ -60,10 +43,9 @@ def current_license(
 @router.post("/devices/activate", status_code=status.HTTP_204_NO_CONTENT)
 def activate_installation(
     payload: InstallationActivationRequest,
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    claims: AccessTokenClaims = Depends(current_claims),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    claims = _claims(credentials, settings)
     try:
         LicensingRepository(settings).activate_installation(
             company_id=claims.company_id,
