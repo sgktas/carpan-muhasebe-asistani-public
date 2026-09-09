@@ -96,3 +96,7 @@ def _username(value: str) -> str:
     if not re.fullmatch(r"[a-z0-9._-]{3,80}", username):
         raise SystemExit("Kullanıcı adı 3-80 karakter; küçük harf, rakam, ., _ veya - içermeli.")
     return username
+
+
+if __name__ == "__main__":
+    main()
