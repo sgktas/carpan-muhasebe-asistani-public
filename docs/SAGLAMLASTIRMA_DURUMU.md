@@ -241,3 +241,16 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
   sahiplik kimliği ve çalışan durum koşullarını birlikte doğrular.
 - Bu adım yerel SQLite işlem geçmişini güçlendirir; merkezi PostgreSQL/RLS
   altyapısına geçişte aynı sahiplik sözleşmesi API katmanında da korunacaktır.
+
+## 9 Eylül 2026 — Merkezi ağ sonucu teslimi
+
+- Merkezi hesap ve bağlantı sınaması zaten arka plan işçisinde çalışıyordu;
+  sonuç teslimi de artık açıkça arayüz iş parçacığına bağlı Qt slotlarıyla
+  yapılıyor. Ağ işçisi hiçbir koşulda doğrudan düğme, uyarı veya durum metni
+  değiştiremez.
+- İşçi görevi sürerken düğmeler devre dışı kalır; sonuç tamamlandığında arayüz
+  güvenle güncellenir ve iş parçacığı kapatılır. Bu düzen yavaş bağlantı,
+  zaman aşımı ve pencere kapanışındaki nadir yarış koşullarını azaltır.
+- Regresyon testi, arka plandaki merkezi oturum sonucunun gerçekten ana arayüz
+  iş parçacığında işlendiğini doğrular. Finansal Excel/banka verisi merkezi
+  platforma gönderilmez ve şablonlara dokunulmaz.

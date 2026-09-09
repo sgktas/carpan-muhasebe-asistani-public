@@ -377,19 +377,19 @@ class SettingsPage(QWidget):
         self._platform_test_thread = thread
         self._platform_test_worker = worker
         thread.started.connect(worker.run)
-        worker.finished.connect(
-            lambda status: self._platform_test_finished(thread, worker, status)
-        )
-        worker.failed.connect(
-            lambda error: self._platform_test_failed(thread, worker, error)
-        )
-        thread.finished.connect(lambda: self._clear_platform_test(thread, worker))
+        # Ağ işçisi sonuçları bağlı slotlarla arayüz iş parçacığına döner.
+        # Böylece bağlantı testi hiçbir koşulda ayar bileşenlerini işçi
+        # iş parçacığından değiştiremez.
+        worker.finished.connect(self._platform_test_finished)
+        worker.failed.connect(self._platform_test_failed)
+        thread.finished.connect(self._clear_platform_test)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.start()
 
-    def _platform_test_finished(self, thread, worker, status) -> None:
-        if self._platform_test_thread is not thread:
+    def _platform_test_finished(self, status) -> None:
+        thread = self._platform_test_thread
+        if thread is None:
             return
         self._platform_status.setText(status.message)
         if status.is_connected:
@@ -400,8 +400,9 @@ class SettingsPage(QWidget):
             self._platform_test_button.setEnabled(True)
         thread.quit()
 
-    def _platform_test_failed(self, thread, worker, error) -> None:
-        if self._platform_test_thread is not thread:
+    def _platform_test_failed(self, error) -> None:
+        thread = self._platform_test_thread
+        if thread is None:
             return
         self._platform_status.setText("Merkezi platform bağlantısı tamamlanamadı.")
         if self._platform_test_button is not None:
@@ -409,10 +410,9 @@ class SettingsPage(QWidget):
         QMessageBox.warning(self, "Merkezi platform", str(error))
         thread.quit()
 
-    def _clear_platform_test(self, thread, worker) -> None:
-        if self._platform_test_thread is thread:
-            self._platform_test_thread = None
-            self._platform_test_worker = None
+    def _clear_platform_test(self) -> None:
+        self._platform_test_thread = None
+        self._platform_test_worker = None
 
     def _open_platform_account(self) -> None:
         config = self._platform_store.get()

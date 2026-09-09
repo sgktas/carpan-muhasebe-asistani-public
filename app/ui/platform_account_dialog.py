@@ -20,6 +20,7 @@ class PlatformAccountDialog(QDialog):
         self._license_scope = license_scope
         self._auth_thread: QThread | None = None
         self._auth_worker: BackgroundWorker | None = None
+        self._auth_success_handler: Callable | None = None
         self.setWindowTitle("Merkezi Hesap")
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
@@ -138,33 +139,40 @@ class PlatformAccountDialog(QDialog):
         worker.moveToThread(thread)
         self._auth_thread = thread
         self._auth_worker = worker
+        self._auth_success_handler = on_success
         thread.started.connect(worker.run)
-        worker.finished.connect(lambda result: self._finish_async(thread, worker, on_success, result))
-        worker.failed.connect(lambda error: self._fail_async(thread, worker, error))
-        thread.finished.connect(lambda: self._clear_async(thread, worker))
+        # Bağlı Qt slotları, ağ işçisi sonuçlarını arayüz iş parçacığına
+        # güvenli biçimde sıralar. Lambdalar alıcı bağlamı taşımadığından
+        # burada kullanılmaz.
+        worker.finished.connect(self._finish_async)
+        worker.failed.connect(self._fail_async)
+        thread.finished.connect(self._clear_async)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.start()
 
-    def _finish_async(self, thread, worker, on_success, result) -> None:
-        if self._auth_thread is not thread:
+    def _finish_async(self, result) -> None:
+        thread = self._auth_thread
+        handler = self._auth_success_handler
+        if thread is None or handler is None:
             return
-        on_success(result)
+        handler(result)
         self.login_button.setEnabled(True)
         thread.quit()
 
-    def _fail_async(self, thread, worker, error) -> None:
-        if self._auth_thread is not thread:
+    def _fail_async(self, error) -> None:
+        thread = self._auth_thread
+        if thread is None:
             return
         self.status.setText("Merkezi platform bağlantısı tamamlanamadı.")
         self.login_button.setEnabled(True)
         QMessageBox.warning(self, "Merkezi hesap", str(error))
         thread.quit()
 
-    def _clear_async(self, thread, worker) -> None:
-        if self._auth_thread is thread:
-            self._auth_thread = None
-            self._auth_worker = None
+    def _clear_async(self) -> None:
+        self._auth_thread = None
+        self._auth_worker = None
+        self._auth_success_handler = None
 
     def closeEvent(self, event) -> None:
         if self._auth_thread is not None:

@@ -1,7 +1,8 @@
 from types import SimpleNamespace
+import time
 
 import pytest
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, QThread, QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.ui.platform_account_dialog import PlatformAccountDialog
@@ -46,6 +47,36 @@ def test_account_dialog_shows_license_status_when_sync_is_available():
         QTimer.singleShot(100, loop.quit)
         loop.exec()
         assert "Lisans: PRO (geçerli)" in dialog.status.text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_account_dialog_applies_background_result_on_ui_thread():
+    result = SimpleNamespace(
+        is_connected=False,
+        session=None,
+        message="Merkezi hesap bağlı değil.",
+    )
+
+    def slow_restore():
+        time.sleep(0.08)
+        return result
+
+    dialog = PlatformAccountDialog(SimpleNamespace(restore=slow_restore))
+    applied_threads = []
+    original_handler = dialog._auth_success_handler
+
+    def record_handler(payload):
+        applied_threads.append(QThread.currentThread())
+        original_handler(payload)
+
+    dialog._auth_success_handler = record_handler
+    try:
+        loop = QEventLoop()
+        QTimer.singleShot(300, loop.quit)
+        loop.exec()
+        assert applied_threads == [_app.thread()]
     finally:
         dialog.close()
         dialog.deleteLater()
