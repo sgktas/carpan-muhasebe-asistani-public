@@ -17,7 +17,8 @@ class AuthenticationClient(Protocol):
     def logout(self, *, access_token: str, refresh_token: str) -> None: ...
 
     def activate_device(
-        self, *, access_token: str, installation_id: str, device_label: str | None = None
+        self, *, access_token: str, installation_id: str, refresh_token: str | None = None,
+        device_label: str | None = None
     ) -> None: ...
 
     def license(self, access_token: str) -> PlatformLicense: ...
