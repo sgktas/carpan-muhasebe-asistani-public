@@ -110,6 +110,8 @@ def test_management_overview_returns_tenant_scoped_summary(monkeypatch):
             "status": "ACTIVE",
             "expires_at": None,
             "enabled_modules": ["MANIM", "FOM"],
+            "enforcement_required": False,
+            "offline_grace_hours": 168,
         },
     }
 

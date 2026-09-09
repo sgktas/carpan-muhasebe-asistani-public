@@ -106,6 +106,10 @@ class PlatformAccountDialog(QDialog):
         if license_info is not None:
             state = "geçerli" if license_info.usable else "geçersiz"
             text += f" · Lisans: {license_info.plan_code} ({state})"
+            if getattr(license_info, "enforcement_required", False):
+                text += f" · Çevrimdışı sınır: {getattr(license_info, 'offline_grace_hours', 168)} saat"
+            else:
+                text += " · Merkezi zorlama henüz kapalı"
         elif license_error is not None:
             text += " · Lisans doğrulanamadı; yerel çalışma devam ediyor"
         self.status.setText(text)

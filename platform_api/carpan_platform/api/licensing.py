@@ -38,6 +38,8 @@ def current_license(
         "expires_at": license_info.expires_at,
         "enabled_modules": license_info.enabled_modules,
         "usable": license_info.is_usable(),
+        "enforcement_required": license_info.enforcement_required,
+        "offline_grace_hours": license_info.offline_grace_hours,
     }
 
 

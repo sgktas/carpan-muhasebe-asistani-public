@@ -33,6 +33,8 @@ class PlatformLicenseStore:
             "expires_at": license_info.expires_at,
             "enabled_modules": sorted(license_info.enabled_modules),
             "usable": license_info.usable,
+            "enforcement_required": license_info.enforcement_required,
+            "offline_grace_hours": license_info.offline_grace_hours,
             "company_id": int(company_id),
             "user_id": int(user_id),
             "api_url": str(api_url),
@@ -58,6 +60,9 @@ class PlatformLicenseStore:
                 expires_at=str(payload["expires_at"]) if payload.get("expires_at") else None,
                 enabled_modules=frozenset(str(item) for item in payload.get("enabled_modules", [])),
                 usable=bool(payload["usable"]),
+                enforcement_required=bool(payload.get("enforcement_required", False)),
+                offline_grace_hours=int(payload.get("offline_grace_hours", 168)),
+                fetched_at=str(payload["fetched_at"]),
             )
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             return None

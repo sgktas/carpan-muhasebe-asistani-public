@@ -29,6 +29,8 @@ class ManagementOverview:
     license_status: str | None
     license_expires_at: datetime | None
     enabled_modules: tuple[str, ...]
+    license_enforcement_required: bool = False
+    license_offline_grace_hours: int = 168
 
     def as_payload(self) -> dict[str, object]:
         return {
@@ -50,6 +52,8 @@ class ManagementOverview:
                 "status": self.license_status,
                 "expires_at": self.license_expires_at,
                 "enabled_modules": list(self.enabled_modules),
+                "enforcement_required": self.license_enforcement_required,
+                "offline_grace_hours": self.license_offline_grace_hours,
             },
         }
 
@@ -149,7 +153,8 @@ class ManagementRepository:
             ).fetchall()
             license_row = connection.execute(
                 """
-                SELECT plan_code, status, expires_at, module_entitlements
+                SELECT plan_code, status, expires_at, module_entitlements,
+                       enforce_central, offline_grace_hours
                 FROM carpan.licenses
                 WHERE company_id = %s
                 ORDER BY
@@ -176,6 +181,8 @@ class ManagementRepository:
             enabled_modules=normalize_module_entitlements(
                 license_row["module_entitlements"] if license_row else []
             ),
+            license_enforcement_required=bool(license_row["enforce_central"]) if license_row else False,
+            license_offline_grace_hours=int(license_row["offline_grace_hours"]) if license_row else 168,
         )
 
     def team_members(self, company_id: UUID) -> tuple[TeamMemberSummary, ...]:

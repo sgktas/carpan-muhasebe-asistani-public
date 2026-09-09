@@ -19,6 +19,8 @@ class LicenseSnapshot:
     status: str
     expires_at: datetime | None
     enabled_modules: tuple[str, ...]
+    enforcement_required: bool = False
+    offline_grace_hours: int = 168
 
     def is_usable(self, now: datetime | None = None) -> bool:
         current = now or datetime.now(timezone.utc)
@@ -60,7 +62,8 @@ class LicensingRepository:
         with tenant_transaction(self.settings, company_id) as connection:
             row = connection.execute(
                 """
-                SELECT plan_code, status, expires_at, module_entitlements
+                SELECT plan_code, status, expires_at, module_entitlements,
+                       enforce_central, offline_grace_hours
                 FROM carpan.licenses
                 WHERE company_id = %s
                 ORDER BY
@@ -77,6 +80,8 @@ class LicensingRepository:
             status=str(row["status"]),
             expires_at=row["expires_at"],
             enabled_modules=normalize_module_entitlements(row["module_entitlements"]),
+            enforcement_required=bool(row["enforce_central"]),
+            offline_grace_hours=int(row["offline_grace_hours"]),
         )
 
     def activate_installation(

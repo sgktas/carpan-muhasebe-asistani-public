@@ -74,7 +74,14 @@ async function loadDashboard() {
     $("device-count").textContent = text(overview.devices.active_count, "0");
     $("revoked-count").textContent = overview.devices.revoked_count ? `${overview.devices.revoked_count} iptal edilmiş` : "İptal edilmiş cihaz yok";
     $("license-plan").textContent = overview.license.plan_code || "Tanımlı değil";
-    $("license-status").textContent = overview.license.status ? statusLabel(overview.license.status) : "Lisans henüz tanımlanmadı";
+    if (overview.license.status) {
+      const policy = overview.license.enforcement_required
+        ? `Merkezi kontrol · çevrimdışı ${overview.license.offline_grace_hours} saat`
+        : "Yerel çalışma korunuyor";
+      $("license-status").textContent = `${statusLabel(overview.license.status)} · ${policy}`;
+    } else {
+      $("license-status").textContent = "Lisans henüz tanımlanmadı";
+    }
     $("team-total").textContent = team.members.length;
     $("device-total").textContent = devices.devices.length;
     $("audit-total").textContent = audits.events.length;

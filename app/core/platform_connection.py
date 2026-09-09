@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
@@ -50,6 +50,9 @@ class PlatformLicense:
     expires_at: str | None
     enabled_modules: frozenset[str]
     usable: bool
+    enforcement_required: bool = False
+    offline_grace_hours: int = 168
+    fetched_at: str | None = field(default=None, compare=False)
 
 
 class PlatformConnectionStore:
@@ -197,6 +200,8 @@ class PlatformApiClient:
                 expires_at=str(payload["expires_at"]) if payload.get("expires_at") else None,
                 enabled_modules=frozenset(str(item) for item in modules if str(item).strip()),
                 usable=bool(payload["usable"]),
+                enforcement_required=bool(payload.get("enforcement_required", False)),
+                offline_grace_hours=int(payload.get("offline_grace_hours", 168)),
             )
         except (KeyError, TypeError, ValueError):
             raise PlatformAuthenticationError("Merkezi platform lisans bilgisi geçersiz.") from None
