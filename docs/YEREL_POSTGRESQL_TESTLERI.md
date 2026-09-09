@@ -80,6 +80,24 @@ powershell -ExecutionPolicy Bypass -File platform_api/scripts/bootstrap_local_co
 Bu adım yalnız ilk firma için çalışır. Bir firma zaten varsa araç hiçbir kaydı
 değiştirmeden durur.
 
+## Yerel merkezi veritabanı yedeği
+
+Geliştirme kümesinin yedeği, yalnız `local_data/carpan_platform/backups/`
+altına yazılır. Komut hiçbir mevcut yedeğin üstüne yazmaz, otomatik silme veya
+geri yükleme yapmaz. `--pg-bin` için yerel PostgreSQL `bin` klasörünü verin:
+
+```powershell
+python platform_api/scripts/database_backup.py --pg-bin local_data/postgresql_test_runtime/17.11/pgsql/bin
+```
+
+Oluşan `.dump` dosyası, yanındaki `.json` bütünlük kaydıyla birlikte
+saklanmalıdır. Doğrulama komutu yalnız hash kontrolü ve `pg_restore --list`
+okunabilirlik sınaması yapar; veritabanına yazmaz:
+
+```powershell
+python platform_api/scripts/verify_database_backup.py --pg-bin local_data/postgresql_test_runtime/17.11/pgsql/bin --backup local_data/carpan_platform/backups/<yedek-adı>.dump
+```
+
 ## Testlerin güvenlik sınırı
 
 - Testler yalnız açıkça tanımlanan `CARPAN_TEST_PG_ADMIN_DSN` üzerinden, `127.0.0.1`

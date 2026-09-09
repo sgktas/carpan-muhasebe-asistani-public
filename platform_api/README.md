@@ -47,6 +47,20 @@ VPS dağıtımından hemen önce salt-okunur ön kontrol için şunu çalıştı
 python scripts/preflight_deployment.py
 ```
 
+## Yedek doğrulama
+
+Merkezi veritabanı için yedek alma aracı özel PostgreSQL yedeği ve yanında
+değişmezlik kaydı oluşturur. Parola komut satırına veya günlük kaydına yazılmaz.
+Araç var olan yedeğin üstüne yazmaz; geri yükleme ya da otomatik silme yapmaz.
+
+```powershell
+python scripts/database_backup.py --pg-bin "C:\PostgreSQL\bin"
+python scripts/verify_database_backup.py --pg-bin "C:\PostgreSQL\bin" --backup "local_data\carpan_platform\backups\carpan_platform_YYYYMMDD_HHMMSS.dump"
+```
+
+VPS'te zamanlayıcı önce yedeği alacak, ardından bu ikinci doğrulamayı çalıştıracak;
+harici ve şifreli kopyalama ile geri-dönüş tatbikatı ayrı dağıtım adımında eklenecek.
+
 ## PostgreSQL şema kurulumu
 
 `.env` içindeki `CARPAN_DATABASE_URL` değerini yalnız yerel/sunucu gizli

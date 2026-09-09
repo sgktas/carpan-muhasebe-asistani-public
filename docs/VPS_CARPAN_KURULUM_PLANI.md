@@ -55,6 +55,19 @@ eder; API yalnız `127.0.0.1:8010` üzerinden Nginx tarafından çağrılır.
 - Her sürümde geri yükleme denemesi yapılarak yedek doğrulanır.
 - Yerel masaüstü Excel dosyaları ilk sürümde merkezi API'ye yüklenmez.
 
+## Otomatikleştirilecek yedek akışı
+
+Uygulama kaynaklarındaki `platform_api/scripts/database_backup.py`, PostgreSQL
+custom-format dump ve SHA-256 bütünlük kaydı üretir. `verify_database_backup.py`
+ise yedeği geri yazmadan hem bütünlük değerini hem de `pg_restore` okunabilirliğini
+denetler. Bu iki araç hiçbir dosya silmez ve veritabanı parolasını komut satırına
+veya ekrana yazmaz.
+
+VPS kurulduğunda `carpan` servis kullanıcısının günlük zamanlayıcısı önce yedeği
+alacak, ardından doğrulayacak; başarılı dosya ayrıca sunucu dışı hedefe
+aktarılacaktır. Canlı veriye geri dönüş işlemi otomatik komutla değil, ayrı
+onaylı ve geçici bir geri-yükleme denemesiyle uygulanacaktır.
+
 ## Uygulama anahtarları
 
 - `CARPAN_DATABASE_URL` ve `CARPAN_JWT_SECRET` yalnız
