@@ -66,6 +66,18 @@ korunur. İlk firma ve yönetici hesabı, marka/firma bilgileri netleştiğinde
 ayrı bir yönetim adımıyla oluşturulur; bu işlemde parola yalnız yerel terminale
 girilir.
 
+Örnek ilk firma/yönetici oluşturma komutu aşağıdadır. Komut iki kez güvenli
+parola istemi açar; parolayı komuta eklemeyin ve paylaşmayın:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File platform_api/scripts/bootstrap_local_company.ps1 `
+  -CompanyCode CARPAN -CompanyName "Çarpan Muhasebe Asistanı" `
+  -Username admin -DisplayName "Platform Yöneticisi"
+```
+
+Bu adım yalnız ilk firma için çalışır. Bir firma zaten varsa araç hiçbir kaydı
+değiştirmeden durur.
+
 ## Testlerin güvenlik sınırı
 
 - Testler yalnız açıkça tanımlanan `CARPAN_TEST_PG_ADMIN_DSN` üzerinden, `127.0.0.1`
