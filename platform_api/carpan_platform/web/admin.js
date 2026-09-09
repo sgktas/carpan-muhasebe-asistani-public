@@ -30,6 +30,16 @@ function row(title, subtitle, state, muted = false) {
   item.append(copy, pill); return item;
 }
 
+function teamRow(member) {
+  const item = row(member.display_name, `${member.username} · ${statusLabel(member.role)}`, member.active ? "ETKİN" : "PASİF", !member.active);
+  const actions = document.createElement("div"); actions.className = "member-actions";
+  const select = document.createElement("select"); ["ADMIN","OPERATOR","APPROVER","AUDITOR"].forEach((role) => { const option=document.createElement("option"); option.value=role; option.textContent=statusLabel(role); option.selected=role===member.role; select.appendChild(option); });
+  const save = document.createElement("button"); save.type="button"; save.textContent="Rolü kaydet";
+  const toggle = document.createElement("button"); toggle.type="button"; toggle.textContent=member.active ? "Pasife al" : "Etkinleştir";
+  const update = async (payload) => { save.disabled=toggle.disabled=true; try { const response=await fetch(`/v1/management/team/${encodeURIComponent(member.username)}`,{method:"PATCH",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify(payload)}); if(!response.ok){const body=await response.json();throw new Error(body.detail||"Kullanıcı güncellenemedi.");} await loadDashboard(); } catch(error){$("dashboard-error").textContent=error.message;} finally {save.disabled=toggle.disabled=false;} };
+  save.addEventListener("click",()=>update({role:select.value})); toggle.addEventListener("click",()=>update({active:!member.active})); actions.append(select,save,toggle); item.firstChild.append(actions); return item;
+}
+
 async function loadDashboard() {
   $("dashboard-error").textContent = "";
   try {
@@ -44,7 +54,7 @@ async function loadDashboard() {
     $("license-status").textContent = overview.license.status ? statusLabel(overview.license.status) : "Lisans henüz tanımlanmadı";
     $("team-total").textContent = team.members.length;
     $("device-total").textContent = devices.devices.length;
-    renderRows("team-list", team.members, (member) => row(member.display_name, `${member.username} · ${statusLabel(member.role)}`, member.active ? "ETKİN" : "PASİF", !member.active), "Ekip kullanıcısı yok.");
+    renderRows("team-list", team.members, teamRow, "Ekip kullanıcısı yok.");
     renderRows("device-list", devices.devices, (device) => row(device.label || "Adsız kurulum", device.assigned_username, statusLabel(device.status), device.status !== "ACTIVE"), "Cihaz kaydı yok.");
   } catch (error) {
     $("dashboard-error").textContent = error.message;
