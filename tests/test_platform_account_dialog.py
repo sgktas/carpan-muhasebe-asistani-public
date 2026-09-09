@@ -11,8 +11,15 @@ from app.ui.platform_account_dialog import PlatformAccountDialog
 _app = QApplication.instance() or QApplication([])
 
 
+def _run_immediately(self, operation, on_success):
+    """Durum arayüzü testinde gerçek ağ işçisi oluşturmadan sonucu uygular."""
+    self._auth_success_handler = on_success
+    on_success(operation())
+
+
 @pytest.mark.parametrize("connected", [False, True])
-def test_account_dialog_opens_with_and_without_saved_session(connected):
+def test_account_dialog_opens_with_and_without_saved_session(connected, monkeypatch):
+    monkeypatch.setattr(PlatformAccountDialog, "_run_async", _run_immediately)
     result = SimpleNamespace(
         is_connected=connected,
         session=SimpleNamespace(display_name="Test", role="ADMIN") if connected else None,
@@ -31,7 +38,8 @@ def test_account_dialog_opens_with_and_without_saved_session(connected):
         dialog.deleteLater()
 
 
-def test_account_dialog_shows_license_status_when_sync_is_available():
+def test_account_dialog_shows_license_status_when_sync_is_available(monkeypatch):
+    monkeypatch.setattr(PlatformAccountDialog, "_run_async", _run_immediately)
     result = SimpleNamespace(
         is_connected=True,
         session=SimpleNamespace(display_name="Test", role="ADMIN"),
