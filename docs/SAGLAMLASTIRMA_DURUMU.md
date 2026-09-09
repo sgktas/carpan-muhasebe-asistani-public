@@ -227,3 +227,17 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
   hatalı toplam ve eksik manuel seçim `REVIEW` sonucu olarak görülebiliyor.
 - Karar kayıtlarında müşteri adı, IBAN ve ham dekont açıklaması tutulmuyor;
   bu geliştirme Netsis/FOM şablonlarını veya çıktı üretim biçimini değiştirmiyor.
+
+## 9 Eylül 2026 — Firma kapsamlı işlem sahipliği
+
+- Çalışan bir işlem artık yalnız aynı firma, aynı kullanıcı ve işlemi başlatan
+  uygulama örneği tarafından tamamlanabilir, başarısız sayılabilir veya yeni
+  karar/olay kaydı alabilir.
+- Kimliği olmayan eski bir istemci, firma kapsamlı işlem geçmişini göremez,
+  değiştiremez ya da süresi geçmiş firma işlemini kesintiye uğramış sayamaz.
+  Bu istemciler yalnız firma kimliği bulunmayan eski kayıtlarla sınırlıdır.
+- Aynı uygulama örneği kimliği yanlışlıkla tekrar kullanılsa bile başka bir
+  kullanıcı açık işlemi devralamaz. İşlem durumu geçişi firma, kullanıcı,
+  sahiplik kimliği ve çalışan durum koşullarını birlikte doğrular.
+- Bu adım yerel SQLite işlem geçmişini güçlendirir; merkezi PostgreSQL/RLS
+  altyapısına geçişte aynı sahiplik sözleşmesi API katmanında da korunacaktır.

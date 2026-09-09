@@ -121,6 +121,55 @@ def test_other_company_cannot_change_or_add_event_to_an_operation(tmp_path):
     assert [event.code for event in first.events(operation_id)] == ["OPERATION_STARTED"]
 
 
+def test_unscoped_or_different_user_instance_cannot_take_a_firm_operation(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    owner = OperationHistory(
+        database,
+        company_id=7,
+        user_id=41,
+        instance_id="shared-instance-id",
+    )
+    operation_id = owner.start("manim_transfer", "MANİM", ["movement.xlsx"])
+
+    # Aynı sahiplik kimliği taklit edilse bile kimliği olmayan eski istemci
+    # ya da aynı firmadaki başka kullanıcı çalışan kaydı değiştiremez.
+    unscoped = OperationHistory(database, instance_id="shared-instance-id")
+    other_user = OperationHistory(
+        database,
+        company_id=7,
+        user_id=42,
+        instance_id="shared-instance-id",
+    )
+    for history in (unscoped, other_user):
+        with pytest.raises(OperationHistoryError):
+            history.complete(operation_id, ["wrong.xls"])
+        with pytest.raises(OperationHistoryError):
+            history.add_event(operation_id, "WRONG", "wrong")
+
+    assert unscoped.recent() == []
+    assert unscoped.events(operation_id) == []
+    assert owner.recent()[0].status == "RUNNING"
+
+
+def test_unscoped_instance_cannot_interrupt_expired_firm_operation(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    owner = OperationHistory(database, company_id=7, user_id=41, instance_id="owner")
+    operation_id = owner.start("manim_transfer", "MANİM", ["movement.xlsx"])
+    with owner._connect() as connection:
+        connection.execute(
+            "UPDATE operations SET lease_expires_at = '2000-01-01T00:00:00+00:00' WHERE id = ?",
+            (operation_id,),
+        )
+
+    OperationHistory(database, instance_id="legacy").recent()
+
+    with owner._connect() as connection:
+        record = connection.execute(
+            "SELECT status FROM operations WHERE id = ?", (operation_id,)
+        ).fetchone()
+    assert record["status"] == "RUNNING"
+
+
 def test_terminal_operation_cannot_be_rewritten_or_receive_new_events(tmp_path):
     history = OperationHistory(tmp_path / "operations.sqlite3", company_id=1, instance_id="only")
     operation_id = history.start("manim_transfer", "MANİM", ["first.xlsx"])

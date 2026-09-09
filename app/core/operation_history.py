@@ -178,7 +178,12 @@ class OperationHistory:
         """
         clause = "status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?"
         values: list[object] = [self._now()]
-        if self.company_id is not None:
+        if self.company_id is None:
+            # Kimliği olmayan eski istemci yalnız kendi eski, firma kapsamı
+            # bulunmayan kayıtlarını toparlayabilir. Firma kayıtlarına hiç
+            # dokunamaz.
+            clause += " AND company_id IS NULL"
+        else:
             clause += " AND company_id = ?"
             values.append(self.company_id)
         connection.execute(
@@ -258,7 +263,8 @@ class OperationHistory:
                 SET status = ?, completed_at = ?, output_files_json = ?,
                     summary_json = ?, error_message = NULL
                 WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
-                  AND (? IS NULL OR company_id = ?)
+                  AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
+                  AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
                 """,
                 (
                     status,
@@ -269,6 +275,8 @@ class OperationHistory:
                     self.instance_id,
                     self.company_id,
                     self.company_id,
+                    self.user_id,
+                    self.user_id,
                 ),
             )
             if cursor.rowcount != 1:
@@ -293,9 +301,19 @@ class OperationHistory:
                 UPDATE operations
                 SET status = 'FAILED', completed_at = ?, error_message = ?
                 WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
-                  AND (? IS NULL OR company_id = ?)
+                  AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
+                  AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
                 """,
-                (self._now(), str(error_message), operation_id, self.instance_id, self.company_id, self.company_id),
+                (
+                    self._now(),
+                    str(error_message),
+                    operation_id,
+                    self.instance_id,
+                    self.company_id,
+                    self.company_id,
+                    self.user_id,
+                    self.user_id,
+                ),
             )
             if cursor.rowcount != 1:
                 raise OperationHistoryError("İşlem başarısız olarak kaydedilemedi; kayıt başka firmaya, eski bir oturuma veya tamamlanmış duruma ait.")
@@ -322,9 +340,17 @@ class OperationHistory:
                 """
                 SELECT 1 FROM operations
                 WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
-                  AND (? IS NULL OR company_id = ?)
+                  AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
+                  AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
                 """,
-                (int(operation_id), self.instance_id, self.company_id, self.company_id),
+                (
+                    int(operation_id),
+                    self.instance_id,
+                    self.company_id,
+                    self.company_id,
+                    self.user_id,
+                    self.user_id,
+                ),
             ).fetchone()
             if allowed is None:
                 raise OperationHistoryError("İşlem olayı eklenemedi; kayıt bu uygulama oturumuna ait değil.")
@@ -401,9 +427,18 @@ class OperationHistory:
                 """
                 UPDATE operations SET lease_expires_at = ?
                 WHERE id = ? AND status = 'RUNNING' AND owner_instance_id = ?
-                  AND (? IS NULL OR company_id = ?)
+                  AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
+                  AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
                 """,
-                (self._lease_expires_at(), int(operation_id), self.instance_id, self.company_id, self.company_id),
+                (
+                    self._lease_expires_at(),
+                    int(operation_id),
+                    self.instance_id,
+                    self.company_id,
+                    self.company_id,
+                    self.user_id,
+                    self.user_id,
+                ),
             )
             if cursor.rowcount != 1:
                 raise OperationHistoryError("İşlem devam sinyali gönderilemedi; kayıt bu uygulama oturumuna ait değil.")
@@ -414,7 +449,8 @@ class OperationHistory:
                 rows = connection.execute(
                     """
                     SELECT e.* FROM operation_events e
-                    WHERE e.operation_id = ?
+                    JOIN operations o ON o.id = e.operation_id
+                    WHERE e.operation_id = ? AND o.company_id IS NULL
                     ORDER BY e.id
                     """,
                     (int(operation_id),),
@@ -448,6 +484,7 @@ class OperationHistory:
                 rows = connection.execute(
                     """
                     SELECT * FROM operations
+                    WHERE company_id IS NULL
                     ORDER BY id DESC
                     LIMIT ?
                     """,
