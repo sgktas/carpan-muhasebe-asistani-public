@@ -72,7 +72,17 @@ class MainWindow(QWidget):
                 )
             )
             self.management_items.append(
-                ("history", "Geçmiş İşlemler", "history", lambda: HistoryPage(self.history))
+                (
+                    "history",
+                    "Geçmiş İşlemler",
+                    "history",
+                    lambda: HistoryPage(
+                        self.history,
+                        can_record_external_acceptance=session.can(
+                            "operations.acceptance.record"
+                        ),
+                    ),
+                )
             )
         if session.can("users.manage"):
             self.management_items.append(

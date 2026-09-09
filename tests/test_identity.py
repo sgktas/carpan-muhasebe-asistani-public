@@ -86,6 +86,7 @@ def test_admin_can_create_and_manage_role_scoped_user(tmp_path):
     operator = store.authenticate("operator", "Operator1234", admin.company_id)
     assert operator.allows_module("bank_reconciliation")
     assert not operator.can("users.manage")
+    assert operator.can("operations.acceptance.record")
     with pytest.raises(IdentityError, match="yönetici"):
         store.create_user(
             operator,
@@ -99,6 +100,7 @@ def test_admin_can_create_and_manage_role_scoped_user(tmp_path):
     auditor = store.authenticate("operator", "Operator1234", admin.company_id)
     assert auditor.can("audit.read")
     assert not auditor.allows_module("manim_transfer")
+    assert not auditor.can("operations.acceptance.record")
     assert store.audit_events(auditor)[0].action == "LOGIN"
 
     with pytest.raises(IdentityError, match="denetim yetkisi"):

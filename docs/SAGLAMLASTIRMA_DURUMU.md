@@ -299,3 +299,6 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Son sonucu “reddedildi” olan işlem, teknik olarak dosya üretmiş olsa bile
   Operasyon Merkezi'nin dikkat listesine girer. Böylece günlük ekranda gerçek
   ERP aktarım sorunu, salt dosya oluşturma başarısından ayrı takip edilir.
+- Sonuç kaydetme izni ayrı tanımlıdır: yönetici, operatör ve onaylayıcı bu
+  kaydı oluşturabilir; salt okuma/denetçi rolü geçmişi inceleyebilir fakat dış
+  aktarım sonucunu değiştiremez.

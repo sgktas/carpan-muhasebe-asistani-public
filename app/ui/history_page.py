@@ -29,9 +29,16 @@ from app.ui.common import add_page_header
 
 
 class HistoryPage(QWidget):
-    def __init__(self, history: OperationHistory, parent=None):
+    def __init__(
+        self,
+        history: OperationHistory,
+        *,
+        can_record_external_acceptance: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.history = history
+        self.can_record_external_acceptance = bool(can_record_external_acceptance)
         self._records = []
         self._all_records = []
         self._events_by_operation: dict[int, list] = {}
@@ -324,7 +331,8 @@ class HistoryPage(QWidget):
         self.detail_button.setEnabled(0 <= row < len(self._records))
         record = self._records[row] if 0 <= row < len(self._records) else None
         self.acceptance_button.setEnabled(
-            bool(record)
+            self.can_record_external_acceptance
+            and bool(record)
             and record.status in {"SUCCESS", "PARTIAL"}
             and bool(record.output_files)
             and bool(self._acceptance_system(record))

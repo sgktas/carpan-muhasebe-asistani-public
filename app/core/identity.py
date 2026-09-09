@@ -74,9 +74,14 @@ class AuthenticatedSession:
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "ADMIN": frozenset({"*"}),
-    "OPERATOR": frozenset({"module.*", "history.read"}),
+    "OPERATOR": frozenset({"module.*", "history.read", "operations.acceptance.record"}),
     "APPROVER": frozenset(
-        {"module.manim_transfer", "history.read", "operations.approve"}
+        {
+            "module.manim_transfer",
+            "history.read",
+            "operations.approve",
+            "operations.acceptance.record",
+        }
     ),
     "AUDITOR": frozenset({"history.read", "audit.read"}),
 }
