@@ -194,3 +194,14 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
   kaldığını veya hangi rotaya ayrıldığını olay listesini açmadan görebiliyor.
 - Eski işlemlerde karar olayı bulunmuyorsa ekran bunu açıkça belirtiyor;
   geçmiş veriler geriye dönük değiştirilmedi.
+
+## 9 Eylül 2026 — FOM şablon ön kontrolü
+
+- FOM Rapor Düzenleme ekranı seçilen satış veya tahsilat raporunun gerektirdiği
+  özgün şablonu dosya seçilir seçilmez doğruluyor.
+- Şablon uyuşmazsa işlem düğmesi pasif kalıyor ve kullanıcı raporlar okunmadan
+  önce Ayarlar > Onaylı Şablon Kontrolü yönlendirmesini görüyor. Böylece geç
+  aşamada hata alıp günlük iş akışının kesilmesi önleniyor.
+- Bu kontrol şablonu değiştirmez, yeni kontrol değeri üretmez ve yalnız seçilen
+  FOM çıktısının şablonunu etkiler. MANİM şablonları kendi doğrulamalarından
+  geçmeye devam eder.

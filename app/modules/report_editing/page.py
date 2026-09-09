@@ -24,6 +24,10 @@ from app.core.app_paths import APP_PATHS
 from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
+from app.core.template_integrity import (
+    runtime_template_enforcement_enabled,
+    verify_approved_templates,
+)
 from app.modules.report_editing.engine import (
     MODULE_ID,
     MODULE_NAME,
@@ -39,6 +43,7 @@ class ReportEditingPage(QWidget):
         super().__init__(parent)
         self.history = history
         self.files: list[Path] = []
+        self._recognized_types: set[str] = set()
         self.last_output_dir: Path | None = None
         self.setAcceptDrops(True)
         self._build_ui()
@@ -291,6 +296,7 @@ class ReportEditingPage(QWidget):
         }
         listed: list[str] = []
         problems: list[str] = []
+        recognized_types: set[str] = set()
         for path in self.files:
             try:
                 file_type = ReportEditingEngine.classify_file(path)
@@ -298,7 +304,10 @@ class ReportEditingPage(QWidget):
                 file_type = None
                 problems.append(f"{path.name}: {error}")
             label = recognized_labels.get(file_type, "Tanınamadı")
+            if file_type:
+                recognized_types.add(file_type)
             listed.append(f"{label}  •  {path.name}")
+        self._recognized_types = recognized_types
 
         self.drop_hint.setVisible(False)
         self.file_list.clear()
@@ -310,14 +319,19 @@ class ReportEditingPage(QWidget):
 
         count = len(self.files)
         recognized_count = sum("Tanınamadı" not in item for item in listed)
-        all_ready = recognized_count == count and count > 0
-        self.file_status.setText(f"{recognized_count}/{count} rapor tanındı")
+        template_problem = self._selected_template_problem()
+        all_ready = recognized_count == count and count > 0 and not template_problem
+        self.file_status.setText(
+            f"{recognized_count}/{count} rapor tanındı"
+            + (" • Şablon kontrolü gerekli" if template_problem else "")
+        )
         self.file_status.setProperty("ready", "true" if all_ready else "false")
         self.file_status.style().unpolish(self.file_status)
         self.file_status.style().polish(self.file_status)
 
         self.loaded_label.setText(
-            "Satış veya tahsilat raporu tek başına da düzenlenebilir. "
+            template_problem
+            or "Satış veya tahsilat raporu tek başına da düzenlenebilir. "
             "Müşteri listesi verilirse Şube sütunu otomatik doldurulur; verilmezse #N/A kalır."
         )
         self.progress.setValue(20 if all_ready else 0)
@@ -325,10 +339,40 @@ class ReportEditingPage(QWidget):
             "Raporlar tanındı ve işleme hazır." if all_ready
             else "Tanınamayan dosyayı listeden çıkarın veya doğru ham raporu seçin."
         )
+        if template_problem:
+            self.progress_detail.setText("Onaylı şablon geri yüklenmeden işlem başlatılamaz.")
+            self.log.append(f"UYARI: {template_problem}")
         self.start_button.setEnabled(all_ready)
         self.clear_button.setEnabled(bool(self.files))
         for problem in problems:
             self.log.append(f"UYARI: {problem}")
+
+    def _selected_template_problem(self) -> str | None:
+        """Yalnız seçili FOM çıktıları için özgün şablon ön kontrolü yapar."""
+        if not runtime_template_enforcement_enabled():
+            return None
+        required = {
+            "sales": "report_editing/sales_template.xls",
+            "collections": "report_editing/collections_template.xls",
+        }
+        needed = {required[item] for item in self._recognized_types if item in required}
+        if not needed:
+            return None
+        snapshot = verify_approved_templates(APP_PATHS.resource_root)
+        problem = next(
+            (
+                check for check in snapshot.checks
+                if check.template_name in needed and check.status != "VALID"
+            ),
+            None,
+        )
+        if problem is None:
+            return None
+        label = "Tahsilat" if problem.template_name.endswith("collections_template.xls") else "Satış"
+        return (
+            f"{label} aktarım şablonu doğrulanamadı. Ayarlar > Onaylı Şablon Kontrolü "
+            "alanından durumu açın; özgün şablon geri yüklenmeden işlem başlatılamaz."
+        )
 
     def clear_files(self) -> None:
         self.files = []
@@ -352,6 +396,13 @@ class ReportEditingPage(QWidget):
         self.log.clear()
 
     def start_process(self) -> None:
+        template_problem = self._selected_template_problem()
+        if template_problem:
+            self.progress.setValue(0)
+            self.progress_detail.setText("Şablon kontrolü gerekli.")
+            self.log.append(f"UYARI: {template_problem}")
+            QMessageBox.warning(self, "Onaylı şablon gerekli", template_problem)
+            return
         self.start_button.setEnabled(False)
         self.select_button.setEnabled(False)
         self.clear_button.setEnabled(False)
