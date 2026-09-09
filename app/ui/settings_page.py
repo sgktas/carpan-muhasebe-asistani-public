@@ -64,8 +64,9 @@ class SettingsPage(QWidget):
         )
         # Merkezi bağlantı firma çalışma alanına değil, bu bilgisayarın ortak
         # kurulum alanına aittir. Finansal yerel veriler yine firma alanındadır.
-        self._platform_store = PlatformConnectionStore(APP_PATHS.base_data_root)
-        self._platform_session_store = PlatformSessionStore(APP_PATHS.base_data_root)
+        installation_root = getattr(APP_PATHS, "base_data_root", APP_PATHS.state_dir.parent)
+        self._platform_store = PlatformConnectionStore(installation_root)
+        self._platform_session_store = PlatformSessionStore(installation_root)
         self._local_session = local_session
         self._profile_row_widgets: list[QWidget] = []
         self._build_ui()

@@ -166,6 +166,25 @@ class WindowsDataProtector:
             self._release_blob(output_blob)
 
 
+class UnavailableDataProtector:
+    """Windows DPAPI olmayan ortamda oturum verisi yazılmasını engeller.
+
+    Bu yalnız Linux tabanlı otomatik kalite kontrolü gibi desteklenmeyen
+    ortamlarda ayarlar ekranının güvenle açılabilmesi içindir. Veriyi şifresiz
+    saklamaz; kaydetme/okuma girişimi açık hata verir.
+    """
+
+    def protect(self, value: bytes) -> bytes:
+        raise PlatformSessionError(
+            "Merkezi oturum bu işletim sisteminde güvenli biçimde saklanamaz."
+        )
+
+    def unprotect(self, value: bytes) -> bytes:
+        raise PlatformSessionError(
+            "Merkezi oturum bu işletim sisteminde güvenli biçimde açılamaz."
+        )
+
+
 class PlatformSessionStore:
     """Merkezi oturumu DPAPI ile şifrelenmiş tek bir yerel dosyada tutar."""
 
@@ -173,7 +192,11 @@ class PlatformSessionStore:
 
     def __init__(self, data_root: str | Path, *, protector: DataProtector | None = None):
         self.path = Path(data_root) / self.FILE_NAME
-        self._protector = protector or WindowsDataProtector()
+        self._protector = protector or (
+            WindowsDataProtector()
+            if sys.platform.startswith("win")
+            else UnavailableDataProtector()
+        )
 
     def save(self, session: PlatformSession) -> None:
         if not session.is_valid() or not session.has_local_scope:

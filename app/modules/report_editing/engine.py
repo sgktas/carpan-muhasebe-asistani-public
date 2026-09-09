@@ -25,7 +25,7 @@ from app.core.output_contract import (
 )
 from app.core.template_integrity import (
     assert_approved_template,
-    runtime_template_enforcement_enabled,
+    template_enforcement_enabled_for,
 )
 
 AMOUNT_FORMAT = "#,##0.00"
@@ -902,7 +902,7 @@ class ReportEditingEngine:
         oluşmaz; kullanıcı başarısız bir işlemden kalan klasörleri ayıklamak
         zorunda kalmaz.
         """
-        if not self.create_template_outputs or not runtime_template_enforcement_enabled():
+        if not self.create_template_outputs or not template_enforcement_enabled_for(self.resource_root):
             return
         templates = {
             "sales": "sales_template.xls",
@@ -1058,7 +1058,7 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "sales_template.xls"
                 )
-                if runtime_template_enforcement_enabled():
+                if template_enforcement_enabled_for(self.resource_root):
                     assert_approved_template(self.resource_root, template_path)
                 template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{SALES_OUTPUT_BASENAME}.xls"
@@ -1120,7 +1120,7 @@ class ReportEditingEngine:
                 template_path = _report_template_path(
                     self.resource_root, "collections_template.xls"
                 )
-                if runtime_template_enforcement_enabled():
+                if template_enforcement_enabled_for(self.resource_root):
                     assert_approved_template(self.resource_root, template_path)
                 template_sheet_name = _template_first_sheet_name(template_path)
                 template_output = output_dir / f"{COLLECTION_OUTPUT_BASENAME}.xls"

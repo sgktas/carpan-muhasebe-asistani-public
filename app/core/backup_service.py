@@ -113,7 +113,9 @@ def validate_local_backup(backup_path: str | Path) -> dict[str, object]:
                 expected_paths.add(name)
                 data = archive.read(name)
                 if int(item.get("size", -1)) != len(data):
-                    raise BackupError(f"Yedek dosya boyutu uyuşmuyor: {name}")
+                    raise BackupError(
+                        f"Yedek dosyası bozulmuş veya boyutu uyuşmuyor: {name}"
+                    )
                 if str(item.get("sha256", "")) != hashlib.sha256(data).hexdigest():
                     raise BackupError(f"Yedek dosyası bozulmuş: {name}")
             return manifest

@@ -27,6 +27,23 @@ def runtime_template_enforcement_enabled() -> bool:
     return os.name == "nt" and os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
 
 
+def template_enforcement_enabled_for(resource_root: str | Path) -> bool:
+    """Şablon manifesti olan test/üretim köklerinde denetimi etkinleştirir.
+
+    Gerçek Windows kurulumunda kontrol her zaman açıktır. Public testler gerçek
+    şablon/manifest taşımadığından açık devre kalır; buna karşılık sentetik bir
+    manifest verilen regresyon testinde, işletim sisteminden bağımsız olarak
+    aynı üretim ön kontrolü uygulanır.
+    """
+    import os
+
+    if os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") == "1":
+        return False
+    return runtime_template_enforcement_enabled() or (
+        Path(resource_root) / CHECKSUM_FILE
+    ).is_file()
+
+
 @dataclass(frozen=True)
 class TemplateIntegrityCheck:
     template_name: str

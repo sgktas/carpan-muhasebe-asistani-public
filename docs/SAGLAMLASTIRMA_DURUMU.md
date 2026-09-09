@@ -302,3 +302,14 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Sonuç kaydetme izni ayrı tanımlıdır: yönetici, operatör ve onaylayıcı bu
   kaydı oluşturabilir; salt okuma/denetçi rolü geçmişi inceleyebilir fakat dış
   aktarım sonucunu değiştiremez.
+
+## 9 Eylül 2026 — Public otomatik kalite kontrolü
+
+- GitHub Actions hata günlüğü incelendi ve üç gerçek regresyon düzeltildi:
+  yedek bütünlük hatası artık açık bir “bozulmuş” bildirimi verir, Linux kalite
+  kontrolünde merkezi oturum hiçbir zaman şifresiz saklanmadan Ayarlar ekranı
+  güvenle oluşturulur, FOM'da değişmiş şablon çıktı klasörü yaratılmadan önce
+  engellenir.
+- Public test koşucusundaki sentetik şablon manifesti, üretimdekiyle aynı
+  bütünlük kapısını kullanır. Public kaynakta gerçek yerel şablon veya müşteri
+  verisi bulunmaz; onaylı Netsis/FOM şablonlarına dokunulmadı.
