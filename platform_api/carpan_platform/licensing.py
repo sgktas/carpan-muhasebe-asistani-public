@@ -86,12 +86,13 @@ class LicensingRepository:
         user_id: UUID,
         installation_id: str,
         device_label: str | None,
+        refresh_token_hash: str | None = None,
     ) -> None:
         """Kurulum kaydını günceller; donanım veya kişisel veri toplamaz."""
         safe_label = " ".join(str(device_label or "").split())[:160] or None
         fingerprint_hash = installation_hash(installation_id)
         with tenant_transaction(self.settings, company_id) as connection:
-            connection.execute(
+            row = connection.execute(
                 """
                 INSERT INTO carpan.device_registrations(
                     company_id, user_id, device_fingerprint_hash, device_label
@@ -102,7 +103,21 @@ class LicensingRepository:
                     device_label = COALESCE(EXCLUDED.device_label, carpan.device_registrations.device_label),
                     status = 'ACTIVE',
                     last_seen_at = now()
+                RETURNING id
                 """,
                 (company_id, user_id, fingerprint_hash, safe_label),
-            )
-
+            ).fetchone()
+            # Oturum, cihaz kaydından sonra oluştuğu için ilk girişte henüz
+            # bağlanmamış olur. Ham anahtarı asla saklamadan yalnız özetini
+            # eşleştiririz; böylece iptal edilen cihazın yenileme oturumları da
+            # anında geçersiz olur.
+            if refresh_token_hash:
+                connection.execute(
+                    """
+                    UPDATE carpan.refresh_tokens
+                    SET device_registration_id = %s
+                    WHERE company_id = %s AND user_id = %s
+                      AND token_hash = %s AND revoked_at IS NULL
+                    """,
+                    (row["id"], company_id, user_id, refresh_token_hash),
+                )

@@ -40,6 +40,23 @@ function teamRow(member) {
   save.addEventListener("click",()=>update({role:select.value})); toggle.addEventListener("click",()=>update({active:!member.active})); actions.append(select,save,toggle); item.firstChild.append(actions); return item;
 }
 
+function deviceRow(device) {
+  const item = row(device.label || "Adsız kurulum", device.assigned_username, statusLabel(device.status), device.status !== "ACTIVE");
+  if (device.status !== "ACTIVE") return item;
+  const actions = document.createElement("div"); actions.className = "device-actions";
+  const revoke = document.createElement("button"); revoke.type="button"; revoke.textContent="Cihazı iptal et";
+  revoke.addEventListener("click", async () => {
+    if (!confirm("Bu cihazın merkezi oturumlarını iptal etmek istiyor musunuz? Cihaz yeniden giriş yaparak tekrar etkinleşebilir.")) return;
+    revoke.disabled=true;
+    try {
+      const response=await fetch("/v1/management/devices/revoke", {method:"POST",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify({assigned_username:device.assigned_username,device_label:device.label || null})});
+      if(!response.ok){const body=await response.json();throw new Error(body.detail||"Cihaz iptal edilemedi.");}
+      await loadDashboard();
+    } catch(error) { $("dashboard-error").textContent=error.message; } finally { revoke.disabled=false; }
+  });
+  actions.append(revoke); item.firstChild.append(actions); return item;
+}
+
 async function loadDashboard() {
   $("dashboard-error").textContent = "";
   try {
@@ -55,7 +72,7 @@ async function loadDashboard() {
     $("team-total").textContent = team.members.length;
     $("device-total").textContent = devices.devices.length;
     renderRows("team-list", team.members, teamRow, "Ekip kullanıcısı yok.");
-    renderRows("device-list", devices.devices, (device) => row(device.label || "Adsız kurulum", device.assigned_username, statusLabel(device.status), device.status !== "ACTIVE"), "Cihaz kaydı yok.");
+    renderRows("device-list", devices.devices, deviceRow, "Cihaz kaydı yok.");
   } catch (error) {
     $("dashboard-error").textContent = error.message;
   }

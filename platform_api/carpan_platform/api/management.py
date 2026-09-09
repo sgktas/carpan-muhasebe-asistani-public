@@ -25,6 +25,11 @@ class MemberUpdateRequest(BaseModel):
     active: bool | None = None
 
 
+class DeviceRevocationRequest(BaseModel):
+    assigned_username: str = Field(min_length=3, max_length=80)
+    device_label: str | None = Field(default=None, max_length=160)
+
+
 @router.get("/overview")
 def overview(
     claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
@@ -99,3 +104,24 @@ def update_team_member(username: str, payload: MemberUpdateRequest, claims: Acce
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ekip kullanıcısı bulunamadı.") from None
     except (DatabaseConfigurationError, psycopg.Error):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Ekip kaydı güncellenemedi.") from None
+
+
+@router.post("/devices/revoke", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_device(
+    payload: DeviceRevocationRequest,
+    claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    try:
+        ManagementRepository(settings).revoke_device(
+            company_id=claims.company_id,
+            actor_user_id=claims.user_id,
+            assigned_username=payload.assigned_username,
+            device_label=payload.device_label,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Etkin cihaz bulunamadı.") from None
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Cihaz kaydı iptal edilemedi.") from None

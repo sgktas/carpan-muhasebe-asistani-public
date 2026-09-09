@@ -181,6 +181,7 @@ class PlatformAuthService:
         self._client.activate_device(
             access_token=session.access_token,
             installation_id=normalized_installation_id,
+            refresh_token=session.refresh_token,
             device_label=device_label,
         )
         return self._client.license(session.access_token)

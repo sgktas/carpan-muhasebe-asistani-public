@@ -202,11 +202,18 @@ class PlatformApiClient:
             raise PlatformAuthenticationError("Merkezi platform lisans bilgisi geçersiz.") from None
 
     def activate_device(
-        self, *, access_token: str, installation_id: str, device_label: str | None = None, timeout_seconds: float = 8.0
+        self, *, access_token: str, installation_id: str, refresh_token: str | None = None,
+        device_label: str | None = None, timeout_seconds: float = 8.0
     ) -> None:
+        payload = {
+            "installation_id": str(installation_id),
+            "device_label": str(device_label or ""),
+        }
+        if refresh_token:
+            payload["refresh_token"] = str(refresh_token)
         self._post_json(
             "/v1/devices/activate",
-            {"installation_id": str(installation_id), "device_label": str(device_label or "")},
+            payload,
             access_token=access_token,
             timeout_seconds=timeout_seconds,
             expect_json=False,

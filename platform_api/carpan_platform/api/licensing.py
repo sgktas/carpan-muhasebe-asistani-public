@@ -8,13 +8,14 @@ from carpan_platform.api.dependencies import current_claims, get_settings
 from carpan_platform.config import Settings
 from carpan_platform.database import DatabaseConfigurationError
 from carpan_platform.licensing import LicensingRepository
-from carpan_platform.security import AccessTokenClaims
+from carpan_platform.security import AccessTokenClaims, hash_refresh_token
 
 
 router = APIRouter(prefix="/v1", tags=["licensing"])
 class InstallationActivationRequest(BaseModel):
     installation_id: str = Field(min_length=16, max_length=200)
     device_label: str | None = Field(default=None, max_length=160)
+    refresh_token: str | None = Field(default=None, min_length=40, max_length=512)
 
 
 @router.get("/license")
@@ -52,6 +53,7 @@ def activate_installation(
             user_id=claims.user_id,
             installation_id=payload.installation_id,
             device_label=payload.device_label,
+            refresh_token_hash=hash_refresh_token(payload.refresh_token) if payload.refresh_token else None,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None

@@ -38,6 +38,7 @@ class _Client:
         self.logged_out = False
         self.refreshed = False
         self.activated = False
+        self.activation_payload = None
         self.config = PlatformConnectionConfig("https://platform.carpan.example")
 
     def login(self, **_kwargs) -> PlatformSession:
@@ -54,8 +55,9 @@ class _Client:
             raise PlatformAuthenticationError("offline")
         self.logged_out = True
 
-    def activate_device(self, **_kwargs) -> None:
+    def activate_device(self, **kwargs) -> None:
         self.activated = True
+        self.activation_payload = kwargs
 
     def license(self, _access_token: str) -> PlatformLicense:
         return PlatformLicense("PRO", "ACTIVE", None, frozenset({"manim_transfer"}), True)
@@ -84,6 +86,7 @@ def test_bound_session_activates_installation_and_reads_license():
     )
 
     assert client.activated
+    assert client.activation_payload["refresh_token"] == session.refresh_token
     assert license_info.usable
 
 

@@ -250,6 +250,58 @@ class ManagementRepository:
             connection.execute("UPDATE carpan.company_memberships SET role=COALESCE(%s, role), active=COALESCE(%s, active) WHERE company_id=%s AND user_id=%s", (role, active, company_id, row["id"]))
             CentralIdentityRepository._append_audit(connection, company_id=company_id, actor_user_id=actor_user_id, event_type="TEAM_MEMBER_UPDATED", outcome="SUCCESS", event_data={"role_changed": role is not None, "active_changed": active is not None})
 
+    def revoke_device(
+        self, *, company_id: UUID, actor_user_id: UUID, assigned_username: str, device_label: str | None
+    ) -> int:
+        """Bir cihazı ve ona bağlı yenileme oturumlarını iptal eder.
+
+        Yönetim ekranına dahili cihaz kimliği verilmez. Bu yüzden görünür cihaz
+        etiketi + atanmış kullanıcı birlikte çözülür; aynı tanım birden fazla
+        kayda denk gelirse işlem güvenli olarak durur.
+        """
+        normalized_username = str(assigned_username).strip().casefold()
+        safe_label = " ".join(str(device_label or "").split()) or None
+        with tenant_transaction(self.settings, company_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT d.id
+                FROM carpan.device_registrations d
+                JOIN carpan.users u ON u.id = d.user_id
+                WHERE d.company_id = %s AND d.status = 'ACTIVE'
+                  AND u.username = %s
+                  AND d.device_label IS NOT DISTINCT FROM %s
+                FOR UPDATE OF d
+                """,
+                (company_id, normalized_username, safe_label),
+            ).fetchall()
+            if not rows:
+                raise LookupError("Etkin cihaz bulunamadı.")
+            if len(rows) != 1:
+                raise ValueError("Aynı adlı birden fazla cihaz var. Bu cihazı ayırt edecek etiket kullanın.")
+            device_id = rows[0]["id"]
+            connection.execute(
+                "UPDATE carpan.device_registrations SET status='REVOKED' WHERE id=%s",
+                (device_id,),
+            )
+            revoked_sessions = connection.execute(
+                """
+                UPDATE carpan.refresh_tokens
+                SET revoked_at = now()
+                WHERE company_id = %s AND device_registration_id = %s
+                  AND revoked_at IS NULL
+                """,
+                (company_id, device_id),
+            ).rowcount
+            CentralIdentityRepository._append_audit(
+                connection,
+                company_id=company_id,
+                actor_user_id=actor_user_id,
+                event_type="DEVICE_REVOKED",
+                outcome="SUCCESS",
+                event_data={"revoked_session_count": int(revoked_sessions)},
+            )
+        return int(revoked_sessions)
+
     def accept_invitation(self, *, token: str, password_hash: str) -> dict[str, str] | None:
         token_hash = hashlib.sha256(str(token).strip().encode("utf-8")).hexdigest()
         with psycopg.connect(str(self.settings.database_url)) as connection:

@@ -41,6 +41,15 @@ def _get(app, token: str, path: str):
     return asyncio.run(send())
 
 
+def _post(app, token: str, path: str, payload: dict):
+    async def send():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(path, headers={"Authorization": f"Bearer {token}"}, json=payload)
+
+    return asyncio.run(send())
+
+
 def test_management_overview_rejects_non_admin_before_data_access(monkeypatch):
     settings = _settings()
     app = create_app(settings)
@@ -157,3 +166,29 @@ def test_management_invitation_is_admin_only_and_returns_token_once(monkeypatch)
     assert response.status_code == 201
     assert response.json()["invite_token"] == "t" * 43
     assert observed == [{"company_id": company_id, "actor_user_id": user_id, "username": "new.user", "display_name": "Yeni Kullanıcı", "role": "OPERATOR"}]
+
+
+def test_management_device_revocation_is_admin_only_and_scoped(monkeypatch):
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    company_id, user_id = uuid4(), uuid4()
+    admin = create_access_token(settings, user_id=user_id, company_id=company_id, role="ADMIN")
+    operator = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="OPERATOR")
+    observed = []
+
+    def revoke_device(self, **payload):
+        observed.append(payload)
+        return 1
+
+    monkeypatch.setattr(ManagementRepository, "revoke_device", revoke_device)
+    payload = {"assigned_username": "operator.1", "device_label": "Muhasebe PC"}
+
+    assert _post(app, operator, "/v1/management/devices/revoke", payload).status_code == 403
+    assert _post(app, admin, "/v1/management/devices/revoke", payload).status_code == 204
+    assert observed == [{
+        "company_id": company_id,
+        "actor_user_id": user_id,
+        "assigned_username": "operator.1",
+        "device_label": "Muhasebe PC",
+    }]
