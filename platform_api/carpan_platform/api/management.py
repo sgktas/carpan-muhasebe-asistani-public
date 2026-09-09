@@ -20,6 +20,11 @@ class InvitationRequest(BaseModel):
     role: str = Field(min_length=4, max_length=30)
 
 
+class MemberUpdateRequest(BaseModel):
+    role: str | None = Field(default=None, min_length=4, max_length=30)
+    active: bool | None = None
+
+
 @router.get("/overview")
 def overview(
     claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
@@ -82,3 +87,15 @@ def create_invitation(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
     except (DatabaseConfigurationError, psycopg.Error):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Merkezi davet servisine şu an ulaşılamıyor.") from None
+
+
+@router.patch("/team/{username}", status_code=status.HTTP_204_NO_CONTENT)
+def update_team_member(username: str, payload: MemberUpdateRequest, claims: AccessTokenClaims = Depends(require_roles("ADMIN")), settings: Settings = Depends(get_settings)) -> None:
+    try:
+        ManagementRepository(settings).update_member(company_id=claims.company_id, actor_user_id=claims.user_id, username=username, role=payload.role.upper() if payload.role else None, active=payload.active)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ekip kullanıcısı bulunamadı.") from None
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Ekip kaydı güncellenemedi.") from None

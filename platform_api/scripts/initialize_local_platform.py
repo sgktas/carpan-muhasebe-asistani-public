@@ -102,6 +102,7 @@ def _grant_application_access(owner_url: str, app_role: str) -> None:
         ):
             connection.execute(sql.SQL("GRANT SELECT ON carpan.{} TO {}") .format(sql.Identifier(table), sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT UPDATE(failed_attempts, locked_until, last_login_at) ON carpan.users TO {}") .format(sql.Identifier(app_role)))
+        connection.execute(sql.SQL("GRANT UPDATE(role, active) ON carpan.company_memberships TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT INSERT, UPDATE ON carpan.licenses, carpan.refresh_tokens, carpan.user_invitations TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT INSERT ON carpan.audit_events TO {}") .format(sql.Identifier(app_role)))
         connection.execute(sql.SQL("GRANT USAGE ON ALL SEQUENCES IN SCHEMA carpan TO {}") .format(sql.Identifier(app_role)))

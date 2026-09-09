@@ -12,6 +12,7 @@ import psycopg
 
 from carpan_platform.config import Settings
 from carpan_platform.database import tenant_transaction
+from carpan_platform.identity_repository import CentralIdentityRepository
 from carpan_platform.licensing import normalize_module_entitlements
 
 
@@ -234,6 +235,20 @@ class ManagementRepository:
                 (company_id, normalized_username, safe_name, normalized_role, token_hash, expires_at, actor_user_id),
             )
         return Invitation(token=token, expires_at=expires_at)
+
+    def update_member(self, *, company_id: UUID, actor_user_id: UUID, username: str, role: str | None, active: bool | None) -> None:
+        if role is not None and role not in {"ADMIN", "OPERATOR", "APPROVER", "AUDITOR"}:
+            raise ValueError("Rol geçersiz.")
+        if role is None and active is None:
+            raise ValueError("Değiştirilecek bir alan seçilmeli.")
+        with tenant_transaction(self.settings, company_id) as connection:
+            row = connection.execute("SELECT u.id FROM carpan.company_memberships m JOIN carpan.users u ON u.id=m.user_id WHERE m.company_id=%s AND u.username=%s FOR UPDATE", (company_id, str(username).strip().casefold())).fetchone()
+            if row is None:
+                raise LookupError("Ekip kullanıcısı bulunamadı.")
+            if UUID(str(row["id"])) == actor_user_id:
+                raise ValueError("Kendi rolünüzü veya erişiminizi bu ekrandan değiştiremezsiniz.")
+            connection.execute("UPDATE carpan.company_memberships SET role=COALESCE(%s, role), active=COALESCE(%s, active) WHERE company_id=%s AND user_id=%s", (role, active, company_id, row["id"]))
+            CentralIdentityRepository._append_audit(connection, company_id=company_id, actor_user_id=actor_user_id, event_type="TEAM_MEMBER_UPDATED", outcome="SUCCESS", event_data={"role_changed": role is not None, "active_changed": active is not None})
 
     def accept_invitation(self, *, token: str, password_hash: str) -> dict[str, str] | None:
         token_hash = hashlib.sha256(str(token).strip().encode("utf-8")).hexdigest()

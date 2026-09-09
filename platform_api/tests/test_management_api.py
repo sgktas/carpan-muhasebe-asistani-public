@@ -13,7 +13,7 @@ from carpan_platform.security import create_access_token
 def _settings() -> Settings:
     return Settings(
         environment="test",
-        database_url="postgresql://unused",
+        database_url=None,
         jwt_secret="x" * 48,
         jwt_issuer="carpan-test",
         allowed_origins=(),
