@@ -32,6 +32,15 @@ def _request(app, token: str):
     return asyncio.run(send())
 
 
+def _get(app, token: str, path: str):
+    async def send():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get(path, headers={"Authorization": f"Bearer {token}"})
+
+    return asyncio.run(send())
+
+
 def test_management_overview_rejects_non_admin_before_data_access(monkeypatch):
     settings = _settings()
     app = create_app(settings)
@@ -94,3 +103,30 @@ def test_management_overview_returns_tenant_scoped_summary(monkeypatch):
             "enabled_modules": ["MANIM", "FOM"],
         },
     }
+
+
+def test_management_team_and_device_lists_are_admin_only(monkeypatch):
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    company_id = uuid4()
+    admin_token = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="ADMIN")
+    auditor_token = create_access_token(settings, user_id=uuid4(), company_id=company_id, role="AUDITOR")
+    observed = []
+
+    def team_members(self, requested_company_id):
+        observed.append(("team", requested_company_id))
+        return ()
+
+    def devices(self, requested_company_id):
+        observed.append(("devices", requested_company_id))
+        return ()
+
+    monkeypatch.setattr(ManagementRepository, "team_members", team_members)
+    monkeypatch.setattr(ManagementRepository, "devices", devices)
+
+    assert _get(app, auditor_token, "/v1/management/team").status_code == 403
+    assert _get(app, auditor_token, "/v1/management/devices").status_code == 403
+    assert _get(app, admin_token, "/v1/management/team").json() == {"members": []}
+    assert _get(app, admin_token, "/v1/management/devices").json() == {"devices": []}
+    assert observed == [("team", company_id), ("devices", company_id)]

@@ -27,3 +27,33 @@ def overview(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Merkezi yönetim verisine şu an ulaşılamıyor.",
         ) from None
+
+
+@router.get("/team")
+def team(
+    claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    try:
+        members = ManagementRepository(settings).team_members(claims.company_id)
+        return {"members": [member.as_payload() for member in members]}
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Merkezi ekip verisine şu an ulaşılamıyor.",
+        ) from None
+
+
+@router.get("/devices")
+def devices(
+    claims: AccessTokenClaims = Depends(require_roles("ADMIN")),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    try:
+        records = ManagementRepository(settings).devices(claims.company_id)
+        return {"devices": [record.as_payload() for record in records]}
+    except (DatabaseConfigurationError, psycopg.Error):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Merkezi cihaz verisine şu an ulaşılamıyor.",
+        ) from None

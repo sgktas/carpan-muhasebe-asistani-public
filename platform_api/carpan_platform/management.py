@@ -48,6 +48,44 @@ class ManagementOverview:
         }
 
 
+@dataclass(frozen=True)
+class TeamMemberSummary:
+    username: str
+    display_name: str
+    role: str
+    active: bool
+    user_status: str
+    last_login_at: datetime | None
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "username": self.username,
+            "display_name": self.display_name,
+            "role": self.role,
+            "active": self.active,
+            "status": self.user_status,
+            "last_login_at": self.last_login_at,
+        }
+
+
+@dataclass(frozen=True)
+class DeviceSummary:
+    device_label: str | None
+    status: str
+    assigned_username: str
+    last_seen_at: datetime
+    created_at: datetime
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "label": self.device_label,
+            "status": self.status,
+            "assigned_username": self.assigned_username,
+            "last_seen_at": self.last_seen_at,
+            "created_at": self.created_at,
+        }
+
+
 class ManagementRepository:
     """RLS bağlamından çıkmadan yönetim ekranı özetini okur."""
 
@@ -110,4 +148,53 @@ class ManagementRepository:
             enabled_modules=normalize_module_entitlements(
                 license_row["module_entitlements"] if license_row else []
             ),
+        )
+
+    def team_members(self, company_id: UUID) -> tuple[TeamMemberSummary, ...]:
+        with tenant_transaction(self.settings, company_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT u.username, u.display_name, u.status, u.last_login_at,
+                       m.role, m.active
+                FROM carpan.company_memberships m
+                JOIN carpan.users u ON u.id = m.user_id
+                WHERE m.company_id = %s
+                ORDER BY lower(u.display_name), lower(u.username)
+                """,
+                (company_id,),
+            ).fetchall()
+        return tuple(
+            TeamMemberSummary(
+                username=str(row["username"]),
+                display_name=str(row["display_name"]),
+                role=str(row["role"]),
+                active=bool(row["active"]),
+                user_status=str(row["status"]),
+                last_login_at=row["last_login_at"],
+            )
+            for row in rows
+        )
+
+    def devices(self, company_id: UUID) -> tuple[DeviceSummary, ...]:
+        with tenant_transaction(self.settings, company_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT d.device_label, d.status, d.last_seen_at, d.created_at,
+                       u.username
+                FROM carpan.device_registrations d
+                JOIN carpan.users u ON u.id = d.user_id
+                WHERE d.company_id = %s
+                ORDER BY d.status, d.last_seen_at DESC
+                """,
+                (company_id,),
+            ).fetchall()
+        return tuple(
+            DeviceSummary(
+                device_label=str(row["device_label"]) if row["device_label"] else None,
+                status=str(row["status"]),
+                assigned_username=str(row["username"]),
+                last_seen_at=row["last_seen_at"],
+                created_at=row["created_at"],
+            )
+            for row in rows
         )
