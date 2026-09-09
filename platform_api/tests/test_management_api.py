@@ -7,7 +7,7 @@ from carpan_platform.api.dependencies import get_settings
 from carpan_platform.config import Settings
 from carpan_platform.main import create_app
 from carpan_platform.management import AuditEventSummary, Invitation, ManagementOverview, ManagementRepository
-from carpan_platform.platform_owner import PlatformCompanySummary, PlatformOperator, PlatformOverview, PlatformOwnerRepository
+from carpan_platform.platform_owner import PlatformCompanySummary, PlatformOperator, PlatformOverview, PlatformOwnerRepository, ProvisionedCompany
 from carpan_platform.security import create_access_token, create_platform_operator_token
 
 
@@ -58,6 +58,19 @@ def _post(app, token: str, path: str, payload: dict):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             return await client.post(path, headers={"Authorization": f"Bearer {token}"}, json=payload)
+
+    return asyncio.run(send())
+
+
+def _put(app, token: str, path: str, payload: dict):
+    async def send():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.put(
+                path,
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
 
     return asyncio.run(send())
 
@@ -280,7 +293,10 @@ def test_platform_owner_overview_is_data_minimum_and_owner_only(monkeypatch):
             "active_count": 1,
             "items": [{
                 "code": "CARPAN", "name": "Çarpan", "status": "ACTIVE",
-                "license": {"plan_code": "PRO", "status": "ACTIVE"},
+                "license": {
+                    "plan_code": "PRO", "status": "ACTIVE", "enabled_modules": [],
+                    "enforcement_required": False, "offline_grace_hours": 168,
+                },
                 "devices": {"active_count": 3},
             }],
         },
@@ -299,3 +315,50 @@ def test_platform_owner_login_returns_separate_owner_token(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["display_name"] == "Platform Sahibi"
+
+
+def test_platform_owner_provisions_company_with_one_time_admin_invitation(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator_id = uuid4()
+    token = create_platform_operator_token(settings, user_id=operator_id)
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", lambda self, user_id: user_id == operator_id)
+    observed = []
+
+    def provision(self, **payload):
+        observed.append(payload)
+        return ProvisionedCompany(
+            company=PlatformCompanySummary("DEMO", "Demo Firma", "ACTIVE", "PRO", "TRIAL", 0),
+            invitation_token="t" * 43,
+            invitation_expires_at=None,
+        )
+
+    monkeypatch.setattr(PlatformOwnerRepository, "provision_company", provision)
+    response = _post(app, token, "/v1/platform/companies", {
+        "code": "demo", "name": "Demo Firma", "admin_username": "demo.admin",
+        "admin_display_name": "Demo Yönetici", "plan_code": "PRO",
+        "module_ids": ["manim_transfer"],
+    })
+
+    assert response.status_code == 201
+    assert response.json()["initial_admin_invitation"]["token"] == "t" * 43
+    assert observed[0]["actor_user_id"] == operator_id
+    assert observed[0]["license_status"] == "TRIAL"
+
+
+def test_platform_owner_updates_license_only_with_owner_token(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator_id = uuid4()
+    owner_token = create_platform_operator_token(settings, user_id=operator_id)
+    company_token = create_access_token(settings, user_id=uuid4(), company_id=uuid4(), role="ADMIN")
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", lambda self, user_id: user_id == operator_id)
+    observed = []
+    monkeypatch.setattr(PlatformOwnerRepository, "update_license", lambda self, **payload: observed.append(payload))
+    payload = {"plan_code": "PRO", "license_status": "ACTIVE", "module_ids": ["manim_transfer"], "enforce_central": False, "offline_grace_hours": 168}
+
+    assert _put(app, company_token, "/v1/platform/companies/DEMO/license", payload).status_code == 401
+    assert _put(app, owner_token, "/v1/platform/companies/DEMO/license", payload).status_code == 204
+    assert observed == [{"actor_user_id": operator_id, "company_code": "DEMO", **payload}]

@@ -36,6 +36,33 @@
         <article class="metric"><span>Veri sınırı</span><strong class="metric-word">Yerel</strong><small>Müşteri ve Excel verileri taşınmaz</small></article>
       </div>
 
+      <div class="panel-grid platform-control-grid">
+        <article class="panel"><div class="panel-heading"><div><p class="eyebrow">FİRMA KURULUMU</p><h2>Yeni çalışma alanı</h2></div></div>
+          <form class="platform-form" id="company-form">
+            <label>Firma kodu<input id="new-company-code" placeholder="Örn. DEMO" required></label>
+            <label>Firma adı<input id="new-company-name" placeholder="Örn. Demo Dağıtım" required></label>
+            <label>İlk yönetici kullanıcı adı<input id="new-admin-username" placeholder="örn. demo.admin" required></label>
+            <label>İlk yönetici adı soyadı<input id="new-admin-name" placeholder="Örn. Ayşe Yılmaz" required></label>
+            <label>Plan kodu<input id="new-plan-code" value="TRIAL" required></label>
+            <label>Başlangıç lisans durumu<select id="new-license-status"><option value="TRIAL">Deneme</option><option value="ACTIVE">Etkin</option></select></label>
+            <fieldset class="module-choices" id="new-modules"><legend>Açık modüller</legend></fieldset>
+            <button type="submit">Firma ve yönetici davetini oluştur</button>
+            <p class="form-error" id="company-create-error"></p><output id="company-invite-link"></output>
+          </form>
+        </article>
+        <article class="panel"><div class="panel-heading"><div><p class="eyebrow">LİSANS</p><h2>Firma erişimini düzenle</h2></div></div>
+          <form class="platform-form" id="license-form">
+            <label>Firma<select id="license-company" required></select></label>
+            <label>Plan kodu<input id="license-plan-code" required></label>
+            <label>Lisans durumu<select id="license-status"><option value="TRIAL">Deneme</option><option value="ACTIVE">Etkin</option><option value="PAST_DUE">Ödeme bekliyor</option><option value="SUSPENDED">Askıda</option><option value="CANCELLED">İptal</option></select></label>
+            <fieldset class="module-choices" id="license-modules"><legend>Açık modüller</legend></fieldset>
+            <label class="check-label"><input type="checkbox" id="license-enforce"> Merkezi lisansı zorunlu uygula</label>
+            <label>Çevrimdışı izin süresi (saat)<input id="license-grace-hours" type="number" min="0" max="720" value="168" required></label>
+            <button type="submit">Lisansı kaydet</button><p class="form-error" id="license-update-error"></p>
+          </form>
+        </article>
+      </div>
+
       <article class="panel platform-companies-panel">
         <div class="panel-heading"><div><p class="eyebrow">FİRMALAR</p><h2>Abonelik ve kurulum sağlığı</h2></div><span id="company-list-total" class="count-badge">0</span></div>
         <div id="company-list" class="list empty">Firma kayıtları yükleniyor…</div>

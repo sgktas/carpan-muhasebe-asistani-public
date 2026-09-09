@@ -109,6 +109,19 @@ python scripts/bootstrap_platform_operator.py --username platform.owner --displa
 Bu araç ikinci bir ilk-sahip hesabı oluşturmaz. Platform paneli arayüzü sonraki
 aşamada bu ayrı oturumu kullanacaktır; şu an yalnız güvenli API sözleşmesi vardır.
 
+Platform Merkezi (`/platform`) içinden platform sahibi:
+
+- Yeni firma çalışma alanı, başlangıç lisansı ve ilk yönetici davetini tek
+  işlemde oluşturabilir.
+- İlk yönetici parolasını sistem üretmez veya saklamaz; kullanıcı tek kullanımlık
+  davet bağlantısıyla kendi parolasını belirler.
+- Firma lisansının planı, durumu, açık modülleri, çevrimdışı süresi ve merkezi
+  zorunluluk politikası güncellenebilir.
+
+Bu işlemler platform sahibi denetim kaydına yazılır. Firma içi yönetici bu
+paneli kullanamaz; platform sahibi de müşteri, banka ve finansal işlem verisine
+erişemez.
+
 ## Gizli bilgiler
 
 - `.env` dosyası Git'e eklenmez.
