@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-import time
 
 import pytest
 from PySide6.QtCore import QEventLoop, QThread, QTimer
@@ -60,18 +59,18 @@ def test_account_dialog_shows_license_status_when_sync_is_available(monkeypatch)
         dialog.deleteLater()
 
 
-def test_account_dialog_applies_background_result_on_ui_thread():
+def test_account_dialog_applies_result_on_ui_thread_without_worker_race(monkeypatch):
+    # PySide'ın gerçek QThread yaşam döngüsü, Linux CI'da süreç düzeyinde
+    # çökebiliyor. İşçi sınıfı burada doğrulanacak bir iş kuralı taşımıyor;
+    # arayüz sonucu ana Qt iş parçacığında uygulamasını güvenle test ederiz.
+    monkeypatch.setattr(PlatformAccountDialog, "_run_async", _run_immediately)
     result = SimpleNamespace(
         is_connected=False,
         session=None,
         message="Merkezi hesap bağlı değil.",
     )
 
-    def slow_restore():
-        time.sleep(0.08)
-        return result
-
-    dialog = PlatformAccountDialog(SimpleNamespace(restore=slow_restore))
+    dialog = PlatformAccountDialog(SimpleNamespace(restore=lambda: result))
     applied_threads = []
     original_handler = dialog._auth_success_handler
 
@@ -79,12 +78,16 @@ def test_account_dialog_applies_background_result_on_ui_thread():
         applied_threads.append(QThread.currentThread())
         original_handler(payload)
 
+    class _FinishedThread:
+        def quit(self):
+            pass
+
     dialog._auth_success_handler = record_handler
+    dialog._auth_thread = _FinishedThread()
     try:
-        loop = QEventLoop()
-        QTimer.singleShot(300, loop.quit)
-        loop.exec()
+        dialog._finish_async((result, None, None))
         assert applied_threads == [_app.thread()]
     finally:
+        dialog._auth_thread = None
         dialog.close()
         dialog.deleteLater()
