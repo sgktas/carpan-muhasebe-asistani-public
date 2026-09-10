@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -30,6 +30,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Authorization", "Content-Type", "X-Device-Id"],
         )
+
+    @app.middleware("http")
+    async def add_api_security_headers(request: Request, call_next):
+        """API yanıtlarının tarayıcı veya ara bellek tarafından saklanmasını önler.
+
+        Merkezi erişim belirteci yalnız yetkilendirme başlığında taşınır; yine de
+        özellikle giriş ve yönetim yanıtlarının paylaşımlı önbelleğe düşmemesi
+        gerekir. HTTPS zorlaması Nginx katmanında yapılır; HSTS yalnız üretimde
+        eklenir ki yerel geliştirme tarayıcısını kilitlemesin.
+        """
+        response = await call_next(request)
+        if request.url.path.startswith("/v1/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        if settings.environment == "production":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
     app.include_router(auth_router)
     app.include_router(licensing_router)
     app.include_router(invitations_router)

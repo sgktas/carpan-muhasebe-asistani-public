@@ -113,3 +113,26 @@ def test_me_accepts_a_valid_company_scoped_token():
         "company_id": str(company_id),
         "role": "ADMIN",
     }
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_production_api_adds_hsts_without_changing_local_development():
+    settings = Settings(
+        environment="production", database_url=None, jwt_secret=None,
+        jwt_issuer="carpan-test", allowed_origins=(),
+    )
+    app = create_app(settings)
+
+    async def get_health():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as client:
+            return await client.get("/health")
+
+    response = asyncio.run(get_health())
+
+    assert response.status_code == 200
+    assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"

@@ -1,5 +1,14 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Merkezi API dış sınır güvenliği
+
+- Merkezi API yanıtları `no-store`/`no-cache` ile işaretlenir; böylece giriş,
+  lisans veya yönetim yanıtları tarayıcı ya da ara önbellekte tutulmaz.
+- Tüm yanıtlar içerik türü, yönlendiren ve çerçeveleme koruma başlıklarını alır.
+  HSTS yalnız üretimde eklenir; yerel geliştirme HTTPS'e zorlanmaz.
+- İstek hızı sınırı uygulama belleğinde değil, canlıya çıkışta Nginx katmanında
+  uygulanacaktır. Bu karar çoklu API sürecinde tutarsız koruma üretmez.
+
 ## 10 Eylül 2026 — Platform firma yaşam döngüsü
 
 - Platform sahibi, merkezi panelden firmayı Etkin veya Askıda durumuna alabilir.
