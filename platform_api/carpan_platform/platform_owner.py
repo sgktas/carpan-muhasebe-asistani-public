@@ -116,10 +116,20 @@ class PlatformOwnerRepository:
         return psycopg.connect(str(self.settings.owner_database_url), row_factory=dict_row)
 
     @staticmethod
-    def _append_audit(connection: psycopg.Connection, *, actor_user_id: UUID | None, event_type: str, outcome: str) -> None:
+    def _append_audit(
+        connection: psycopg.Connection,
+        *,
+        actor_user_id: UUID | None,
+        event_type: str,
+        outcome: str,
+        event_data: dict[str, object] | None = None,
+    ) -> None:
         connection.execute(
-            "INSERT INTO carpan.platform_audit_events(actor_user_id, event_type, outcome) VALUES (%s, %s, %s)",
-            (actor_user_id, event_type, outcome),
+            """
+            INSERT INTO carpan.platform_audit_events(actor_user_id, event_type, outcome, event_data)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (actor_user_id, event_type, outcome, Jsonb(event_data or {})),
         )
 
     def authenticate(self, *, username: str, password: str) -> PlatformOperator:
@@ -310,7 +320,13 @@ class PlatformOwnerRepository:
                     """,
                     (company_id, username, display_name, invitation_hash, expires_at, actor_user_id),
                 )
-                self._append_audit(connection, actor_user_id=actor_user_id, event_type="COMPANY_PROVISIONED", outcome="SUCCESS")
+                self._append_audit(
+                    connection,
+                    actor_user_id=actor_user_id,
+                    event_type="COMPANY_PROVISIONED",
+                    outcome="SUCCESS",
+                    event_data={"company_code": company_code},
+                )
         return ProvisionedCompany(
             company=PlatformCompanySummary(company_code, company_name, "ACTIVE", plan, status, 0),
             invitation_token=invitation_token,
@@ -359,7 +375,13 @@ class PlatformOwnerRepository:
                         """,
                         (company["id"], plan, status, Jsonb(modules), enforce, grace_hours),
                     )
-                self._append_audit(connection, actor_user_id=actor_user_id, event_type="LICENSE_UPDATED", outcome="SUCCESS")
+                self._append_audit(
+                    connection,
+                    actor_user_id=actor_user_id,
+                    event_type="LICENSE_UPDATED",
+                    outcome="SUCCESS",
+                    event_data={"company_code": code, "license_status": status},
+                )
 
     def update_company_status(
         self,
@@ -392,4 +414,5 @@ class PlatformOwnerRepository:
                     actor_user_id=actor_user_id,
                     event_type="COMPANY_STATUS_UPDATED",
                     outcome="SUCCESS",
+                    event_data={"company_code": code, "company_status": normalized_status},
                 )

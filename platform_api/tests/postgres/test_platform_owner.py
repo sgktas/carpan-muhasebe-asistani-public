@@ -81,3 +81,31 @@ def test_platform_owner_updates_only_target_company_license(pg_database):
             """
         ).fetchone()
     assert row == ("PRO", "ACTIVE", ["manim_transfer"], True, 48)
+
+
+def test_platform_owner_status_change_has_data_minimum_audit_context(pg_database):
+    repository, operator_id = _repository(pg_database)
+    repository.provision_company(
+        actor_user_id=operator_id,
+        code="DEMO_STATUS",
+        name="Demo status company",
+        admin_username="demo.status.admin",
+        admin_display_name="Demo status admin",
+        plan_code="TRIAL",
+        license_status="TRIAL",
+        module_ids=[],
+    )
+
+    repository.update_company_status(
+        actor_user_id=operator_id,
+        company_code="DEMO_STATUS",
+        company_status="SUSPENDED",
+    )
+
+    with psycopg.connect(pg_database.owner_dsn) as connection:
+        company_status = connection.execute("SELECT status FROM carpan.companies WHERE code='DEMO_STATUS'").fetchone()
+        audit = connection.execute(
+            "SELECT event_data FROM carpan.platform_audit_events WHERE event_type='COMPANY_STATUS_UPDATED'"
+        ).fetchone()
+    assert company_status == ("SUSPENDED",)
+    assert audit == ({"company_code": "DEMO_STATUS", "company_status": "SUSPENDED"},)

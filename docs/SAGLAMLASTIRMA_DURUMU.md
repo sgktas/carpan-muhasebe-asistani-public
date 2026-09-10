@@ -10,6 +10,9 @@
 - İşlem yalnız ayrı platform sahibi oturumuyla yapılır ve
   `COMPANY_STATUS_UPDATED` denetim olayına yazılır. Firma yöneticisi bu kontrolü
   kullanamaz; müşteri, banka, IBAN, Excel veya tutar verisi panele taşınmaz.
+- Platform denetim kaydı, hedef firma kodu ve yeni çalışma durumunu saklar;
+  bu bağlam dışarıdaki özet ekrana açılmaz. Böylece bir destek vakasında karar
+  izlenebilir kalır, ancak finansal veya müşteri verisi merkezi sisteme girmez.
 
 ## Güncel durum — 8 Eylül 2026, gerçek PostgreSQL adımı
 

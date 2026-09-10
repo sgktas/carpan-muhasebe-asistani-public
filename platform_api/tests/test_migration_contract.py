@@ -52,3 +52,10 @@ def test_platform_operator_migration_is_separate_from_company_scope():
     assert "CREATE TABLE IF NOT EXISTS carpan.platform_operators" in migration
     assert "CREATE TABLE IF NOT EXISTS carpan.platform_audit_events" in migration
     assert "ALTER TABLE carpan.platform_operators ENABLE ROW LEVEL SECURITY" in migration
+
+
+def test_platform_audit_context_migration_stays_data_minimum():
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "0009_platform_audit_context.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS event_data JSONB" in migration
+    assert "müşteri, banka, IBAN, Excel veya finansal" in migration

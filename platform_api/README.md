@@ -125,6 +125,10 @@ Bu işlemler platform sahibi denetim kaydına yazılır. Firma içi yönetici bu
 paneli kullanamaz; platform sahibi de müşteri, banka ve finansal işlem verisine
 erişemez.
 
+Denetim kaydı kararın türünü, zamanını, uygulayan platform sahibini ve yalnız
+firma kodu/durum gibi operasyon bağlamını tutar. Bu kayda müşteri, banka, IBAN,
+Excel, dekont veya finansal tutar yazılmaz; panel de bu teknik bağlamı göstermez.
+
 ## Gizli bilgiler
 
 - `.env` dosyası Git'e eklenmez.
