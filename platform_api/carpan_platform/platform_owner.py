@@ -26,6 +26,7 @@ SUPPORTED_MODULE_IDS = frozenset({
     "cari_reconciliation", "customer_list_import",
 })
 LICENSE_STATUSES = frozenset({"TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED"})
+COMPANY_MUTABLE_STATUSES = frozenset({"ACTIVE", "SUSPENDED"})
 
 
 @dataclass(frozen=True)
@@ -359,3 +360,36 @@ class PlatformOwnerRepository:
                         (company["id"], plan, status, Jsonb(modules), enforce, grace_hours),
                     )
                 self._append_audit(connection, actor_user_id=actor_user_id, event_type="LICENSE_UPDATED", outcome="SUCCESS")
+
+    def update_company_status(
+        self,
+        *,
+        actor_user_id: UUID,
+        company_code: str,
+        company_status: str,
+    ) -> None:
+        """Firma çalışma alanını geri alınabilir biçimde etkinleştirir ya da askıya alır.
+
+        Cihazlar ve lisans kaydı korunur. Merkezi istek doğrulaması şirketin
+        ``ACTIVE`` durumunu her korumalı istekte yeniden kontrol ettiği için
+        askıya alma, açık masaüstü oturumlarında da bir sonraki merkezi istekte
+        uygulanır; yeniden etkinleştirme ise yeni kurulum gerektirmez.
+        """
+        code, _ = self._company_input(code=company_code, name="Geçici")
+        normalized_status = str(company_status).strip().upper()
+        if normalized_status not in COMPANY_MUTABLE_STATUSES:
+            raise ValueError("Firma durumu yalnız Etkin veya Askıda olabilir.")
+        with self._connection() as connection:
+            with connection.transaction():
+                updated = connection.execute(
+                    "UPDATE carpan.companies SET status=%s WHERE code=%s",
+                    (normalized_status, code),
+                ).rowcount
+                if not updated:
+                    raise LookupError("Firma bulunamadı.")
+                self._append_audit(
+                    connection,
+                    actor_user_id=actor_user_id,
+                    event_type="COMPANY_STATUS_UPDATED",
+                    outcome="SUCCESS",
+                )

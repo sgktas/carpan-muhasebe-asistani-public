@@ -1,5 +1,16 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Platform firma yaşam döngüsü
+
+- Platform sahibi, merkezi panelden firmayı Etkin veya Askıda durumuna alabilir.
+  Bu karar geri alınabilir; lisans, cihaz ve firma içi veriler silinmez.
+- Merkezi erişim bağımlılığı zaten firma durumunu her korumalı istekte kontrol
+  ettiğinden, askıya alınan firma açık kalan istemcide de bir sonraki merkezi
+  istekte erişimi kaybeder. Yeniden Etkin yapılınca yeni cihaz kurulumu gerekmez.
+- İşlem yalnız ayrı platform sahibi oturumuyla yapılır ve
+  `COMPANY_STATUS_UPDATED` denetim olayına yazılır. Firma yöneticisi bu kontrolü
+  kullanamaz; müşteri, banka, IBAN, Excel veya tutar verisi panele taşınmaz.
+
 ## Güncel durum — 8 Eylül 2026, gerçek PostgreSQL adımı
 
 - İzole PostgreSQL 17.11 ortamı hazırlandı; sistem servisi veya VPS kurulmadı.

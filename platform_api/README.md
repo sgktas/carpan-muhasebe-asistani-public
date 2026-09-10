@@ -117,6 +117,9 @@ Platform Merkezi (`/platform`) içinden platform sahibi:
   davet bağlantısıyla kendi parolasını belirler.
 - Firma lisansının planı, durumu, açık modülleri, çevrimdışı süresi ve merkezi
   zorunluluk politikası güncellenebilir.
+- Firma çalışma alanı Etkin/Askıda durumuna alınabilir. Askıya alma cihaz veya
+  lisans kaydını silmez; merkezi erişim doğrulaması sonraki korumalı istekte
+  erişimi durdurur ve firma yeniden etkinleştirildiğinde yeniden kurulum gerekmez.
 
 Bu işlemler platform sahibi denetim kaydına yazılır. Firma içi yönetici bu
 paneli kullanamaz; platform sahibi de müşteri, banka ve finansal işlem verisine

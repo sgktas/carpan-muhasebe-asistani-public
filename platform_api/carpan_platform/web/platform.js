@@ -69,6 +69,7 @@ function selectLicenseCompany(code) {
   $("license-status").value = license.status || "TRIAL";
   $("license-enforce").checked = Boolean(license.enforcement_required);
   $("license-grace-hours").value = license.offline_grace_hours ?? 168;
+  $("company-status").value = company.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
   setModules("license-modules", license.enabled_modules || []);
 }
 
@@ -138,6 +139,14 @@ $("license-form").addEventListener("submit", async (event) => {
       plan_code:$("license-plan-code").value.trim(), license_status:$("license-status").value, module_ids:selectedModules("license-modules"), enforce_central:$("license-enforce").checked, offline_grace_hours:Number($("license-grace-hours").value),
     })});
     if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.detail || "Lisans güncellenemedi."); }
+    await loadDashboard();
+  } catch (value) { error.textContent = value.message; }
+});
+$("company-status-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); const error = $("company-status-error"); error.textContent = ""; const code = $("license-company").value;
+  try {
+    const response = await fetch(`/v1/platform/companies/${encodeURIComponent(code)}/status`, {method:"PUT",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({company_status:$("company-status").value})});
+    if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.detail || "Firma durumu güncellenemedi."); }
     await loadDashboard();
   } catch (value) { error.textContent = value.message; }
 });

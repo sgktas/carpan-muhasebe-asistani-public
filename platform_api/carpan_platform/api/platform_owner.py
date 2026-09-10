@@ -39,6 +39,10 @@ class LicenseUpdateRequest(BaseModel):
     offline_grace_hours: int = Field(default=168, ge=0, le=720)
 
 
+class CompanyStatusUpdateRequest(BaseModel):
+    company_status: str = Field(min_length=5, max_length=20)
+
+
 @router.post("/auth/login")
 def login(payload: PlatformLoginRequest, settings: Settings = Depends(get_settings)) -> dict[str, object]:
     if not settings.platform_owner_configured:
@@ -147,3 +151,24 @@ def update_license(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Firma bulunamadı.") from None
     except (RuntimeError, psycopg.Error):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Lisans güncellenemedi.") from None
+
+
+@router.put("/companies/{company_code}/status", status_code=status.HTTP_204_NO_CONTENT)
+def update_company_status(
+    company_code: str,
+    payload: CompanyStatusUpdateRequest,
+    claims: PlatformOperatorClaims = Depends(current_platform_operator),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    try:
+        PlatformOwnerRepository(settings).update_company_status(
+            actor_user_id=claims.user_id,
+            company_code=company_code,
+            company_status=payload.company_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Firma bulunamadı.") from None
+    except (RuntimeError, psycopg.Error):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Firma durumu güncellenemedi.") from None

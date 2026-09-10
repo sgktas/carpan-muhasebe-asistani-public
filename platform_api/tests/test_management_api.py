@@ -364,6 +364,23 @@ def test_platform_owner_updates_license_only_with_owner_token(monkeypatch):
     assert observed == [{"actor_user_id": operator_id, "company_code": "DEMO", **payload}]
 
 
+def test_platform_owner_updates_company_status_only_with_owner_token(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator_id = uuid4()
+    owner_token = create_platform_operator_token(settings, user_id=operator_id)
+    company_token = create_access_token(settings, user_id=uuid4(), company_id=uuid4(), role="ADMIN")
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", lambda self, user_id: user_id == operator_id)
+    observed = []
+    monkeypatch.setattr(PlatformOwnerRepository, "update_company_status", lambda self, **payload: observed.append(payload))
+    payload = {"company_status": "SUSPENDED"}
+
+    assert _put(app, company_token, "/v1/platform/companies/DEMO/status", payload).status_code == 401
+    assert _put(app, owner_token, "/v1/platform/companies/DEMO/status", payload).status_code == 204
+    assert observed == [{"actor_user_id": operator_id, "company_code": "DEMO", **payload}]
+
+
 def test_platform_owner_audit_is_owner_only_and_hides_event_metadata(monkeypatch):
     settings = _platform_settings()
     app = create_app(settings)

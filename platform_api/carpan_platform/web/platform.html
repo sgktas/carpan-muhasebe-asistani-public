@@ -60,6 +60,11 @@
             <label>Çevrimdışı izin süresi (saat)<input id="license-grace-hours" type="number" min="0" max="720" value="168" required></label>
             <button type="submit">Lisansı kaydet</button><p class="form-error" id="license-update-error"></p>
           </form>
+          <form class="platform-form compact-form" id="company-status-form">
+            <label>Firma çalışma durumu<select id="company-status"><option value="ACTIVE">Etkin</option><option value="SUSPENDED">Askıda</option></select></label>
+            <p class="form-hint">Askıya alınan firmanın merkezi erişimi durur; lisans ve cihaz kayıtları korunur.</p>
+            <button type="submit" class="quiet-button">Firma durumunu kaydet</button><p class="form-error" id="company-status-error"></p>
+          </form>
         </article>
       </div>
 
