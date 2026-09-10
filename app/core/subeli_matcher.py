@@ -62,6 +62,8 @@ class SubeliMatcher:
         self.store = store or MappingStore()
         self.last_failure_reason = ""
         self.last_candidate_rows: list[TahsilatRecord] = []
+        self.last_combined_group_key = ""
+        self.last_combined_candidate_rows: list[TahsilatRecord] = []
         self.region_branch_aliases = {
             self._normalize(key): tuple(self._normalize(alias) for alias in aliases if str(alias).strip())
             for key, aliases in (region_branch_aliases or {}).items()
@@ -81,6 +83,8 @@ class SubeliMatcher:
     def match(self, record: ManimRecord, region: str | None = None) -> list[TahsilatRecord] | None:
         self.last_failure_reason = ""
         self.last_candidate_rows = []
+        self.last_combined_group_key = ""
+        self.last_combined_candidate_rows = []
         mapped = self.store.get(record.aciklama)
         if mapped:
             rows = self._rows_from_mapping(mapped, record.tutar)
@@ -120,6 +124,18 @@ class SubeliMatcher:
                     tax_groups,
                     fallback_groups=global_tax_groups,
                 )
+                # Tek başına bakıldığında bölge dışı tahsilatları önermek
+                # güvenli değildir. Ancak aynı VKN/TCKN ile aynı gün gelen
+                # birden fazla havale topluca tam tutuyorsa bu kayıtlar zaten
+                # otomatik eşleşme için güvenli bir gruptur. Tek kayıtta
+                # bölgesel öneri korunur; bütün VKN havuzu yalnız üst katmanda
+                # en az iki hareket birleşirse kullanılmak üzere saklanır.
+                global_rows = self._rows_for_customer_groups(global_tax_groups)
+                if global_rows:
+                    self.last_combined_candidate_rows = global_rows
+                    self.last_combined_group_key = self._customer_groups_key(
+                        global_tax_groups
+                    )
                 return None
 
             self.last_failure_reason = (
@@ -475,6 +491,37 @@ class SubeliMatcher:
                     rows.append(row)
 
         return rows
+
+    def _rows_for_customer_groups(
+        self,
+        groups: list[list[CustomerRecord]],
+    ) -> list[TahsilatRecord]:
+        """VKN gruplarının tahsilatlarını tekrar etmeden bir araya getirir."""
+        rows: list[TahsilatRecord] = []
+        seen: set[int] = set()
+        for group in groups:
+            for row in self._tahsilat_rows_for_customers(group):
+                marker = id(row)
+                if marker not in seen:
+                    seen.add(marker)
+                    rows.append(row)
+        return rows
+
+    @classmethod
+    def _customer_groups_key(cls, groups: list[list[CustomerRecord]]) -> str:
+        """Yalnız aynı hukuki müşteri grubunu birleştiren kararlı anahtar."""
+        keys = []
+        for group in groups:
+            taxes = sorted(
+                {
+                    cls._canonical_tax(customer.vergi_no)
+                    for customer in group
+                    if cls._canonical_tax(customer.vergi_no)
+                }
+            )
+            if taxes:
+                keys.extend(taxes)
+        return "VKN:" + ",".join(sorted(set(keys))) if keys else ""
 
     def _direct_tahsilat_name_candidates(self, description: str, region: str | None) -> list[TahsilatRecord]:
         description_tokens = set(self._meaningful_company_tokens(description, include_bank_words=False))

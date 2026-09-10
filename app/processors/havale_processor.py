@@ -33,9 +33,13 @@ class HavaleProcessor:
             if self._code_key(row.cari_kodu)
         }
         self.last_suggested_rows: list[TahsilatRecord] = []
+        self.last_combined_group_key = ""
+        self.last_combined_suggested_rows: list[TahsilatRecord] = []
 
     def process(self, record: ManimRecord, region: str) -> tuple[list[NetsisRecord], str | None]:
         self.last_suggested_rows = []
+        self.last_combined_group_key = ""
+        self.last_combined_suggested_rows = []
         if self._is_non_havale_status(record.dekont_durumu):
             return [], "Dekont durumu havale aktarımına uygun değil"
 
@@ -67,6 +71,10 @@ class HavaleProcessor:
             ], None
 
         self.last_suggested_rows = list(self.subeli_matcher.last_candidate_rows)
+        self.last_combined_group_key = self.subeli_matcher.last_combined_group_key
+        self.last_combined_suggested_rows = list(
+            self.subeli_matcher.last_combined_candidate_rows
+        )
 
         return [], (
             self.subeli_matcher.last_failure_reason

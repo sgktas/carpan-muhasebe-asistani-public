@@ -372,6 +372,10 @@ class ProcessingEngine:
                         region=region,
                         reason=reason,
                         suggested_rows=list(processor.last_suggested_rows),
+                        combined_group_key=processor.last_combined_group_key,
+                        combined_suggested_rows=list(
+                            processor.last_combined_suggested_rows
+                        ),
                     ))
                     continue
 

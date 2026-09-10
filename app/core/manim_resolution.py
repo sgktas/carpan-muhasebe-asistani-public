@@ -22,6 +22,14 @@ class UnresolvedItem:
     region: str
     reason: str
     suggested_rows: list[TahsilatRecord] = field(default_factory=list)
+    # Aynı VKN/TCKN zincirine ait birden fazla banka hareketi tek başına
+    # mutabık olmayabilir. Bu anahtar yalnız o güvenli zincir havuzunda
+    # toplu kontrol yapılmasını sağlar; boşsa eski aday-imzası davranışı
+    # korunur.
+    combined_group_key: str = ""
+    # Tek kayıtta bölgesel öneri korunur. Ancak aynı gruptan birden fazla
+    # havale gelirse, bu satırlar toplu hedef olarak kullanılır.
+    combined_suggested_rows: list[TahsilatRecord] = field(default_factory=list)
     group_records: list[ManimRecord] = field(default_factory=list)
     group_target_amount: float | None = None
 
@@ -183,14 +191,17 @@ class CombinedBankMovementMatcher:
     ) -> ResolutionOutcome:
         candidate_groups: dict[tuple, list[tuple[int, UnresolvedItem]]] = defaultdict(list)
         for index, item in enumerate(pending):
-            if not item.suggested_rows or not item.record.islem_tarihi:
+            if (
+                not (item.suggested_rows or item.combined_suggested_rows)
+                or not item.record.islem_tarihi
+            ):
                 continue
             bank = bank_key(item.record.banka)
             key = (
                 item.region,
                 bank,
                 item.record.islem_tarihi.date(),
-                self._suggested_signature(item.suggested_rows),
+                item.combined_group_key or self._suggested_signature(item.suggested_rows),
             )
             candidate_groups[key].append((index, item))
 
@@ -204,12 +215,15 @@ class CombinedBankMovementMatcher:
                 continue
             items = [item for _index, item in indexed_items]
             indexes = [index for index, _item in indexed_items]
-            target = money(money_sum(row.tutar for row in items[0].suggested_rows))
+            target_rows = (
+                items[0].combined_suggested_rows or items[0].suggested_rows
+            )
+            target = money(money_sum(row.tutar for row in target_rows))
             total = money_sum(item.record.tutar for item in items)
             movements = " + ".join(f"{money(item.record.tutar):,.2f}" for item in items)
 
             if total == target:
-                for candidate in items[0].suggested_rows:
+                for candidate in target_rows:
                     netsis_record = processor._netsis_record(
                         items[0].record,
                         str(candidate.musteri_kodu).strip(),
@@ -267,7 +281,7 @@ class CombinedBankMovementMatcher:
                         f"Aynı müşteri için {len(items)} havale bulundu. Tutarları düzenleyip "
                         "tahsilat hedefiyle eşitleyerek birlikte onaylayın."
                     ),
-                    suggested_rows=list(items[0].suggested_rows),
+                    suggested_rows=list(target_rows),
                     group_records=[item.record for item in items],
                     group_target_amount=float(target),
                 )

@@ -118,3 +118,37 @@ def test_one_cent_difference_is_not_combined_automatically(synthetic_project):
 
     assert len(remaining) == 1
     assert len(remaining[0].group_records) == 3
+
+
+def test_same_customer_group_key_combines_chain_movements(
+    synthetic_project,
+):
+    """Aynı zincir anahtarı, banka hareketlerini güvenle birleştirir."""
+    project_root = synthetic_project[3]
+    engine = ProcessingEngine([], project_root)
+    profile = OutputProfileStore(project_root / "config").get("netsis")
+    chain_rows = [
+        TahsilatRecord("C001", "ZINCIR 1", None, 250),
+        TahsilatRecord("C002", "ZINCIR 2", None, 350),
+    ]
+    pending = [
+        UnresolvedItem(
+            record=_movement(amount, index + 2),
+            region="BODRUM",
+            reason="Tutar farkı",
+            # Bu anahtar, tek hareketin miktarına göre oluşan aday imzasının
+            # yerine aynı hukuki müşteri grubunu temsil eder.
+            suggested_rows=chain_rows,
+            combined_group_key="VKN:TEST-ZINCIR",
+        )
+        for index, amount in enumerate([100, 200, 300])
+    ]
+    remaining = engine._match_combined_bank_movements(
+        pending,
+        defaultdict(list),
+        ProcessingResult(),
+        profile,
+        _Processor(),
+    )
+
+    assert remaining == []
