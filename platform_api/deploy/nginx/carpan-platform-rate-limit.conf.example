@@ -1,0 +1,6 @@
+# Bu dosya Nginx'in http {} bloğunda bir kez include edilir.
+# İstemci IP'si doğrudan Nginx'e gelir. CDN/ters vekil eklenecekse yalnız
+# güvenilir ağlar için real_ip ayarı ayrıca tanımlanmadan X-Forwarded-For'a
+# göre hız sınırı uygulanmaz.
+limit_req_zone $binary_remote_addr zone=carpan_api:10m rate=120r/m;
+limit_req_zone $binary_remote_addr zone=carpan_auth:10m rate=10r/m;

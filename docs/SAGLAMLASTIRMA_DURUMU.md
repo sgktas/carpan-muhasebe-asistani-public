@@ -8,6 +8,9 @@
   HSTS yalnız üretimde eklenir; yerel geliştirme HTTPS'e zorlanmaz.
 - İstek hızı sınırı uygulama belleğinde değil, canlıya çıkışta Nginx katmanında
   uygulanacaktır. Bu karar çoklu API sürecinde tutarsız koruma üretmez.
+- Nginx için ayrı `http {}` kapsamlı sınır tanımı ve HTTPS sunucu örneği hazırdır:
+  giriş uçları dakikada 10, diğer API uçları dakikada 120 temel sınır alır.
+  VPS'e bağlanılmadı ve mevcut diğer proje yapılandırmaları değiştirilmedi.
 
 ## 10 Eylül 2026 — Platform firma yaşam döngüsü
 

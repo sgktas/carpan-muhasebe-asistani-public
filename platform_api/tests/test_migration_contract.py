@@ -59,3 +59,15 @@ def test_platform_audit_context_migration_stays_data_minimum():
 
     assert "ADD COLUMN IF NOT EXISTS event_data JSONB" in migration
     assert "müşteri, banka, IBAN, Excel veya finansal" in migration
+
+
+def test_nginx_examples_keep_rate_limits_outside_application_memory():
+    deploy_root = Path(__file__).resolve().parents[1] / "deploy" / "nginx"
+    zone_config = (deploy_root / "carpan-platform-rate-limit.conf.example").read_text(encoding="utf-8")
+    server_config = (deploy_root / "carpan-platform.conf.example").read_text(encoding="utf-8")
+
+    assert "limit_req_zone $binary_remote_addr zone=carpan_auth:10m rate=10r/m;" in zone_config
+    assert "location ~ ^/v1/(auth/login|platform/auth/login)$" in server_config
+    assert "limit_req zone=carpan_auth burst=5 nodelay;" in server_config
+    assert "limit_req_status 429;" in server_config
+    assert "location ^~ /v1/" not in server_config

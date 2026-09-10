@@ -48,6 +48,12 @@ eder; API yalnız `127.0.0.1:8010` üzerinden Nginx tarafından çağrılır.
 10. Alan adı kesinleştiğinde Nginx, SSL sertifikası ve `api.` alt alanı eklenir.
 11. Otomatik günlük PostgreSQL yedeği ve geri-yükleme denemesi kurulur.
 
+Nginx etkinleştirilirken `platform_api/deploy/nginx/` altındaki iki örnek birlikte
+kullanılır: hız sınırı tanımı `http {}` kapsamına, alan adı/sertifika yapılandırması
+ise ilgili `server {}` kapsamına alınır. Girişler için dakikada 10, diğer API
+uçları için dakikada 120 temel istek sınırı vardır. Bu sınırlar kullanıcı verisi
+veya finansal veri toplamaz; yalnız Nginx'in bağlantı IP'si üzerinden uygulanır.
+
 ## Yedekleme ölçütü
 
 - Günlük şifreli PostgreSQL dump'ı sunucu dışındaki bir hedefe gider.

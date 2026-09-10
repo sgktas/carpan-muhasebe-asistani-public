@@ -39,6 +39,13 @@ API yanıtları tarayıcı/paylaşımlı önbellek için `no-store` olarak işar
 üretimde HSTS başlığı da eklenir. Nginx, HTTPS yönlendirme ve istek hızı sınırını
 tek dış sınır olarak uygular; uygulama içinde çok-sunuculu ortamda yanıltıcı bir
 hafıza içi hız limiti kullanılmaz.
+
+Canlı kurulumda önce `deploy/nginx/carpan-platform-rate-limit.conf.example`
+dosyası Nginx'in `http {}` kapsamına dahil edilir; ardından
+`carpan-platform.conf.example` alan adı ve sertifika yolları düzeltilerek
+etkinleştirilir. Giriş uçları dakikada 10, diğer API uçları dakikada 120 istek
+temel sınırına sahiptir. CDN veya farklı bir ters vekil kullanılacaksa gerçek
+istemci IP'si ayrıca güvenli biçimde yapılandırılmadan bu dosya uygulanmaz.
 Yerel merkezi yönetim paneli `http://127.0.0.1:8010/admin` adresindedir.
 Bu panel yalnız kullanıcı, rol, cihaz ve lisans özetlerini okur; finansal dosya
 ve müşteri verisi kabul etmez.
