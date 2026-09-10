@@ -18,10 +18,14 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   Kullanıcı bu adları gerçek aktarımda başarılı olarak doğruladı. Çalışma
   sayfası adı onaylı kaynak şablondan aynen korunmalıdır; dosya veya sayfa
   adını yeniden adlandırma, sadeleştirme ya da dönüştürme yapma.
-- Mevcut `templates/local/report_editing/sales_template.xls` ve
-  `templates/local/report_editing/collections_template.xls` dosyaları, kullanıcı
-  tarafından 8 Eylül 2026 tarihinde çalışan son sürüm olarak tekrar onaylandı.
-  Bu iki dosyanın kontrol değeri yalnız bu açık onayla güncellendi.
+- `templates/local/report_editing/sales_template.xls` dosyası kullanıcı tarafından
+  8 Eylül 2026 tarihinde çalışan son sürüm olarak onaylandı.
+  `templates/local/report_editing/collections_template.xls` dosyası ise kullanıcının
+  10 Eylül 2026 tarihinde onayladığı dolu
+  `ENT-Muhasebe_Entegrasyon(Tahsilatlar) (2).xls` dosyasının birebir kopyasıdır.
+  Tahsilat şablonunda sayfa adı, 18 sütun, satır/sütun biçimleri ve iki ondalıklı
+  `Tutar` hücre biçimi aynen korunur. Kontrol değerleri yalnız bu açık onayla
+  güncellendi.
 - FOM entegrasyon çıktısını başarılı saymadan önce `.xls` dosya imzası,
   güvenli dosya/sayfa adı, orijinal şablon başlıkları ve veri satırı sayısı
   çıktı sözleşmesiyle doğrulanmalıdır.
