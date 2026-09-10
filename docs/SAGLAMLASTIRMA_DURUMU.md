@@ -1,5 +1,14 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Platform sahibi denetim zinciri
+
+- Platform sahibi giriş, firma kurulumu, lisans ve firma durumu kararları artık
+  önceki olayın SHA-256 özetiyle bağlanan tek bir sıra içinde yazılır.
+- Eski olaylar sürümlü migrasyonla zincire alınır; yeni olaylar eşzamanlı iki
+  yönetim işleminin zinciri çatallamaması için işlem içi kilitle yazılır.
+- Zincir yalnız karar türü, sonucu ve veri-minimum operasyon bağlamını kapsar.
+  Müşteri, banka, IBAN, Excel, dekont veya finansal tutar kaydedilmez.
+
 ## 10 Eylül 2026 — Çift bağlantılı dağıtım ön kontrolü
 
 - Dağıtım ön kontrolü artık uygulama bağlantısına ek olarak platform sahibinin

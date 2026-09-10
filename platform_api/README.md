@@ -143,6 +143,8 @@ erişemez.
 Denetim kaydı kararın türünü, zamanını, uygulayan platform sahibini ve yalnız
 firma kodu/durum gibi operasyon bağlamını tutar. Bu kayda müşteri, banka, IBAN,
 Excel, dekont veya finansal tutar yazılmaz; panel de bu teknik bağlamı göstermez.
+Platform olayları önceki olayın özetiyle bağlı bir zincirde yazılır; aradaki bir
+kaydın değiştirilmesi veya çıkarılması denetim sırasında fark edilebilir.
 
 ## Gizli bilgiler
 

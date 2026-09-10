@@ -71,3 +71,12 @@ def test_nginx_examples_keep_rate_limits_outside_application_memory():
     assert "limit_req zone=carpan_auth burst=5 nodelay;" in server_config
     assert "limit_req_status 429;" in server_config
     assert "location ^~ /v1/" not in server_config
+
+
+def test_platform_audit_chain_is_added_in_a_new_immutable_migration():
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "0010_platform_audit_chain.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS previous_hash CHAR(64)" in migration
+    assert "ADD COLUMN IF NOT EXISTS event_hash CHAR(64)" in migration
+    assert "pg_advisory_xact_lock" not in migration
+    assert "idx_platform_audit_events_hash" in migration

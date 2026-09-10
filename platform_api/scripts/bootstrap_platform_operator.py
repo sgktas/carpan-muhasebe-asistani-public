@@ -8,6 +8,7 @@ import re
 
 import psycopg
 
+from carpan_platform.platform_owner import PlatformOwnerRepository
 from carpan_platform.security import hash_password
 
 
@@ -38,9 +39,11 @@ def main() -> int:
                 (username, display_name, password_hash),
             ).fetchone()
             connection.execute("INSERT INTO carpan.platform_operators(user_id) VALUES (%s)", (user[0],))
-            connection.execute(
-                "INSERT INTO carpan.platform_audit_events(actor_user_id, event_type, outcome) VALUES (%s, 'PLATFORM_OPERATOR_BOOTSTRAPPED', 'SUCCESS')",
-                (user[0],),
+            PlatformOwnerRepository._append_audit(
+                connection,
+                actor_user_id=user[0],
+                event_type="PLATFORM_OPERATOR_BOOTSTRAPPED",
+                outcome="SUCCESS",
             )
     print("İlk platform sahibi hesabı oluşturuldu.")
     return 0

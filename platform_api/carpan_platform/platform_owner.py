@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 import re
 import secrets
 from uuid import UUID
@@ -125,11 +126,36 @@ class PlatformOwnerRepository:
         event_data: dict[str, object] | None = None,
     ) -> None:
         connection.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            ("carpan.platform_audit_events",),
+        )
+        previous = connection.execute(
+            "SELECT event_hash FROM carpan.platform_audit_events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        previous_hash = str(previous[0]) if previous else "0" * 64
+        created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        data_json = json.dumps(event_data or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            {
+                "actor_user_id": str(actor_user_id) if actor_user_id else None,
+                "created_at": created_at,
+                "event_data": data_json,
+                "event_type": event_type,
+                "outcome": outcome,
+                "previous_hash": previous_hash,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        event_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        connection.execute(
             """
-            INSERT INTO carpan.platform_audit_events(actor_user_id, event_type, outcome, event_data)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO carpan.platform_audit_events(
+                actor_user_id, event_type, outcome, event_data, previous_hash, event_hash, created_at
+            ) VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s)
             """,
-            (actor_user_id, event_type, outcome, Jsonb(event_data or {})),
+            (actor_user_id, event_type, outcome, data_json, previous_hash, event_hash, created_at),
         )
 
     def authenticate(self, *, username: str, password: str) -> PlatformOperator:

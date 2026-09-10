@@ -109,3 +109,32 @@ def test_platform_owner_status_change_has_data_minimum_audit_context(pg_database
         ).fetchone()
     assert company_status == ("SUSPENDED",)
     assert audit == ({"company_code": "DEMO_STATUS", "company_status": "SUSPENDED"},)
+
+
+def test_platform_owner_events_form_one_ordered_hash_chain(pg_database):
+    repository, operator_id = _repository(pg_database)
+    repository.provision_company(
+        actor_user_id=operator_id,
+        code="DEMO_CHAIN",
+        name="Demo chain company",
+        admin_username="demo.chain.admin",
+        admin_display_name="Demo chain admin",
+        plan_code="TRIAL",
+        license_status="TRIAL",
+        module_ids=[],
+    )
+    repository.update_company_status(
+        actor_user_id=operator_id,
+        company_code="DEMO_CHAIN",
+        company_status="SUSPENDED",
+    )
+
+    with psycopg.connect(pg_database.owner_dsn, row_factory=psycopg.rows.dict_row) as connection:
+        rows = connection.execute(
+            "SELECT previous_hash, event_hash FROM carpan.platform_audit_events ORDER BY id"
+        ).fetchall()
+    previous = "0" * 64
+    for row in rows:
+        assert row["previous_hash"] == previous
+        assert len(row["event_hash"]) == 64
+        previous = row["event_hash"]
