@@ -129,10 +129,13 @@ class PlatformOwnerRepository:
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
             ("carpan.platform_audit_events",),
         )
-        previous = connection.execute(
-            "SELECT event_hash FROM carpan.platform_audit_events ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        previous_hash = str(previous[0]) if previous else "0" * 64
+        # API connections use dict_row; bootstrap tools may use tuple_row.
+        # Give this query its own explicit row contract in both call paths.
+        with connection.cursor(row_factory=dict_row) as cursor:
+            previous = cursor.execute(
+                "SELECT event_hash FROM carpan.platform_audit_events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        previous_hash = str(previous["event_hash"]) if previous else "0" * 64
         created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         data_json = json.dumps(event_data or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         payload = json.dumps(

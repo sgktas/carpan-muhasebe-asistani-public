@@ -2,9 +2,29 @@ from dataclasses import replace
 from uuid import uuid4
 
 import psycopg
+import pytest
+from psycopg.rows import dict_row, tuple_row
 
 from carpan_platform.platform_owner import PlatformOwnerRepository
 from carpan_platform.security import hash_password
+
+
+@pytest.mark.parametrize("row_factory", [tuple_row, dict_row])
+def test_platform_audit_accepts_bootstrap_and_api_connection_rows(pg_database, row_factory):
+    repository, operator_id = _repository(pg_database)
+    with psycopg.connect(pg_database.owner_dsn, row_factory=row_factory) as connection:
+        for _ in range(2):
+            repository._append_audit(
+                connection, actor_user_id=operator_id,
+                event_type="TEST_ROW_CONTRACT", outcome="SUCCESS",
+            )
+    with psycopg.connect(pg_database.owner_dsn) as connection:
+        rows = connection.execute(
+            """SELECT previous_hash, event_hash FROM carpan.platform_audit_events
+               WHERE actor_user_id = %s ORDER BY id""", (operator_id,),
+        ).fetchall()
+    assert len(rows) == 2
+    assert rows[1][0] == rows[0][1]
 
 
 def _repository(pg_database):

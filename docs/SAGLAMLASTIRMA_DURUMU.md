@@ -1,5 +1,16 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — GitHub PostgreSQL denetim kaydı düzeltmesi
+
+- 1A gönderimi sonrası GitHub uygulama testleri geçti; gerçek PostgreSQL işi
+  önceki platform sahibi denetim zincirinde `KeyError: 0` yakaladı. API'nin
+  sözlük biçimli veritabanı satırı, tuple gibi sayısal indeksle okunuyordu.
+- Son denetim özetini okuyan sorgu artık kendi satır biçimini açıkça belirler;
+  API ve ilk kurulum bağlantıları aynı sözleşmeyle çalışır. İlk kurulum ve API
+  satır biçimleri için iki gerçek PostgreSQL regresyon testi eklendi.
+- İzole yerel PostgreSQL üzerinde 23 test geçti; test kümesi kapatıldı.
+  Mevcut yerel platform veritabanına veya VPS'ye bağlanılmadı.
+
 ## 10 Eylül 2026 — Operasyon otomasyonu 1A: kullanılan ayar sürümü
 
 - MANİM işçisi başlamadan bölge ve çözümlenmiş profil ayarları sabitlenir;
