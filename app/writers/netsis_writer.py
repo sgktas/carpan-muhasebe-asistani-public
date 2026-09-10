@@ -210,7 +210,7 @@ class NetsisWriter:
         """Metin biçimi uygulanacak sütunları döndürür.
 
         Onaylı toplu Netsis şablonunda ``Banka Hes.Kodu(*)`` hücreleri
-        metin (``@``) değil, şablonun kendi ``0.00`` biçimindedir. Bu
+        metin (``@``) değil, şablonun kendi ``General`` biçimindedir. Bu
         sütuna profil ayarından yanlışlıkla ``force_text`` verilse bile
         şablon biçimini bozma; Netsis metin biçimli BM kodlarını geçersiz
         banka kodu olarak işaretleyebiliyor.
