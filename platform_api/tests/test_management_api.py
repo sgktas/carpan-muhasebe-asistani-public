@@ -7,7 +7,7 @@ from carpan_platform.api.dependencies import get_settings
 from carpan_platform.config import Settings
 from carpan_platform.main import create_app
 from carpan_platform.management import AuditEventSummary, Invitation, ManagementOverview, ManagementRepository
-from carpan_platform.platform_owner import PlatformCompanySummary, PlatformOperator, PlatformOverview, PlatformOwnerRepository, ProvisionedCompany
+from carpan_platform.platform_owner import PlatformAuditEventSummary, PlatformCompanySummary, PlatformOperator, PlatformOverview, PlatformOwnerRepository, ProvisionedCompany
 from carpan_platform.security import create_access_token, create_platform_operator_token
 
 
@@ -362,3 +362,27 @@ def test_platform_owner_updates_license_only_with_owner_token(monkeypatch):
     assert _put(app, company_token, "/v1/platform/companies/DEMO/license", payload).status_code == 401
     assert _put(app, owner_token, "/v1/platform/companies/DEMO/license", payload).status_code == 204
     assert observed == [{"actor_user_id": operator_id, "company_code": "DEMO", **payload}]
+
+
+def test_platform_owner_audit_is_owner_only_and_hides_event_metadata(monkeypatch):
+    settings = _platform_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    operator_id = uuid4()
+    token = create_platform_operator_token(settings, user_id=operator_id)
+    monkeypatch.setattr(PlatformOwnerRepository, "operator_is_active", lambda self, user_id: user_id == operator_id)
+    observed = []
+
+    def audit_events(self, *, limit):
+        observed.append(limit)
+        return (PlatformAuditEventSummary("LICENSE_UPDATED", "SUCCESS", None, "Platform Sahibi"),)
+
+    monkeypatch.setattr(PlatformOwnerRepository, "audit_events", audit_events)
+    response = _get(app, token, "/v1/platform/audit-events?limit=10")
+
+    assert response.status_code == 200
+    assert observed == [10]
+    assert response.json() == {"events": [{
+        "event_type": "LICENSE_UPDATED", "outcome": "SUCCESS",
+        "created_at": None, "actor_display_name": "Platform Sahibi",
+    }]}

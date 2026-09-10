@@ -87,6 +87,22 @@ class ProvisionedCompany:
     invitation_expires_at: datetime
 
 
+@dataclass(frozen=True)
+class PlatformAuditEventSummary:
+    event_type: str
+    outcome: str
+    created_at: datetime
+    actor_display_name: str | None
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "event_type": self.event_type,
+            "outcome": self.outcome,
+            "created_at": self.created_at,
+            "actor_display_name": self.actor_display_name,
+        }
+
+
 class PlatformOwnerRepository:
     """Yalnız sunucudaki sahip bağlantısı ile çalışan, finansal veri taşımayan katman."""
 
@@ -190,6 +206,29 @@ class PlatformOwnerRepository:
             active_company_count=int(totals["active_company_count"]),
             active_device_count=int(device_row["active_device_count"]),
             companies=companies,
+        )
+
+    def audit_events(self, *, limit: int = 25) -> tuple[PlatformAuditEventSummary, ...]:
+        """Sadece işlem türü, sonucu, zamanı ve işlem sahibini döndürür."""
+        safe_limit = min(max(int(limit), 1), 50)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.event_type, e.outcome, e.created_at, u.display_name
+                FROM carpan.platform_audit_events e
+                LEFT JOIN carpan.users u ON u.id = e.actor_user_id
+                ORDER BY e.id DESC
+                LIMIT %s
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return tuple(
+            PlatformAuditEventSummary(
+                event_type=str(row["event_type"]), outcome=str(row["outcome"]),
+                created_at=row["created_at"],
+                actor_display_name=str(row["display_name"]) if row["display_name"] else None,
+            )
+            for row in rows
         )
 
     @staticmethod

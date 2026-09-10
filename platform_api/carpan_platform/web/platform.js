@@ -30,6 +30,22 @@ function companyRow(company) {
   row.append(copy, state); return row;
 }
 
+function auditRow(event) {
+  const row = document.createElement("div"); row.className = "row";
+  const copy = document.createElement("div"), title = document.createElement("strong"), subtitle = document.createElement("small");
+  const when = event.created_at ? new Date(event.created_at).toLocaleString("tr-TR") : "Zaman bilgisi yok";
+  title.textContent = status(event.event_type); subtitle.textContent = `${event.actor_display_name || "Sistem"} · ${when}`;
+  copy.append(title, subtitle);
+  const state = document.createElement("span"); state.className = `state${event.outcome !== "SUCCESS" ? " muted" : ""}`; state.textContent = status(event.outcome);
+  row.append(copy, state); return row;
+}
+
+function renderAudit(events) {
+  const target = $("platform-audit-list"); target.innerHTML = ""; $("platform-audit-total").textContent = events.length;
+  if (!events.length) { target.className = "list empty"; target.textContent = "Henüz platform kaydı yok."; return; }
+  target.className = "list"; events.forEach((event) => target.appendChild(auditRow(event)));
+}
+
 function renderModuleChoices(targetId) {
   const target = $(targetId); target.innerHTML = "";
   Object.entries(modules).forEach(([id, label]) => {
@@ -69,12 +85,13 @@ function renderCompanies(companies) {
 async function loadDashboard() {
   $("dashboard-error").textContent = "";
   try {
-    const overview = await request("/v1/platform/overview");
+    const [overview, audit] = await Promise.all([request("/v1/platform/overview"), request("/v1/platform/audit-events")]);
     $("operator-name").textContent = operatorName || "PLATFORM SAHİBİ";
     $("company-count").textContent = text(overview.companies.total_count, "0");
     $("active-company-count").textContent = `${text(overview.companies.active_count, "0")} etkin firma`;
     $("device-count").textContent = text(overview.devices.active_count, "0");
     renderCompanies(overview.companies.items || []);
+    renderAudit(audit.events || []);
   } catch (error) {
     $("dashboard-error").textContent = error.message;
     if (error.message.includes("Platform oturumu") || error.message.includes("Platform erişimi")) signOut();
