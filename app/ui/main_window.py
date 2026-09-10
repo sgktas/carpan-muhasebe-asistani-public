@@ -106,7 +106,7 @@ class MainWindow(QWidget):
             )
         if session.can("settings.manage"):
             self.management_items.append(
-                ("integrations", "Entegrasyonlar", "settings", IntegrationsPage)
+                ("integrations", "Entegrasyonlar", "settings", lambda: IntegrationsPage(history=self.history))
             )
             self.management_items.append(
                 ("settings", "Ayarlar", "settings", lambda: SettingsPage(self.session))

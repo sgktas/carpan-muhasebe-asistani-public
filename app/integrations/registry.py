@@ -65,6 +65,8 @@ def build_default_integration_registry() -> IntegrationRegistry:
                 capabilities=frozenset({"accounting.payment_export", "accounting.transfer_export"}),
                 description="MANİM hareketlerini onaylı Netsis şablonlarıyla aktarım dosyasına hazırlar.",
                 data_boundary="Excel çıktısı bilgisayarda oluşturulur; merkezi platforma finansal veri gönderilmez.",
+                operation_module_ids=frozenset({"manim_transfer"}),
+                acceptance_system="NETSIS",
             ),
             IntegrationManifest(
                 integration_id="psoft_fom_approved_export",
@@ -75,6 +77,8 @@ def build_default_integration_registry() -> IntegrationRegistry:
                 capabilities=frozenset({"report.sales_export", "report.collection_export"}),
                 description="Satış ve tahsilat raporlarını onaylı FOM entegrasyon şablonlarıyla hazırlar.",
                 data_boundary="Excel çıktısı bilgisayarda oluşturulur; merkezi platforma finansal veri gönderilmez.",
+                operation_module_ids=frozenset({"report_editing"}),
+                acceptance_system="PSOFT",
             ),
             IntegrationManifest(
                 integration_id="bank_statement_file_import",

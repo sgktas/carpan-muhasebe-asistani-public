@@ -37,6 +37,8 @@ class IntegrationManifest:
     capabilities: frozenset[str]
     description: str
     data_boundary: str
+    operation_module_ids: frozenset[str] = frozenset()
+    acceptance_system: str | None = None
 
     def supports(self, capability: str) -> bool:
         return str(capability).strip() in self.capabilities

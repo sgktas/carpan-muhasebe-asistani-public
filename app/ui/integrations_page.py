@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.integrations.registry import IntegrationRegistry, build_default_integration_registry
+from app.integrations.health import build_integration_health
 from app.core.app_paths import APP_PATHS
+from app.core.operation_history import OperationHistory
 from app.core.template_integrity import verify_approved_templates
 from app.ui.common import add_page_header
 
@@ -23,8 +25,9 @@ from app.ui.common import add_page_header
 class IntegrationsPage(QWidget):
     """Dış sistem adaptörlerinin görünür, güvenli ürün envanteri."""
 
-    def __init__(self, registry: IntegrationRegistry | None = None, parent=None):
+    def __init__(self, registry: IntegrationRegistry | None = None, parent=None, *, history: OperationHistory | None = None):
         super().__init__(parent)
+        self.history = history
         self.registry = registry or build_default_integration_registry()
         self._build_ui()
         self.refresh()
@@ -95,9 +98,9 @@ class IntegrationsPage(QWidget):
         header.addWidget(refresh_button)
         card_layout.addLayout(header)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 6)
         self.table.setObjectName("historyTable")
-        self.table.setHorizontalHeaderLabels(["Bağlantı", "Kategori", "Yöntem", "Durum", "Ne yapabilirsiniz?"])
+        self.table.setHorizontalHeaderLabels(["Bağlantı", "Kategori", "Yöntem", "Hazırlık", "Son aktarım", "Ne yapabilirsiniz?"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -107,6 +110,7 @@ class IntegrationsPage(QWidget):
         self.table.setColumnWidth(1, 150)
         self.table.setColumnWidth(2, 175)
         self.table.setColumnWidth(3, 130)
+        self.table.setColumnWidth(4, 210)
         card_layout.addWidget(self.table)
         layout.addWidget(card)
         layout.addStretch()
@@ -123,6 +127,10 @@ class IntegrationsPage(QWidget):
             else "Bir veya daha fazla onaylı şablon doğrulanamadı. Aktarıma başlamadan önce Ayarlar > Onaylı Şablon Kontrolü alanını açın."
         )
         integrations = self.registry.all()
+        health_by_id = build_integration_health(
+            integrations,
+            self.history.recent(100) if self.history is not None else (),
+        )
         self.table.setRowCount(len(integrations))
         for row, item in enumerate(integrations):
             is_template_export = item.integration_id in {"netsis_approved_export", "psoft_fom_approved_export"}
@@ -132,9 +140,10 @@ class IntegrationsPage(QWidget):
                 if status == "Hazır"
                 else "Ayarlar'dan onaylı şablon kontrolünü çalıştırın."
             )
-            values = (item.name, item.category, item.transport, status, next_step)
+            acceptance = health_by_id[item.integration_id]
+            values = (item.name, item.category, item.transport, status, acceptance.text, next_step)
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
-                if column == 3:
+                if column in (3, 4):
                     cell.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row, column, cell)

@@ -1,5 +1,15 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Entegrasyon kabul sağlığı
+
+- Entegrasyonlar ekranı, Netsis ve Psoft için onaylı şablon hazırlığının yanına
+  son gerçek aktarım sonucunu ekler: kabul edildi, reddedildi veya henüz sonuç
+  yok. Böylece bağlantının teknik olarak tanımlı olması ile ERP'nin çıktıyı
+  gerçekten kabul etmesi ayrılır.
+- Bu görünüm yalnız firma kapsamındaki yerel işlem geçmişini kullanır. Excel
+  içeriği, müşteri, banka, IBAN ve finansal tutar okunmaz ya da merkezi API'ye
+  aktarılmaz; ekran otomatik aktarım veya otomatik onay yapmaz.
+
 ## 10 Eylül 2026 — Platform sahibi denetim zinciri
 
 - Platform sahibi giriş, firma kurulumu, lisans ve firma durumu kararları artık

@@ -22,3 +22,11 @@
 
 Yeni bir adaptör eklenmeden önce kabiliyet, veri sınırı, hata/yeniden deneme
 davranışı ve denetim kaydı tanımlanmalıdır.
+
+## Kabul sonucu sağlığı
+
+Netsis ve Psoft gibi dış aktarım bağlantıları, Entegrasyonlar ekranında son
+yerel kabul sonucu ile görünür. Bu bilgi yalnız “kabul edildi / reddedildi /
+henüz sonuç yok” durumudur; Excel içeriği, müşteri, banka, IBAN ve tutar
+okunmaz veya merkezi platforma gönderilmez. Sonuç kullanıcı tarafından Geçmiş
+İşlemler ekranında kaydedilir; Entegrasyonlar ekranı otomatik aktarım yapmaz.
