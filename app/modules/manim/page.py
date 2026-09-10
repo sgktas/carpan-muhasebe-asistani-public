@@ -517,8 +517,7 @@ class ManimModulePage(QWidget):
         self.result_summary.setVisible(False)
         self.log.append("\nİşlem başlatıldı...")
         self.progress.setRange(0, 0)
-        self._operation_id = self.history.start(MODULE_ID, MODULE_NAME, self.files)
-
+        self._operation_id = None
         try:
             engine = ProcessingEngine(
                 self.files,
@@ -526,6 +525,13 @@ class ManimModulePage(QWidget):
                 data_root=APP_PATHS.data_root,
                 output_root=resolve_output_dir(APP_PATHS),
             )
+            self._operation_id = self.history.start(
+                MODULE_ID, MODULE_NAME, self.files,
+                configuration=engine.prepare_configuration(),
+            )
+            revision = self.history.configuration(self._operation_id)
+            if revision is not None:
+                self.log.append(f"Bu işlemde kullanılan ayar sürümü: {revision.revision}")
 
             duplicates = engine.find_duplicate_manim_files()
             allow_duplicate_files: set[str] = set()

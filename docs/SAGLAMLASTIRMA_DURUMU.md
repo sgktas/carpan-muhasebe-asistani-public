@@ -1,5 +1,20 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Operasyon otomasyonu 1A: kullanılan ayar sürümü
+
+- MANİM işçisi başlamadan bölge ve çözümlenmiş profil ayarları sabitlenir;
+  işlem sırasında değişen ayar dosyaları devam eden işlemi etkilemez.
+- Kullanılan ayarlar yerel firma/modül kapsamında içerik özetiyle sürümlenir.
+  İşlem, sürüm bağlantısı ve olay günlüğü aynı veritabanı işleminde yazılır.
+  Ayarı düzenleyenin denetim izi ile kullanılan ayarın kaydı farklıdır; bu
+  bölüm yalnız ikincisini sağlar.
+- Günlük ve geçmiş ayrıntılarında sürüm numarası görünür. Önceki işlemler
+  korunur; kaynak şablon ve doğrulama değerleri değiştirilmez.
+- 13 yeni testle birlikte 103 ilgili test geçti. Gerçek ERP aktarımı yapılmadı.
+- Sıradaki bölüm 1B, ayar değişikliği yönetimidir. Ardından kalıcı inceleme
+  kuyruğu, simülasyon ve kontrollü yeniden işleme gelir. Detaylı sıra ve kabul
+  ölçütleri `OPERASYON_OTOMASYONU_MIMARISI.md` içinde sabitlendi.
+
 ## 10 Eylül 2026 — Entegrasyon kabul sağlığı
 
 - Entegrasyonlar ekranı, Netsis ve Psoft için onaylı şablon hazırlığının yanına

@@ -5,12 +5,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from app.core.active_profile_store import ActiveProfileStore
 from app.core.customer_parser import CustomerParser
 from app.core.customer_list_cache import CustomerListCache
-from app.core.customer_list_profile import CustomerListProfileStore
-from app.core.input_profile import InputProfileStore
-from app.core.output_profile import OutputProfileStore
+from app.core.execution_configuration import ConfigurationSnapshot
+from app.core.manim_configuration import capture_manim_configuration, resolve_manim_configuration
 from app.core.mapping_store import MappingStore
 from app.core.manim_input_classifier import ManimInputClassifier
 from app.core.manim_output_service import (
@@ -93,6 +91,15 @@ class ProcessingEngine:
         self.REGIONS = self.region_config.regions() or self.FALLBACK_REGIONS
         self.input_classifier = ManimInputClassifier()
         self.region_resolver = ManimRegionResolver(self.region_config, self.REGIONS)
+        self._configuration: ConfigurationSnapshot | None = None
+
+    def prepare_configuration(self) -> ConfigurationSnapshot:
+        """Pin settings before handing this operation to the worker thread."""
+        if self._configuration is None:
+            self._configuration = capture_manim_configuration(
+                self.resource_root, self.data_root, self.region_config,
+            )
+        return self._configuration
 
     def find_duplicate_manim_files(self) -> dict[Path, dict]:
         manim_files = self.input_classifier.classify(self.files).manim_files
@@ -142,28 +149,12 @@ class ProcessingEngine:
         if not tahsilat_file:
             raise ValueError("Tahsilat raporu bulunamadi. Dosyayi da surukleyip birakin.")
 
-        active_profiles = ActiveProfileStore(self.data_root)
-        user_config_dir = self.data_root / "config"
-        input_profile = InputProfileStore(
-            self.resource_root / "config", user_config_dir
-        ).get_or_default(
-            active_profiles.get_input_profile_id()
+        (self.region_config, input_profile, output_profile, reference_output_profile,
+         customer_list_profile) = resolve_manim_configuration(
+            self.prepare_configuration(), self.region_config.file_path,
         )
-        output_profile_store = OutputProfileStore(
-            self.resource_root / "config", user_config_dir
-        )
-        output_profile = output_profile_store.get_or_default(
-            active_profiles.get_output_profile_id()
-        )
-        reference_output_profile = output_profile_store.get_or_default(
-            active_profiles.get_reference_output_profile_id(),
-            default_id="netsis_virman_toplu",
-        )
-        customer_list_profile = CustomerListProfileStore(
-            self.resource_root / "config", user_config_dir
-        ).get_or_default(
-            active_profiles.get_customer_list_profile_id()
-        )
+        self.REGIONS = self.region_config.regions() or self.FALLBACK_REGIONS
+        self.region_resolver = ManimRegionResolver(self.region_config, self.REGIONS)
 
         customer_cache = CustomerListCache(self.data_root)
         customer_file_is_fresh = customer_file is not None

@@ -35,6 +35,16 @@ class ActiveProfileStore:
     def get_input_profile_id(self) -> str:
         return self._read().get("input_profile_id") or self.DEFAULT_INPUT_PROFILE_ID
 
+    def selection_snapshot(self) -> dict[str, str]:
+        """Read all selected profiles together for one execution."""
+        data = self._read()
+        return {
+            "input_profile_id": data.get("input_profile_id") or self.DEFAULT_INPUT_PROFILE_ID,
+            "output_profile_id": data.get("output_profile_id") or self.DEFAULT_OUTPUT_PROFILE_ID,
+            "reference_output_profile_id": data.get("reference_output_profile_id") or self.DEFAULT_REFERENCE_OUTPUT_PROFILE_ID,
+            "customer_list_profile_id": data.get("customer_list_profile_id") or self.DEFAULT_CUSTOMER_LIST_PROFILE_ID,
+        }
+
     def get_output_profile_id(self) -> str:
         return self._read().get("output_profile_id") or self.DEFAULT_OUTPUT_PROFILE_ID
 

@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 import os
 from pathlib import Path
 import re
@@ -16,10 +17,14 @@ class RegionConfig:
     bir kod uydurmak yerine).
     """
 
-    def __init__(self, file_path: str | Path):
+    def __init__(self, file_path: str | Path, *, snapshot: dict | None = None):
         self.file_path = Path(file_path)
-        self._raw = self._load_raw()
+        self._raw = self._load_raw() if snapshot is None else deepcopy(snapshot)
         self._data = {key: value for key, value in self._raw.items() if not key.startswith("_")}
+
+    def snapshot(self) -> dict:
+        """Return the loaded settings, preserving semantically significant order."""
+        return deepcopy(self._raw)
 
     def _load_raw(self) -> dict:
         if not self.file_path.exists():

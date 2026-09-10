@@ -10,6 +10,12 @@ from uuid import uuid4
 
 from app.core.financial_ledger import financial_movement_from_decision
 from app.core.output_evidence import build_output_evidence
+from app.core.execution_configuration import (
+    ConfigurationRevision,
+    ConfigurationSnapshot,
+    bind_configuration,
+    initialize_configuration_schema,
+)
 
 
 class OperationHistoryError(RuntimeError):
@@ -165,6 +171,7 @@ class OperationHistory:
                 ON operation_events(operation_id, id)
                 """
             )
+            initialize_configuration_schema(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS financial_movements (
@@ -268,9 +275,14 @@ class OperationHistory:
         module_id: str,
         module_name: str,
         input_files: Iterable[str | Path],
+        *,
+        configuration: ConfigurationSnapshot | None = None,
     ) -> int:
+        if configuration is not None and configuration.module_id != module_id:
+            raise OperationHistoryError("İşlem ayarları seçilen modüle ait değil.")
         inputs = [str(Path(path)) for path in input_files]
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 """
                 INSERT INTO operations (
@@ -299,7 +311,33 @@ class OperationHistory:
                 """,
                 (operation_id, self._now()),
             )
+            if configuration is not None:
+                bind_configuration(
+                    connection, operation_id=operation_id, company_id=self.company_id,
+                    user_id=self.user_id, created_at=self._now(), snapshot=configuration,
+                )
             return operation_id
+
+    def configuration(self, operation_id: int) -> ConfigurationRevision | None:
+        """Read the settings of this company's operation, including old revisions."""
+        with self._connect() as connection:
+            row = connection.execute("""
+                SELECT v.revision, v.module_id, v.payload_json, v.fingerprint
+                FROM operation_configurations c
+                JOIN operations o ON o.id = c.operation_id
+                JOIN operation_configuration_versions v ON v.id = c.version_id
+                WHERE o.id = ?
+                  AND ((? IS NULL AND o.company_id IS NULL) OR o.company_id = ?)
+            """, (int(operation_id), self.company_id, self.company_id)).fetchone()
+        if row is None:
+            return None
+        try:
+            snapshot = ConfigurationSnapshot(row["module_id"], row["payload_json"])
+        except (TypeError, ValueError) as error:
+            raise OperationHistoryError("Kayıtlı işlem ayarı okunamadı.") from error
+        if snapshot.fingerprint != row["fingerprint"]:
+            raise OperationHistoryError("Kayıtlı işlem ayarının bütünlüğü doğrulanamadı.")
+        return ConfigurationRevision(int(row["revision"]), snapshot)
 
     def complete(
         self,

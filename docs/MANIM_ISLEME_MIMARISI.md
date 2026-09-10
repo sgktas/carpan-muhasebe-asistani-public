@@ -6,6 +6,11 @@ kurallarının ayrıntılarını kendi içinde tekrar etmez.
 
 ## İşlem hattı
 
+İşçi başlamadan `manim_configuration.py` bölge ve etkin profil ayarlarını
+değiştirilemez bir yürütme kopyasına alır. Aynı kopya işlem geçmişindeki
+sürüme bağlanır; aşağıdaki servisler o işlem boyunca bu ayarı kullanır.
+Ayrıntılar ve sonraki otomasyon sırası `OPERASYON_OTOMASYONU_MIMARISI.md` içindedir.
+
 1. `ManimInputClassifier`
    - Seçilen Excel dosyalarını MANİM, tahsilat ve müşteri listesi olarak tanır.
    - Dosya adıyla birlikte sütun başlıklarını da kanıt olarak kullanır.

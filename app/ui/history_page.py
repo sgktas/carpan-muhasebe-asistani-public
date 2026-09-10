@@ -400,11 +400,14 @@ class HistoryPage(QWidget):
         )
         decision_lines = self._decision_lines(decision_events)
         evidence_lines = self._evidence_lines(evidence_events)
+        configuration_events = [event for event in events if event.code == "CONFIGURATION_CAPTURED"]
         lines = [
             f"İşlem #{record.id}",
             f"Kullanıcı: {record.actor or '-'}",
             f"Modül: {record.module_name}",
             f"Durum: {self._status_text(record.status)}",
+            *([f"İşlem ayarları: sürüm {configuration_events[-1].details.get('revision', '-')}"]
+              if configuration_events else []),
             "",
             "Girdiler:",
             *[f"  • {path}" for path in record.input_files],
