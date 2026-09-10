@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from carpan_platform.config import Settings
-from carpan_platform.database import database_schema_ready
+from carpan_platform.database import database_schema_ready, owner_database_schema_ready
 
 
 def main() -> int:
@@ -17,6 +17,7 @@ def main() -> int:
     checks = {
         "İmzalama anahtarı": settings.token_signing_configured,
         "Veritabanı ve migrasyonlar": database_schema_ready(settings),
+        "Platform sahibi bağlantısı ve migrasyonlar": owner_database_schema_ready(settings),
     }
     failed = False
     for label, passed in checks.items():

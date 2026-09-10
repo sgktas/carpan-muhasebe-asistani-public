@@ -51,12 +51,16 @@ Bu panel yalnız kullanıcı, rol, cihaz ve lisans özetlerini okur; finansal do
 ve müşteri verisi kabul etmez.
 
 `/health` servis sürecinin ayakta olduğunu, `/ready` ise imzalama anahtarı,
-veritabanı ve tüm şema migrasyonlarının canlı çalışmaya uygun olduğunu denetler.
+uygulama veritabanı ve tüm şema migrasyonlarının canlı çalışmaya uygun olduğunu denetler.
 VPS dağıtımından hemen önce salt-okunur ön kontrol için şunu çalıştırın:
 
 ```powershell
 python scripts/preflight_deployment.py
 ```
+
+Ön kontrol, bunun yanında platform sahibinin ayrı veritabanı bağlantısının da
+aynı sürümlü şemayı gördüğünü doğrular. Bu bağlantı eksik ya da yanlışsa dağıtım
+durur; sistem yalnız firma kullanıcılarıyla yarım çalışır hale gelmez.
 
 ## Yedek doğrulama
 

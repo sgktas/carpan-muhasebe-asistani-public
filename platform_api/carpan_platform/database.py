@@ -28,20 +28,30 @@ def database_health(settings: Settings) -> bool:
         return False
 
 
-def database_schema_ready(settings: Settings) -> bool:
-    """Çalışan API'nin beklediği tüm migrasyonların uygulanmış olduğunu doğrular."""
-    if not settings.database_configured:
+def _database_url_schema_ready(database_url: str | None) -> bool:
+    """Verilen bağlantının tüm sürümlü şema geçişlerini gördüğünü doğrular."""
+    if not database_url:
         return False
     expected = {path.stem for path in (Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")}
     try:
         with psycopg.connect(
-            str(settings.database_url), connect_timeout=3, autocommit=True
+            str(database_url), connect_timeout=3, autocommit=True
         ) as connection:
             rows = connection.execute("SELECT version FROM carpan.schema_migrations").fetchall()
         applied = {str(row[0]) for row in rows}
         return expected.issubset(applied)
     except psycopg.Error:
         return False
+
+
+def database_schema_ready(settings: Settings) -> bool:
+    """Uygulama bağlantısının beklenen tüm migrasyonları gördüğünü doğrular."""
+    return _database_url_schema_ready(settings.database_url)
+
+
+def owner_database_schema_ready(settings: Settings) -> bool:
+    """Platform sahibi bağlantısının ayrıcalıklı şemayı da gördüğünü doğrular."""
+    return _database_url_schema_ready(settings.owner_database_url)
 
 
 @contextmanager

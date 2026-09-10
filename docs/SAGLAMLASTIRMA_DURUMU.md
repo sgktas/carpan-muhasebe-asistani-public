@@ -1,5 +1,15 @@
 # Sağlamlaştırma çalışma durumu
 
+## 10 Eylül 2026 — Çift bağlantılı dağıtım ön kontrolü
+
+- Dağıtım ön kontrolü artık uygulama bağlantısına ek olarak platform sahibinin
+  ayrı veritabanı bağlantısını ve her iki bağlantının tüm migrasyonları
+  gördüğünü denetler.
+- Sahip bağlantısı eksik, hatalı veya gerideyse dağıtım durur. Böylece merkezi
+  platform paneli yarım yapılandırılmış halde canlıya çıkmaz.
+- Bu denetim yalnız bağlantı/şema sağlığını okur; parola, bağlantı metni veya
+  müşteri-finans verisini yazdırmaz.
+
 ## 10 Eylül 2026 — Merkezi API dış sınır güvenliği
 
 - Merkezi API yanıtları `no-store`/`no-cache` ile işaretlenir; böylece giriş,
