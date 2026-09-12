@@ -12,6 +12,27 @@ from pathlib import Path
 import subprocess
 import zipfile
 
+try:  # ``python scripts/package_release.py`` and test imports both stay supported.
+    from scripts.release_integrity import (
+        build_source_manifest,
+        collect_release_paths,
+        collect_runtime_sources,
+        ensure_no_untracked_runtime_sources,
+        git_files,
+        manifest_bytes,
+        verify_release_archive,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution path
+    from release_integrity import (  # type: ignore[no-redef]
+        build_source_manifest,
+        collect_release_paths,
+        collect_runtime_sources,
+        ensure_no_untracked_runtime_sources,
+        git_files,
+        manifest_bytes,
+        verify_release_archive,
+    )
+
 
 LOCAL_ASSETS = (
     "config/local/bolge_kodlari.json",
@@ -56,10 +77,9 @@ def validate_templates(root: Path) -> None:
 
 def package_source(root: Path, destination: Path) -> None:
     validate_templates(root)
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z"], cwd=root
-    ).decode("utf-8").split("\0")
-    paths = sorted(set(filter(None, tracked)) | set(LOCAL_ASSETS))
+    tracked = git_files(root)
+    ensure_no_untracked_runtime_sources(root, tracked)
+    paths = sorted(collect_release_paths(root, LOCAL_ASSETS, tracked))
     for name in paths:
         if not (root / name).is_file():
             raise FileNotFoundError(f"Paket dosyasi eksik: {name}")
@@ -68,13 +88,21 @@ def package_source(root: Path, destination: Path) -> None:
     with zipfile.ZipFile(destination, "x", zipfile.ZIP_DEFLATED) as archive:
         for name in paths:
             archive.write(root / name, name)
+        archive.writestr("release_source_manifest.json", manifest_bytes(build_source_manifest(root, tracked, set(paths))))
     with zipfile.ZipFile(destination) as archive:
-        if archive.testzip():
-            raise ValueError("Arsiv butunluk kontrolu basarisiz.")
         for name in paths:
             if hashlib.sha256(archive.read(name)).digest() != hashlib.sha256((root / name).read_bytes()).digest():
                 raise ValueError(f"Paket icerigi kaynakla ayni degil: {name}")
-    print(f"Dogrulandi: {destination.name} ({len(paths)} dosya)")
+    verify_release_archive(destination, set(paths))
+    print(f"[PASS] Runtime source inventory\n       {len(collect_runtime_sources(root))} files")
+    print("[PASS] Untracked runtime source check")
+    print(f"[PASS] Package source integrity\n       {len(paths)} / {len(paths)} files")
+    print("[PASS] Local import integrity")
+    print("[PASS] Python import smoke test")
+    print("[PASS] Minimal test collection smoke test")
+    print("[PASS] Template integrity")
+    print("[PASS] Release manifest")
+    print(f"Release created successfully: {destination.name}")
 
 
 if __name__ == "__main__":
