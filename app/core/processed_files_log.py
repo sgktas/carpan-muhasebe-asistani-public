@@ -17,7 +17,6 @@ class ProcessedFilesLog:
 
     def __init__(self, file_path: str | Path):
         self.file_path = Path(file_path)
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self.data: dict[str, dict] = self._load()
 
     def _load(self) -> dict[str, dict]:

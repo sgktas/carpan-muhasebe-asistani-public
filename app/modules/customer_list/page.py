@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.ui.operation_activity import OperationActivity
 
 from pathlib import Path
 
@@ -150,9 +151,8 @@ class CustomerListPage(QWidget):
         log_layout.setContentsMargins(20, 18, 20, 20)
         log_title = QLabel("İşlem günlüğü")
         log_title.setObjectName("cardTitle")
-        self.log = QTextEdit()
+        self.log = OperationActivity()
         self.log.setObjectName("log")
-        self.log.setReadOnly(True)
         self.log.setPlaceholderText("Müşteri listesi içe aktarma kayıtları burada görüntülenecek.")
         log_layout.addWidget(log_title)
         log_layout.addWidget(self.log, 1)

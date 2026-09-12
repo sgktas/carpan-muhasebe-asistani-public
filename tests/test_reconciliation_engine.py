@@ -72,6 +72,90 @@ def test_bolunmus_fis_toplam_tutmuyorsa_gercek_fark_olarak_kalir():
     assert len(result.sadece_netposte) == 2
 
 
+def test_subeli_zincir_iki_banka_havalesi_bes_netsis_satiriyla_eslesir():
+    bank = [
+        _bank(datetime(2026, 8, 4), 81960.0, 100.0, 1),
+        _bank(datetime(2026, 8, 4), 129000.0, 100.0, 2),
+    ]
+    netsis = [
+        _netsis(datetime(2026, 8, 4), amount, 100.0, index)
+        for index, amount in enumerate(
+            [32326.75, 56774.75, 38200.50, 40778.50, 42879.50], start=1
+        )
+    ]
+    bank = [
+        record.__class__(**{**record.__dict__, "aciklama": "SELVEROĞLU GIDA zincir tahsilatı"})
+        for record in bank
+    ]
+    netsis = [
+        record.__class__(**{**record.__dict__, "aciklama": "SELVEROĞLU GIDA şube dağıtımı"})
+        for record in netsis
+    ]
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.bolunmus_grup_sayisi == 1
+    assert result.eslesen_sayisi == 7
+    assert result.sadece_bankada == []
+    assert result.sadece_netposte == []
+
+
+def test_aciklama_grubunun_eksigi_benzersiz_yetim_satirla_tamamlanir():
+    bank = [_bank(datetime(2026, 8, 14), 19577.50, 100.0, 1)]
+    bank[0] = bank[0].__class__(**{**bank[0].__dict__, "aciklama": "MEVLANA FİNİKE"})
+    netsis = [
+        _netsis(datetime(2026, 8, 14), 8117.50, 100.0, 1),
+        _netsis(datetime(2026, 8, 14), 11460.00, 100.0, 2),
+    ]
+    netsis[0] = netsis[0].__class__(**{**netsis[0].__dict__, "aciklama": "MEVLANA FİNİKE ŞUBE"})
+    netsis[1] = netsis[1].__class__(**{**netsis[1].__dict__, "aciklama": "AYDIN TOPTAŞ"})
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.bolunmus_grup_sayisi == 1
+    assert result.eslesen_sayisi == 3
+    assert result.sadece_bankada == []
+    assert result.sadece_netposte == []
+
+
+def test_giden_havalede_negatif_subeli_grup_yetim_satirla_tamamlanir():
+    bank = [_bank(datetime(2026, 8, 14), -19577.50, 100.0, 1)]
+    bank[0] = bank[0].__class__(**{**bank[0].__dict__, "aciklama": "MEVLANA FİNİKE"})
+    netsis = [
+        _netsis(datetime(2026, 8, 14), -8117.50, 100.0, 1),
+        _netsis(datetime(2026, 8, 14), -11460.00, 100.0, 2),
+    ]
+    netsis[0] = netsis[0].__class__(**{**netsis[0].__dict__, "aciklama": "MEVLANA FİNİKE ŞUBE"})
+    netsis[1] = netsis[1].__class__(**{**netsis[1].__dict__, "aciklama": "FARKLI AÇIKLAMA"})
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.bolunmus_grup_sayisi == 1
+    assert result.sadece_bankada == []
+    assert result.sadece_netposte == []
+
+
+def test_aciklama_grubu_birden_fazla_yetim_tamamlama_varsa_eslestirilmez():
+    bank = [_bank(datetime(2026, 8, 14), 200.0, 100.0, 1)]
+    bank[0] = bank[0].__class__(**{**bank[0].__dict__, "aciklama": "MEVLANA FİNİKE"})
+    netsis = [
+        _netsis(datetime(2026, 8, 14), 100.0, 100.0, 1),
+        _netsis(datetime(2026, 8, 14), 100.0, 100.0, 2),
+        _netsis(datetime(2026, 8, 14), 60.0, 100.0, 3),
+        _netsis(datetime(2026, 8, 14), 40.0, 100.0, 4),
+    ]
+    netsis[0] = netsis[0].__class__(**{**netsis[0].__dict__, "aciklama": "MEVLANA FİNİKE ŞUBE"})
+    netsis[1] = netsis[1].__class__(**{**netsis[1].__dict__, "aciklama": "YETİM A"})
+    netsis[2] = netsis[2].__class__(**{**netsis[2].__dict__, "aciklama": "YETİM B"})
+    netsis[3] = netsis[3].__class__(**{**netsis[3].__dict__, "aciklama": "YETİM C"})
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.bolunmus_grup_sayisi == 0
+    assert len(result.sadece_bankada) == 1
+    assert len(result.sadece_netposte) == 4
+
+
 def test_bakiye_tutmuyorsa_farkli_kayitlar_listelenir():
     bank = [
         _bank(datetime(2026, 7, 1), 1000.0, 1000.0, 1),
@@ -91,6 +175,19 @@ def test_bakiye_tutmuyorsa_farkli_kayitlar_listelenir():
     assert result.sadece_bankada[0].tutar == -50.0
     assert len(result.sadece_netposte) == 1
     assert result.sadece_netposte[0].tutar == -30.0
+
+
+def test_hareketler_tutup_devir_farkliysa_nedeni_ayri_raporlanir():
+    bank = [_bank(datetime(2026, 8, 1), 100.0, 1100.0, 1)]
+    netsis = [_netsis(datetime(2026, 8, 1), 100.0, 900.0, 1)]
+
+    result = ReconciliationEngine().reconcile(bank, netsis)
+
+    assert result.hareket_farki == 0
+    assert result.banka_devir_bakiyesi == 1000.0
+    assert result.netsis_devir_bakiyesi == 800.0
+    assert result.devir_farki == 200.0
+    assert result.fark == 200.0
 
 
 def test_mukerrer_ayni_tarih_tutar_multiset_eslesir():

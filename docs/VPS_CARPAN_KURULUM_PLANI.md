@@ -1,10 +1,11 @@
 # Çarpan VPS Kurulum Planı
 
-## Mevcut durum — 7 Eylül 2026
+## Mevcut durum — 11 Eylül 2026
 
 - Sunucu: Ubuntu 24.04 LTS
 - Mevcut uygulama: Acki Radar, Nginx + PM2 ile çalışıyor
-- Kullanılabilir bellek: yeni veritabanı ve API için yetersiz
+- Sunucu belleği: 1.8 GB toplam, yaklaşık 600 MB kullanılabilir; yeni
+  veritabanı ve API için yetersiz
 - Disk: yeterli
 - Sunucuda PostgreSQL ve Docker kurulu değil
 
@@ -17,6 +18,10 @@ bu plan uygulanırken değiştirilmez.
 - Tercih edilen canlı ortam: 8 GB RAM
 - PostgreSQL, API ve web paneli kurulmadan önce yükseltme sonrası RAM/disk tekrar
   ölçülür.
+- Dağıtımdan hemen önce `platform_api/scripts/preflight_deployment.py` sunucu
+  kapasitesini (en az 4 GB RAM ve 20 GB boş disk), 8010 yerel API portunu,
+  imzalama anahtarını ve iki ayrı veritabanı bağlantısını birlikte denetler.
+  Denetimden biri başarısızsa kurulum başlatılmaz.
 
 ## İzolasyon sözleşmesi
 

@@ -49,6 +49,11 @@ SALES_OUTPUT_COLUMNS = [
     "İrsaliye Tarihi", "Miktar", "Fiyat", "İskonto1", "İskonto2",
     "ToplamKDV", "EklenenKDV", "Vade", "TuketiciFiyati", "NetFiyat",
 ]
+SALES_TEXT_COLUMNS = frozenset(SALES_OUTPUT_COLUMNS[:16])
+SALES_TEXT_COLUMN_INDEXES = frozenset(
+    SALES_OUTPUT_COLUMNS.index(column) + 1
+    for column in SALES_TEXT_COLUMNS
+)
 
 COLLECTION_OUTPUT_COLUMNS = [
     "MusteriKodu", "Musteriİsmi", "BelgeNo", "BelgeTarihi", "TahsilatTipi",
@@ -56,18 +61,47 @@ COLLECTION_OUTPUT_COLUMNS = [
     "MusteriKayitTipi", "MusteriTipi", "SahiplikTipi", "AltTip",
     "FiyatListesi", "BANKA", "Tutar",
 ]
+COLLECTION_TEXT_COLUMNS = frozenset(
+    {"MusteriKodu", "BelgeNo", "TahsilatTuru", "SatisElemani"}
+)
+COLLECTION_TEXT_COLUMN_INDEXES = frozenset(
+    COLLECTION_OUTPUT_COLUMNS.index(column) + 1
+    for column in COLLECTION_TEXT_COLUMNS
+)
 
 
 def _collection_template_value(column: str, value: object) -> object:
     """Psoft tahsilat şablonunun metin alanlarını sayıya dönüştürmeden korur."""
     if value is None:
         return ""
-    if column == "TahsilatTuru":
-        return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
-    if column == "SatisElemani" and isinstance(value, (int, float)):
-        number = int(value)
-        return f"{number:09d}" if number >= 0 else str(number)
+    if column in {"MusteriKodu", "BelgeNo", "TahsilatTuru"}:
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    if column == "SatisElemani":
+        if isinstance(value, float) and value.is_integer():
+            text = str(int(value))
+        else:
+            text = str(value).strip()
+        return text.zfill(9) if text.isdigit() else text
     return value
+
+
+def _sales_template_value(column: str, value: object) -> object:
+    """Psoft satış şablonundaki ilk 16 metin alanını aynen korur."""
+    if value is None:
+        return "" if column in SALES_TEXT_COLUMNS else value
+    if column not in SALES_TEXT_COLUMNS:
+        return value
+    if isinstance(value, datetime):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, float) and value.is_integer():
+        text = str(int(value))
+    else:
+        text = str(value).strip()
+    if column == "PersonelKodu" and text.isdigit():
+        return text.zfill(9)
+    return text
 
 
 # Psoft, FOM'un kendi dışa aktarma dosya adlarını bekliyor. Bu adlar gerçek
@@ -415,16 +449,19 @@ class ExcelTemplateWriter:
         headers: Sequence[list[str]] | None = None,
         delete_extra_sheets: bool = False,
         number_formats: dict[tuple[int, int], tuple[str, str]] | None = None,
+        text_columns: dict[int, frozenset[int]] | None = None,
     ) -> Path:
         template_path = Path(template_path)
         output_path = Path(output_path).with_suffix(".xls")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Hücre biçiminin tek otoritesi onaylı şablondur. Şablon verisinin
+        # yerleştirildiği satırdaki tutar/tarih/metin biçimleri daha aşağıdaki
+        # format kopyalama ile devralınır. Burada başlığa göre NumberFormat
+        # dayatmak, kullanıcının verdiği Psoft şablonundaki özgün XF biçimini
+        # (kenarlıklar dahil) değiştirebiliyordu.
         number_formats = dict(number_formats or {})
-        for sheet_index, sheet_headers in enumerate(headers or (), start=1):
-            for column_index, header in enumerate(sheet_headers, start=1):
-                if header in AMOUNT_HEADERS or "tutar" in header.casefold():
-                    number_formats[(sheet_index, column_index)] = (AMOUNT_FORMAT, "#.##0,00")
+        text_columns = dict(text_columns or {})
 
         if not template_path.is_file():
             return self._write_xlwt(output_path, sheets, headers=headers)
@@ -445,6 +482,7 @@ class ExcelTemplateWriter:
                     sheets,
                     delete_extra_sheets=delete_extra_sheets,
                     number_formats=number_formats,
+                    text_columns=text_columns,
                 )
             except ModuleNotFoundError:
                 return self._write_powershell(
@@ -453,6 +491,7 @@ class ExcelTemplateWriter:
                     sheets,
                     delete_extra_sheets=delete_extra_sheets,
                     number_formats=number_formats,
+                    text_columns=text_columns,
                 )
 
     @staticmethod
@@ -499,11 +538,20 @@ class ExcelTemplateWriter:
         return save_xls(workbook, output_path)
 
     @staticmethod
-    def _python_matrix(values: list[list[object]]) -> tuple[tuple[object, ...], ...]:
+    def _python_matrix(
+        values: list[list[object]],
+        text_columns: frozenset[int] = frozenset(),
+    ) -> tuple[tuple[object, ...], ...]:
         return tuple(
             tuple(
-                value.strftime("%d.%m.%Y") if isinstance(value, datetime) else value
-                for value in row
+                (
+                    "'" + str(value)
+                    if column_index in text_columns and value not in (None, "")
+                    else value.strftime("%d.%m.%Y")
+                    if isinstance(value, datetime)
+                    else value
+                )
+                for column_index, value in enumerate(row, start=1)
             )
             for row in values
         )
@@ -516,6 +564,7 @@ class ExcelTemplateWriter:
         *,
         delete_extra_sheets: bool,
         number_formats: dict[tuple[int, int], tuple[str, str]] | None,
+        text_columns: dict[int, frozenset[int]],
     ) -> Path:
         import pythoncom
         import win32com.client
@@ -557,17 +606,18 @@ class ExcelTemplateWriter:
                     worksheet.Cells(clear_last, max(column_count, used_columns)),
                 ).ClearContents()
 
-                # Şablonda tanımlı son veri satırını aşan kayıtlarda Excel yeni
-                # hücreleri varsayılan biçimle açar. Bu, Psoft/Netsis'in alan
-                # türü denetimini bozduğu için yalnız biçimleri son şablon
-                # satırından çoğaltıyoruz; şablon dosyasına dokunulmuyor.
-                if row_count + 1 > used_rows and used_rows >= 2:
+                # Her veri satırı (sadece şablon sonrasındakiler değil) ikinci
+                # satırdaki onaylı biçimi devralır. Böylece mevcut boş/önceden
+                # dolu satırların farklı biçimde kalması ve uzun raporlarda
+                # varsayılan hücre oluşması engellenir. Kaynak şablon yalnız
+                # geçici kopyada açılır; aslına hiçbir zaman yazılmaz.
+                if row_count and used_rows >= 2:
                     source = worksheet.Range(
-                        worksheet.Cells(used_rows, 1),
-                        worksheet.Cells(used_rows, column_count),
+                        worksheet.Cells(2, 1),
+                        worksheet.Cells(2, column_count),
                     )
                     target = worksheet.Range(
-                        worksheet.Cells(used_rows + 1, 1),
+                        worksheet.Cells(2, 1),
                         worksheet.Cells(row_count + 1, column_count),
                     )
                     source.Copy()
@@ -578,7 +628,9 @@ class ExcelTemplateWriter:
                     worksheet.Range(
                         worksheet.Cells(2, 1),
                         worksheet.Cells(row_count + 1, column_count),
-                    ).Value2 = self._python_matrix(values)
+                    ).Value2 = self._python_matrix(
+                        values, text_columns.get(index, frozenset())
+                    )
 
                 for (format_sheet_index, column_index), formats in (number_formats or {}).items():
                     if format_sheet_index != index or row_count <= 0:
@@ -629,6 +681,7 @@ class ExcelTemplateWriter:
         *,
         delete_extra_sheets: bool,
         number_formats: dict[tuple[int, int], tuple[str, str]] | None,
+        text_columns: dict[int, frozenset[int]],
     ) -> Path:
         powershell = shutil.which("powershell.exe") or shutil.which("powershell")
         if not powershell:
@@ -650,6 +703,7 @@ class ExcelTemplateWriter:
             "sheets": [
                 {
                     "name": name,
+                    "text_columns": sorted(text_columns.get(sheet_index, frozenset())),
                     "rows": [
                         [
                             value.strftime("%d.%m.%Y") if isinstance(value, datetime) else value
@@ -658,7 +712,7 @@ class ExcelTemplateWriter:
                         for row in rows
                     ],
                 }
-                for name, rows in sheets
+                for sheet_index, (name, rows) in enumerate(sheets, start=1)
             ]
         }
 
@@ -694,6 +748,7 @@ try {
         }
 
         $sheetPayload = $sheetPayloads[$sheetIndex]
+        $textColumns = @($sheetPayload.text_columns)
         if ($null -ne $sheetPayload.name -and [string]$sheetPayload.name -ne "") {
             try {
                 $nameText = [string]$sheetPayload.name
@@ -717,15 +772,16 @@ try {
             $worksheet.Cells.Item($clearLast, $clearColumns)
         ).ClearContents()
 
-        # Şablon boyunu aşan satırlar için yalnız son veri satırının biçimini
-        # çoğalt. Böylece Psoft/Netsis'e giden hücre türleri sabit kalır.
-        if (($rows.Count + 1) -gt $usedRows -and $usedRows -ge 2) {
+        # Her veri satırı, onaylı şablonun ikinci satırındaki özgün hücre
+        # biçimlerini devralır. Bu; kenarlıklar, sayı/tarih biçimleri ve hücre
+        # türleri için şablon dışına çıkılmasını önler.
+        if ($rows.Count -gt 0 -and $usedRows -ge 2) {
             $sourceRange = $worksheet.Range(
-                $worksheet.Cells.Item($usedRows, 1),
-                $worksheet.Cells.Item($usedRows, $columnCount)
+                $worksheet.Cells.Item(2, 1),
+                $worksheet.Cells.Item(2, $columnCount)
             )
             $targetRange = $worksheet.Range(
-                $worksheet.Cells.Item($usedRows + 1, 1),
+                $worksheet.Cells.Item(2, 1),
                 $worksheet.Cells.Item($rows.Count + 1, $columnCount)
             )
             $sourceRange.Copy()
@@ -744,6 +800,10 @@ try {
                 for ($columnIndex = 0; $columnIndex -lt $columnCount; $columnIndex++) {
                     $value = $null
                     if ($columnIndex -lt $values.Count) { $value = $values[$columnIndex] }
+                    if (($textColumns -contains ($columnIndex + 1)) -and
+                        $null -ne $value -and [string]$value -ne "") {
+                        $value = "'" + [string]$value
+                    }
                     $matrix.SetValue($value, $rowIndex, $columnIndex)
                 }
             }
@@ -948,7 +1008,10 @@ class ReportEditingEngine:
 
         cleaned: list[dict] = []
         for source in rows:
-            row = {column: source.get(column) for column in SALES_OUTPUT_COLUMNS}
+            row = {
+                column: _sales_template_value(column, source.get(column))
+                for column in SALES_OUTPUT_COLUMNS
+            }
             if row.get("Vade") in (None, ""):
                 row["Vade"] = 0
             row["Şube"] = branch_lookup.get(
@@ -1004,12 +1067,38 @@ class ReportEditingEngine:
             operation_dates.extend(_date_values(source_rows, ("BelgeTarihi",)))
 
         operation_date_label = _format_date_label(operation_dates)
-        output_dir = _unique_output_dir(
-            self.output_root / f"FOM AKTARMA - {operation_date_label}"
-        )
-        output_dir.mkdir(parents=True, exist_ok=False)
-        result.output_dir = output_dir
         result.logs.append(f"FOM işlem tarihi: {operation_date_label}")
+        self.output_root.mkdir(parents=True, exist_ok=True)
+        # Aynı disk üzerindeki geçici çalışma alanı tamamlanınca tek klasör
+        # taşımasıyla yayımlanır. Hatalı/yarım çıktılar sonuç klasörü değildir.
+        with tempfile.TemporaryDirectory(prefix=".fom-hazirlaniyor-", dir=self.output_root) as temporary:
+            staging_dir = Path(temporary) / "raporlar"
+            staging_dir.mkdir()
+            self._write_outputs(result, recognized, staging_dir)
+            if not result.created_files or any(not path.is_file() for path in result.created_files):
+                raise RuntimeError("FOM çıktıları eksik; sonuç klasörü yayımlanmadı.")
+            preferred = self.output_root / f"FOM AKTARMA - {operation_date_label}"
+            while True:
+                output_dir = _unique_output_dir(preferred)
+                published_paths = [output_dir / path.relative_to(staging_dir) for path in result.created_files]
+                try:
+                    staging_dir.rename(output_dir)
+                    break
+                except FileExistsError:
+                    # Başka bir işlem aynı adı arada aldıysa eski çıktıya dokunma.
+                    continue
+            result.created_files = published_paths
+            result.output_dir = output_dir
+        result.logs.append("Tüm FOM çıktıları tamamlandı ve sonuç klasörü yayımlandı.")
+        return result
+
+    def _write_outputs(
+        self,
+        result: ReportEditingResult,
+        recognized: dict[str, Path],
+        output_dir: Path,
+    ) -> None:
+        """Raporları üretir ve ERP sözleşmesini geçici çalışma alanında doğrular."""
 
         customer_rows: list[dict] = []
         branch_lookup: dict[str, str] = {}
@@ -1068,6 +1157,7 @@ class ReportEditingEngine:
                     [(None, values)],
                     headers=[SALES_OUTPUT_COLUMNS + [""]],
                     delete_extra_sheets=True,
+                    text_columns={1: SALES_TEXT_COLUMN_INDEXES},
                 )
                 validate_fom_integration_output(
                     template_output,
@@ -1130,6 +1220,7 @@ class ReportEditingEngine:
                     [(None, main_values)],
                     headers=[COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"]],
                     delete_extra_sheets=True,
+                    text_columns={1: COLLECTION_TEXT_COLUMN_INDEXES},
                 )
                 validate_fom_integration_output(
                     template_output,
@@ -1144,4 +1235,3 @@ class ReportEditingEngine:
 
         if not result.created_files:
             raise RuntimeError("Rapor düzenleme işlemi çıktı üretemedi.")
-        return result

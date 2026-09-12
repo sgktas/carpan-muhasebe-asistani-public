@@ -11,11 +11,13 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -23,8 +25,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.operation_history import OperationHistory
+from app.core.operation_history import (
+    ERP_REJECTION_REASONS,
+    ERP_REJECTION_REASON_LABELS,
+    OperationHistory,
+)
+from app.core.erp_acceptance_target import erp_output_candidates, output_choice_labels
 from app.core.output_evidence import verify_output_evidence
+from app.core.operation_trends import build_operation_trend_summary, filter_operation_records
 from app.ui.common import add_page_header
 
 
@@ -77,7 +85,7 @@ class HistoryPage(QWidget):
         title_col.setSpacing(3)
         title = QLabel("İşlem kayıtları")
         title.setObjectName("cardTitle")
-        subtitle = QLabel("Son 100 işlem SQLite veritabanından okunur.")
+        subtitle = QLabel("Firmanızın yerel işlem geçmişi · Dönem ve sonuçlara göre inceleyin.")
         subtitle.setObjectName("cardSubtitle")
         title_col.addWidget(title)
         title_col.addWidget(subtitle)
@@ -109,6 +117,11 @@ class HistoryPage(QWidget):
 
         filters = QHBoxLayout()
         filters.setSpacing(8)
+        self.period_filter = QComboBox()
+        self.period_filter.addItem("Tüm zamanlar", None)
+        self.period_filter.addItem("Son 7 gün", 7)
+        self.period_filter.addItem("Son 30 gün", 30)
+        self.period_filter.addItem("Son 90 gün", 90)
         self.outcome_filter = QComboBox()
         self.outcome_filter.addItem("Tüm karar sonuçları", "")
         self.region_filter = QComboBox()
@@ -118,7 +131,7 @@ class HistoryPage(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("İşlem, kullanıcı veya kural ara")
         self.search_input.setClearButtonEnabled(True)
-        for widget in (self.outcome_filter, self.region_filter, self.bank_filter):
+        for widget in (self.period_filter, self.outcome_filter, self.region_filter, self.bank_filter):
             widget.currentIndexChanged.connect(self._render_records)
             filters.addWidget(widget)
         self.search_input.textChanged.connect(self._render_records)
@@ -130,6 +143,11 @@ class HistoryPage(QWidget):
         self.decision_summary.setWordWrap(True)
         card_layout.addWidget(self.decision_summary)
 
+        self.trend_summary = QLabel()
+        self.trend_summary.setObjectName("miniInfoText")
+        self.trend_summary.setWordWrap(True)
+        card_layout.addWidget(self.trend_summary)
+
         self.table = QTableWidget(0, 8)
         self.table.setObjectName("historyTable")
         self.table.setHorizontalHeaderLabels(
@@ -138,6 +156,9 @@ class HistoryPage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
         self.table.verticalHeader().setVisible(False)
         self.table.itemSelectionChanged.connect(self._update_actions)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -148,7 +169,30 @@ class HistoryPage(QWidget):
         self.table.setColumnWidth(4, 70)
         self.table.setColumnWidth(5, 70)
         self.table.setColumnWidth(6, 80)
-        card_layout.addWidget(self.table, 1)
+        self.detail_panel = QFrame()
+        self.detail_panel.setObjectName("softPanel")
+        detail_layout = QVBoxLayout(self.detail_panel)
+        detail_layout.setContentsMargins(14, 14, 14, 14)
+        detail_title = QLabel("İşlem ayrıntısı")
+        detail_title.setObjectName("cardTitle")
+        self.detail_text = QLabel("Bir satır seçin; işlem özeti ve güvenli sonraki adım burada görünür.")
+        self.detail_text.setObjectName("cardSubtitle")
+        self.detail_text.setWordWrap(True)
+        detail_layout.addWidget(detail_title)
+        detail_layout.addWidget(self.detail_text)
+        detail_layout.addStretch(1)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.table)
+        splitter.addWidget(self.detail_panel)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([720, 300])
+        card_layout.addWidget(splitter, 1)
+
+        self.selection_hint = QLabel("Bir işlem seçtiğinizde güvenli sonraki adım burada görünür.")
+        self.selection_hint.setObjectName("miniInfoText")
+        self.selection_hint.setWordWrap(True)
+        card_layout.addWidget(self.selection_hint)
 
         layout.addWidget(card, 1)
         scroll.setWidget(content)
@@ -198,7 +242,7 @@ class HistoryPage(QWidget):
         return " • ".join(parts) or "-"
 
     def refresh(self) -> None:
-        self._all_records = self.history.recent(100)
+        self._all_records = self.history.recent(None)
         self._events_by_operation = {
             record.id: self.history.events(record.id)
             for record in self._all_records
@@ -271,6 +315,8 @@ class HistoryPage(QWidget):
         }.get(str(outcome), str(outcome) or "-")
 
     def _render_records(self) -> None:
+        period_days = self.period_filter.currentData()
+        period_days = int(period_days) if period_days is not None else None
         outcome = str(self.outcome_filter.currentData() or "")
         region = str(self.region_filter.currentData() or "")
         bank = str(self.bank_filter.currentData() or "")
@@ -297,7 +343,18 @@ class HistoryPage(QWidget):
                 )
             return needle in " ".join(searchable).casefold()
 
-        self._records = [record for record in self._all_records if matches(record)]
+        period_records = filter_operation_records(self._all_records, period_days=period_days)
+        self._records = [record for record in period_records if matches(record)]
+        trends = build_operation_trend_summary(self._records)
+        period_text = self.period_filter.currentText()
+        self.trend_summary.setText(
+            f"{period_text}: {trends.operation_count} işlem • Başarılı: {trends.successful_count} • "
+            f"Kısmi: {trends.partial_count} • Hatalı/yarım: {trends.failed_count} • "
+            f"Netsis kabul/ret: {trends.netsis_accepted}/{trends.netsis_rejected} • "
+            f"Psoft kabul/ret: {trends.psoft_accepted}/{trends.psoft_rejected}"
+            f"{self._rejection_reason_text(trends.netsis_rejection_reasons, 'Netsis')}"
+            f"{self._rejection_reason_text(trends.psoft_rejection_reasons, 'Psoft')}"
+        )
         self.table.setRowCount(len(self._records))
         for row_index, record in enumerate(self._records):
             decision_count = sum(
@@ -321,6 +378,16 @@ class HistoryPage(QWidget):
                 self.table.setItem(row_index, column, item)
         self._update_actions()
 
+    @staticmethod
+    def _rejection_reason_text(reasons: tuple[tuple[str, int], ...], system: str) -> str:
+        if not reasons:
+            return ""
+        labels = [
+            f"{ERP_REJECTION_REASON_LABELS.get(code, code)}: {count}"
+            for code, count in reasons[:2]
+        ]
+        return f" • {system} ret nedenleri: {', '.join(labels)}"
+
     def _update_actions(self) -> None:
         row = self.table.currentRow()
         enabled = (
@@ -336,6 +403,25 @@ class HistoryPage(QWidget):
             and record.status in {"SUCCESS", "PARTIAL"}
             and bool(record.output_files)
             and bool(self._acceptance_system(record))
+        )
+        if record is None:
+            self.selection_hint.setText("Bir işlem seçtiğinizde güvenli sonraki adım burada görünür.")
+            self.detail_text.setText("Bir satır seçin; işlem özeti ve güvenli sonraki adım burada görünür.")
+            return
+        status = self._status_text(record.status)
+        output_text = f"{len(record.output_files)} çıktı" if record.output_files else "çıktı yok"
+        next_step = "Ayrıntıları gösterin; ardından dış sistem kabulünü kaydedin." if record.output_files else "Ayrıntıları açıp hata günlüğünü inceleyin."
+        self.selection_hint.setText(f"Seçili işlem: {record.module_name} · {status} · {output_text}. {next_step}")
+        summary = self._summary_text(record.summary)
+        files = ", ".join(Path(path).name for path in record.output_files[:3]) if record.output_files else "Çıktı yok"
+        if len(record.output_files) > 3:
+            files += f" (+{len(record.output_files) - 3})"
+        self.detail_text.setText(
+            f"<b>{record.module_name}</b><br>"
+            f"Durum: {status}<br>"
+            f"Başlangıç: {self._display_date(record.started_at)}<br>"
+            f"Özet: {summary}<br><br>"
+            f"Çıktılar: {files}<br><br>{next_step}"
         )
 
     @staticmethod
@@ -354,6 +440,9 @@ class HistoryPage(QWidget):
         if not system:
             return
         label = "Netsis" if system == "NETSIS" else "Psoft"
+        output_file = self._select_external_output(record, system, label)
+        if not output_file:
+            return
         prompt = QMessageBox(self)
         prompt.setWindowTitle("Dış aktarım sonucu")
         prompt.setIcon(QMessageBox.Question)
@@ -370,11 +459,29 @@ class HistoryPage(QWidget):
         if selected == QMessageBox.Cancel:
             return
         verdict = "ACCEPTED" if selected == QMessageBox.Yes else "REJECTED"
+        reason_code = ""
+        if verdict == "REJECTED":
+            labels = [label for _code, label in ERP_REJECTION_REASONS]
+            reason_label, accepted = QInputDialog.getItem(
+                self,
+                "Ret nedeni",
+                f"{label} aktarım ekranında görünen ana hata nedeni:",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            reason_code = next(
+                code for code, item_label in ERP_REJECTION_REASONS if item_label == reason_label
+            )
         try:
             self.history.record_external_acceptance(
                 record.id,
                 system=system,
                 verdict=verdict,
+                reason_code=reason_code,
+                output_file=output_file,
             )
         except Exception as error:
             QMessageBox.warning(self, "Sonuç kaydedilemedi", str(error))
@@ -385,6 +492,28 @@ class HistoryPage(QWidget):
             f"{label} aktarımı için {'kabul' if verdict == 'ACCEPTED' else 'ret'} sonucu işlem geçmişine eklendi.",
         )
         self.refresh()
+
+    def _select_external_output(self, record, system: str, label: str) -> str | None:
+        candidates = erp_output_candidates(record.module_id, system, record.output_files)
+        if not candidates:
+            QMessageBox.warning(
+                self,
+                "Aktarım çıktısı bulunamadı",
+                f"Bu işlemde {label}'e aktarılabilecek onaylı bir çıktı bulunamadı.",
+            )
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        choices = output_choice_labels(candidates)
+        selected, accepted = QInputDialog.getItem(
+            self,
+            f"{label} çıktısı",
+            "Sonucunu kaydedeceğiniz dosyayı seçin:",
+            list(choices),
+            0,
+            False,
+        )
+        return choices.get(selected) if accepted else None
 
     def show_selected_details(self) -> None:
         row = self.table.currentRow()
@@ -514,13 +643,19 @@ class HistoryPage(QWidget):
     def _external_acceptance_lines(acceptances) -> list[str]:
         latest_by_system = {}
         for acceptance in acceptances:
-            latest_by_system[acceptance.system] = acceptance
+            latest_by_system[(acceptance.system, acceptance.output_name)] = acceptance
         labels = {"ACCEPTED": "kabul edildi", "REJECTED": "REDDEDİLDİ"}
         systems = {"NETSIS": "Netsis", "PSOFT": "Psoft"}
         return [
             f"  • {systems.get(item.system, item.system)} — "
-            f"{labels.get(item.verdict, item.verdict)} — {HistoryPage._display_date(item.created_at)}"
-            for item in sorted(latest_by_system.values(), key=lambda item: item.system)
+            + (f"{item.output_name} — " if item.output_name else "")
+            + f"{labels.get(item.verdict, item.verdict)}"
+            + (f" ({ERP_REJECTION_REASON_LABELS[item.reason_code]})" if item.reason_code in ERP_REJECTION_REASON_LABELS else "")
+            + f" — {HistoryPage._display_date(item.created_at)}"
+            for item in sorted(
+                latest_by_system.values(),
+                key=lambda item: (item.system, item.output_name),
+            )
         ]
 
     def open_selected_output(self) -> None:

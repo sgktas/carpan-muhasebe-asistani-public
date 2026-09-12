@@ -95,6 +95,20 @@ python scripts/migrate.py
 Bu komut yalnız `platform_api/migrations/` içindeki sürümlü SQL dosyalarını
 uygular. Mevcut Acki Radar veritabanına kesinlikle bağlanmamalıdır.
 
+## Denetim zinciri doğrulama
+
+Merkezi firma ve platform sahibi denetim kayıtları birbirine kriptografik
+özetle bağlanır. Aşağıdaki salt-okunur kontrol, kayıt ekleme, silme veya
+değişiklik şüphesinde zinciri yeniden hesaplar; müşteri, banka, Excel veya
+finansal veri okumaz ya da yazmaz:
+
+```powershell
+python scripts/verify_audit_chain.py
+```
+
+Komut yalnız sunucudaki `CARPAN_OWNER_DATABASE_URL` ile çalıştırılmalıdır.
+Her yedek alımından ve VPS'e ilk dağıtımdan sonra çalıştırılması planlanır.
+
 Migrasyon tamamlandıktan sonra ilk firma ve merkezi yönetici hesabı, yalnız
 sunucu yöneticisinin açık terminalinden ve parola komut satırına yazılmadan
 oluşturulur:

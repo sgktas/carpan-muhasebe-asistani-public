@@ -129,7 +129,10 @@ class IntegrationsPage(QWidget):
         integrations = self.registry.all()
         health_by_id = build_integration_health(
             integrations,
-            self.history.recent(100) if self.history is not None else (),
+            # Bu ekran "son aktarım"ı gösterir. Eski bir kabul/ret sonucunun
+            # 100 kayıt sınırının gerisinde kalması yanlış güven hissi verir;
+            # yalnız hafif işlem özetleri okunur, finansal içerik okunmaz.
+            self.history.recent(None) if self.history is not None else (),
         )
         self.table.setRowCount(len(integrations))
         for row, item in enumerate(integrations):
@@ -141,7 +144,10 @@ class IntegrationsPage(QWidget):
                 else "Ayarlar'dan onaylı şablon kontrolünü çalıştırın."
             )
             acceptance = health_by_id[item.integration_id]
-            values = (item.name, item.category, item.transport, status, acceptance.text, next_step)
+            latest_text = acceptance.text
+            if acceptance.recorded_at:
+                latest_text = f"{acceptance.text}\n{acceptance.recorded_at[:16].replace('T', ' ')}"
+            values = (item.name, item.category, item.transport, status, latest_text, next_step)
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
                 if column in (3, 4):

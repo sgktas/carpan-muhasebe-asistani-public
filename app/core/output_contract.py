@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
 import xlrd
 
 from app.core.money import money_sum
+from app.core.erp_acceptance_matrix import (
+    FOM_ACCEPTANCE_MATRIX,
+    NETSIS_ACCEPTANCE_MATRIX,
+)
 from app.core.output_profile import OutputProfile
 from app.models.records import NetsisRecord
 
@@ -71,6 +76,7 @@ def validate_fom_integration_output(
         )
 
     baseline_headers = [str(value or "") for value in expected_headers]
+    template = None
     if template_path and Path(template_path).is_file():
         try:
             template = _WorkbookView.open(Path(template_path))
@@ -110,6 +116,44 @@ def validate_fom_integration_output(
             "FOM entegrasyon satır sayısı uyuşmuyor: "
             f"beklenen {expected_data_rows}, oluşan {len(data_rows)}."
         )
+
+    acceptance_rule = FOM_ACCEPTANCE_MATRIX.get(expected_basename)
+    if acceptance_rule:
+        text_headers = acceptance_rule.text_headers
+        header_indexes = {
+            header: index for index, header in enumerate(actual_headers)
+            if header in text_headers
+        }
+        invalid_cells = [
+            f"{header} satır {row + 1}"
+            for header, column in header_indexes.items()
+            for row in data_rows
+            if str(output.value(row, column) or "").strip()
+            and not output.is_text(row, column)
+        ]
+        if invalid_cells:
+            raise OutputContractError(
+                "FOM entegrasyonundaki kimlik alanları metin olarak korunmadı: "
+                + ", ".join(invalid_cells[:10])
+            )
+
+        if (
+            template is not None
+            and template.nrows > 1
+            and data_rows
+            and acceptance_rule.template_format_scope == "all"
+        ):
+            wrong_cells = [
+                f"{actual_headers[column] or f'Sütun {column + 1}'} satır {row + 1}"
+                for row in data_rows
+                for column in range(output.ncols)
+                if output.number_format(row, column) != template.number_format(1, column)
+            ]
+            if wrong_cells:
+                raise OutputContractError(
+                    "FOM entegrasyon hücre biçimleri onaylı şablondan farklı: "
+                    + ", ".join(wrong_cells[:10])
+                )
 
 
 def validate_netsis_output(
@@ -167,37 +211,116 @@ def validate_netsis_output(
             f"Netsis çıktı toplamı uyuşmuyor: beklenen {expected_total}, oluşan {output_total}."
         )
 
+    acceptance_rule = NETSIS_ACCEPTANCE_MATRIX.get(profile.profile_id)
+    if acceptance_rule:
+        if acceptance_rule.require_profile_constants:
+            wrong_constants = [
+                f"{column.header} satır {row + 1}"
+                for column_index, column in enumerate(profile.columns)
+                if column.source_kind == "const"
+                for row in data_rows
+                if not _same_constant(output.value(row, column_index), column.value)
+            ]
+            if wrong_constants:
+                raise OutputContractError(
+                    "Netsis sabit alanları profil sözleşmesinden farklı: "
+                    + ", ".join(wrong_constants[:10])
+                )
+
+        text_headers = acceptance_rule.text_headers
+        text_indexes = [
+            index for index, column in enumerate(profile.columns)
+            if column.header in text_headers or column.force_text
+        ]
+        invalid_text_cells = [
+            f"{profile.columns[column].header} satır {row + 1}"
+            for column in text_indexes
+            for row in data_rows
+            if output.value(row, column) not in (None, "")
+            and not output.is_text(row, column)
+        ]
+        if invalid_text_cells:
+            raise OutputContractError(
+                "Netsis metin alanları sayıya dönüştü: "
+                + ", ".join(invalid_text_cells[:10])
+            )
+
+        if acceptance_rule.require_date_cells:
+            invalid_date_cells = [
+                f"{profile.columns[column].header} satır {row + 1}"
+                for column in profile.column_index(style="date")
+                for row in data_rows
+                if output.value(row, column) not in (None, "")
+                and not output.is_date(row, column)
+            ]
+            if invalid_date_cells:
+                raise OutputContractError(
+                    "Netsis tarih alanları gerçek Excel tarihi değil: "
+                    + ", ".join(invalid_date_cells[:10])
+                )
+
+        invalid_amount_formats = [
+            f"{profile.columns[column].header} satır {row + 1}"
+            for column in profile.column_index(style="amount")
+            for row in data_rows
+            if output.value(row, column) not in (None, "")
+            and output.number_format(row, column) != "#,##0.00"
+        ]
+        if invalid_amount_formats:
+            raise OutputContractError(
+                "Netsis tutar alanları binlik ayraçlı ve iki ondalıklı değil: "
+                + ", ".join(invalid_amount_formats[:10])
+            )
+
     bank_indexes = [
         index
         for index, column in enumerate(profile.columns)
         if column.source_kind == "field"
         and str(column.field or "").endswith("banka_hesap_kodu")
     ]
-    if not bank_indexes:
-        return
-    missing_rows = [
-        row + 1
-        for row in data_rows
-        if any(not str(output.value(row, index) or "").strip() for index in bank_indexes)
-    ]
-    if missing_rows:
-        raise OutputContractError(f"Banka hesap kodu boş olan satırlar var: {missing_rows[:10]}")
+    if bank_indexes:
+        missing_rows = [
+            row + 1
+            for row in data_rows
+            if any(not str(output.value(row, index) or "").strip() for index in bank_indexes)
+        ]
+        if missing_rows:
+            raise OutputContractError(f"Banka hesap kodu boş olan satırlar var: {missing_rows[:10]}")
 
     if template is None or not data_rows:
         return
-    wrong_format_rows: list[int] = []
-    for bank_index in bank_indexes:
-        expected_format = template.number_format(1, bank_index)
-        wrong_format_rows.extend(
-            row + 1
+    if acceptance_rule:
+        format_headers = acceptance_rule.template_format_headers
+        format_indexes = (
+            range(output.ncols)
+            if "*" in format_headers
+            else [
+                index for index, column in enumerate(profile.columns)
+                if column.header in format_headers
+            ]
+        )
+        wrong_cells = [
+            f"{profile.columns[column].header} satır {row + 1}"
             for row in data_rows
-            if output.number_format(row, bank_index) != expected_format
-        )
-    if wrong_format_rows:
-        raise OutputContractError(
-            "Banka hesap kodu hücre biçimi onaylı şablondan farklı. "
-            f"Kontrol edilmesi gereken satırlar: {sorted(set(wrong_format_rows))[:10]}"
-        )
+            for column in format_indexes
+            if output.number_format(row, column) != template.number_format(1, column)
+        ]
+        if wrong_cells:
+            label = (
+                "Hesaplar arası virman hücre biçimleri"
+                if profile.profile_id == "netsis_virman_toplu"
+                else "Netsis hücre biçimi"
+            )
+            raise OutputContractError(
+                f"{label} onaylı şablondan farklı: "
+                + ", ".join(wrong_cells[:10])
+            )
+
+
+def _same_constant(actual: object, expected: object) -> bool:
+    if expected in (None, ""):
+        return actual in (None, "")
+    return actual == expected
 
 
 class _WorkbookView:
@@ -227,3 +350,16 @@ class _WorkbookView:
             return str(self.sheet.cell(row=row + 1, column=column + 1).number_format)
         xf = self.book.xf_list[self.sheet.cell_xf_index(row, column)]
         return self.book.format_map[xf.format_key].format_str
+
+    def is_text(self, row: int, column: int) -> bool:
+        if self.xlsx:
+            return self.sheet.cell(row=row + 1, column=column + 1).data_type in {"s", "inlineStr"}
+        return self.sheet.cell_type(row, column) == xlrd.XL_CELL_TEXT
+
+    def is_date(self, row: int, column: int) -> bool:
+        if self.xlsx:
+            return isinstance(
+                self.sheet.cell(row=row + 1, column=column + 1).value,
+                (date, datetime),
+            )
+        return self.sheet.cell_type(row, column) == xlrd.XL_CELL_DATE

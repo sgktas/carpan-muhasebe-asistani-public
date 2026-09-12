@@ -51,6 +51,35 @@ class ResolutionOutcome:
     logs: list[str] = field(default_factory=list)
     mapping_updates: list[tuple[str, list[dict]]] = field(default_factory=list)
     decision_audits: list[dict] = field(default_factory=list)
+    consumption_rows: list[TahsilatRecord] = field(default_factory=list)
+
+
+def source_allocations(
+    selected_rows: list[TahsilatRecord],
+    candidate_rows: list[TahsilatRecord],
+) -> list[TahsilatRecord]:
+    """Map manual amounts back to the source report rows when unambiguous.
+
+    The manual screen intentionally permits a code/amount correction. We keep
+    that flexibility, but only allocate a consumption ledger entry for the
+    part that can be traced to one of the proposed source rows. A manually
+    typed, non-source code therefore never becomes a fabricated source usage.
+    """
+    by_code: dict[str, list[TahsilatRecord]] = defaultdict(list)
+    for candidate in candidate_rows:
+        if candidate.source_hash and candidate.source_sheet and candidate.source_row:
+            by_code[str(candidate.musteri_kodu).strip().upper()].append(candidate)
+    allocations: list[TahsilatRecord] = []
+    for selected in selected_rows:
+        remaining = money(selected.tutar)
+        for candidate in by_code.get(str(selected.musteri_kodu).strip().upper(), []):
+            if remaining <= 0:
+                break
+            allocated = min(remaining, money(candidate.tutar))
+            if allocated > 0:
+                allocations.append(replace(candidate, tutar=float(allocated)))
+                remaining -= allocated
+    return allocations
 
 
 def build_decision_audit(
@@ -128,6 +157,10 @@ def validate_manual_rows(
                 musteri_ismi=row.musteri_ismi,
                 belge_tarihi=row.belge_tarihi,
                 tutar=float(row.tutar),
+                source_hash=row.source_hash,
+                source_sheet=row.source_sheet,
+                source_row=row.source_row,
+                source_amount=row.source_amount,
             )
         )
 
@@ -210,6 +243,7 @@ class CombinedBankMovementMatcher:
         produced = 0
         logs: list[str] = []
         decision_audits: list[dict] = []
+        consumption_rows: list[TahsilatRecord] = []
         for (region, bank, _day, _signature), indexed_items in candidate_groups.items():
             if len(indexed_items) < 2:
                 continue
@@ -240,6 +274,7 @@ class CombinedBankMovementMatcher:
                     )
                     produced += 1
                 consumed.update(indexes)
+                consumption_rows.extend(target_rows)
                 decision_audits.extend(
                     build_decision_audit(
                         item.record,
@@ -299,6 +334,7 @@ class CombinedBankMovementMatcher:
             produced_netsis_records=produced,
             logs=logs,
             decision_audits=decision_audits,
+            consumption_rows=consumption_rows,
         )
 
     @staticmethod
@@ -337,6 +373,7 @@ class ManualResolutionService:
         logs: list[str] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
         decision_audits: list[dict] = []
+        consumption_rows: list[TahsilatRecord] = []
 
         def audit(
             item: UnresolvedItem,
@@ -470,6 +507,7 @@ class ManualResolutionService:
                     f"Toplu havale manuel onaylandı: {len(item.group_records)} hareket, "
                     f"{len(validated_rows)} cari dağılımı, {item.group_target_amount:,.2f} TL."
                 )
+                consumption_rows.extend(source_allocations(validated_rows, item.suggested_rows))
                 continue
 
             bank = bank_key(item.record.banka)
@@ -560,6 +598,7 @@ class ManualResolutionService:
                     "Manuel eşleştirildi; çıktı başarıyla oluşunca hafızaya kaydedilecek: "
                     f"{item.record.aciklama[:60]}..."
                 )
+            consumption_rows.extend(source_allocations(validated_rows, item.suggested_rows))
 
         return ResolutionOutcome(
             pending=still_pending,
@@ -568,4 +607,5 @@ class ManualResolutionService:
             logs=logs,
             mapping_updates=mapping_updates,
             decision_audits=decision_audits,
+            consumption_rows=consumption_rows,
         )

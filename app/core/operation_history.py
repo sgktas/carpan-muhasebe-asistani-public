@@ -9,7 +9,7 @@ from typing import Iterable
 from uuid import uuid4
 
 from app.core.financial_ledger import financial_movement_from_decision
-from app.core.output_evidence import build_output_evidence
+from app.core.output_evidence import build_output_evidence, verify_output_evidence
 from app.core.execution_configuration import (
     ConfigurationRevision,
     ConfigurationSnapshot,
@@ -24,6 +24,20 @@ class OperationHistoryError(RuntimeError):
 
 class DecisionAuditError(ValueError):
     """A decision audit record is missing a required, safe field."""
+
+
+# Kullanıcı ERP aktarım ekranında serbest hata metni yerine güvenli bir kategori
+# seçer. Böylece müşteri/banka içeriği işlem geçmişine taşınmadan tekrar eden
+# kabul sorunları izlenebilir.
+ERP_REJECTION_REASONS = (
+    ("BANK_ACCOUNT_CODE", "Banka hesap kodu"),
+    ("TEMPLATE_CONTRACT", "Şablon veya sütun yapısı"),
+    ("REQUIRED_FIELD", "Zorunlu alan"),
+    ("AMOUNT_TOTAL", "Tutar veya toplam"),
+    ("FILE_FORMAT", "Dosya biçimi"),
+    ("OTHER", "Diğer / aktarım ekranı"),
+)
+ERP_REJECTION_REASON_LABELS = dict(ERP_REJECTION_REASONS)
 
 
 @dataclass(frozen=True)
@@ -73,6 +87,9 @@ class ExternalAcceptance:
     system: str
     verdict: str
     created_at: str
+    reason_code: str = ""
+    output_name: str = ""
+    output_sha256: str = ""
 
 
 class OperationHistory:
@@ -496,7 +513,20 @@ class OperationHistory:
         level: str = "INFO",
         details: dict | None = None,
     ) -> None:
+        self.add_events(operation_id, [{"code": code, "message": message, "level": level, "details": details}])
+
+    def add_events(self, operation_id: int, events) -> None:
+        """Persist a result batch atomically, preserving company/owner checks."""
+        rows = [
+            (int(operation_id), self._now(), str(event.get("level", "INFO")).upper(),
+             str(event["code"]).strip().upper(), str(event["message"]),
+             json.dumps(event.get("details") or {}, ensure_ascii=False))
+            for event in events
+        ]
+        if not rows:
+            return
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             allowed = connection.execute(
                 """
                 SELECT summary_json FROM operations
@@ -515,20 +545,10 @@ class OperationHistory:
             ).fetchone()
             if allowed is None:
                 raise OperationHistoryError("İşlem olayı eklenemedi; kayıt bu uygulama oturumuna ait değil.")
-            connection.execute(
-                """
-                INSERT INTO operation_events (
-                    operation_id, created_at, level, code, message, details_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    int(operation_id),
-                    self._now(),
-                    str(level).upper(),
-                    str(code).strip().upper(),
-                    str(message),
-                    json.dumps(details or {}, ensure_ascii=False),
-                ),
+            connection.executemany(
+                """INSERT INTO operation_events
+                   (operation_id, created_at, level, code, message, details_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""", rows,
             )
 
     def add_decision(
@@ -549,9 +569,18 @@ class OperationHistory:
 
         Karar günlüğü ham açıklama, IBAN veya müşteri adı taşımaz; yalnızca
         yeniden denetim için gereken kaynak satırı, tutar ve kural kimliğini
-        saklar. ``add_event`` üzerinden yazıldığı için işlem sahibi/firma ve
+        saklar. ``add_events`` üzerinden yazıldığı için işlem sahibi/firma ve
         çalışan işlem lease kontrolleri aynen korunur.
         """
+        self.add_decisions(operation_id, [dict(decision=decision, outcome=outcome, region=region,
+            bank=bank, amount=amount, source_file=source_file, source_row=source_row,
+            rule_code=rule_code, reason=reason)])
+
+    def add_decisions(self, operation_id: int, decisions) -> None:
+        self.add_events(operation_id, [self._decision_event(**decision) for decision in decisions])
+
+    @staticmethod
+    def _decision_event(*, decision, outcome, region, bank, amount, source_file, source_row, rule_code, reason=""):
         values = {
             "decision": str(decision).strip().upper(),
             "outcome": str(outcome).strip().upper(),
@@ -570,16 +599,8 @@ class OperationHistory:
             raise DecisionAuditError("Karar günlüğü tutar ve satır numarası geçersiz.") from error
         if normalized_row < 1:
             raise DecisionAuditError("Kaynak satırı 1 veya daha büyük olmalıdır.")
-        self.add_event(
-            operation_id,
-            "DECISION_AUDIT",
-            f"{values['decision']} → {values['outcome']}",
-            details={
-                **values,
-                "amount": normalized_amount,
-                "source_row": normalized_row,
-            },
-        )
+        return {"code": "DECISION_AUDIT", "message": f"{values['decision']} → {values['outcome']}",
+                "details": {**values, "amount": normalized_amount, "source_row": normalized_row}}
 
     def record_external_acceptance(
         self,
@@ -587,6 +608,8 @@ class OperationHistory:
         *,
         system: str,
         verdict: str,
+        reason_code: str = "",
+        output_file: str | Path | None = None,
     ) -> None:
         """Kaydı dış ERP aktarım sonucuyla işaretler.
 
@@ -598,15 +621,20 @@ class OperationHistory:
         """
         normalized_system = str(system).strip().upper()
         normalized_verdict = str(verdict).strip().upper()
+        normalized_reason = str(reason_code).strip().upper()
         labels = {"NETSIS": "Netsis", "PSOFT": "Psoft"}
         if normalized_system not in labels:
             raise OperationHistoryError("Dış aktarım sistemi Netsis veya Psoft olmalıdır.")
         if normalized_verdict not in {"ACCEPTED", "REJECTED"}:
             raise OperationHistoryError("Dış aktarım sonucu kabul veya ret olmalıdır.")
+        if normalized_verdict == "ACCEPTED" and normalized_reason:
+            raise OperationHistoryError("Kabul edilen aktarım için ret nedeni kaydedilemez.")
+        if normalized_reason and normalized_reason not in ERP_REJECTION_REASON_LABELS:
+            raise OperationHistoryError("Dış aktarım ret nedeni geçersiz.")
         with self._connect() as connection:
             allowed = connection.execute(
                 """
-                SELECT summary_json FROM operations
+                SELECT summary_json, output_files_json FROM operations
                 WHERE id = ? AND status IN ('SUCCESS', 'PARTIAL')
                   AND ((? IS NULL AND company_id IS NULL) OR company_id = ?)
                   AND ((? IS NULL AND user_id IS NULL) OR user_id = ?)
@@ -623,6 +651,12 @@ class OperationHistory:
                 raise OperationHistoryError(
                     "Dış aktarım sonucu kaydedilemedi; işlem bu firma ve kullanıcıya ait değil."
                 )
+            binding = self._verified_output_binding(
+                connection,
+                int(operation_id),
+                json.loads(allowed["output_files_json"] or "[]"),
+                output_file,
+            )
             accepted = normalized_verdict == "ACCEPTED"
             try:
                 summary = json.loads(allowed["summary_json"] or "{}")
@@ -630,10 +664,19 @@ class OperationHistory:
                 summary = {}
             if not isinstance(summary, dict):
                 summary = {}
-            summary["external_acceptance"] = {
+            acceptance_payload = {
                 "system": normalized_system,
                 "verdict": normalized_verdict,
+                "reason_code": normalized_reason,
             }
+            if binding:
+                acceptance_payload.update(binding)
+                by_file = summary.get("external_acceptance_by_file", {})
+                if not isinstance(by_file, dict):
+                    by_file = {}
+                by_file[binding["output_path"]] = dict(acceptance_payload)
+                summary["external_acceptance_by_file"] = by_file
+            summary["external_acceptance"] = acceptance_payload
             connection.execute(
                 "UPDATE operations SET summary_json = ? WHERE id = ?",
                 (json.dumps(summary, ensure_ascii=False), int(operation_id)),
@@ -651,11 +694,74 @@ class OperationHistory:
                     f"{labels[normalized_system]} aktarımı kullanıcı tarafından "
                     f"{'kabul edildi' if accepted else 'reddedildi'}.",
                     json.dumps(
-                        {"system": normalized_system, "verdict": normalized_verdict},
+                        {
+                            "system": normalized_system,
+                            "verdict": normalized_verdict,
+                            "reason_code": normalized_reason,
+                            **binding,
+                        },
                         ensure_ascii=False,
                     ),
                 ),
             )
+
+    @staticmethod
+    def _verified_output_binding(
+        connection: sqlite3.Connection,
+        operation_id: int,
+        output_files: list[str],
+        requested_output: str | Path | None,
+    ) -> dict[str, object]:
+        """Bind an explicit ERP verdict to the unchanged generated file."""
+        if requested_output in (None, ""):
+            # Geriye uyumluluk: eski ekranlar ve eski kayıtlar işlem düzeyi
+            # sonucunu kullanmaya devam eder. Yeni ekranlar dosyayı açıkça
+            # gönderir ve aşağıdaki sıkı kanıt kontrolünden geçer.
+            return {}
+        selected = str(Path(requested_output))
+        normalized_outputs = [str(Path(value)) for value in output_files]
+        if selected not in normalized_outputs:
+            raise OperationHistoryError(
+                "Aktarım sonucu yalnız bu işlemin oluşturduğu bir çıktıya kaydedilebilir."
+            )
+        row = connection.execute(
+            """
+            SELECT details_json FROM operation_events
+            WHERE operation_id = ? AND code = 'OUTPUT_EVIDENCE'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (operation_id,),
+        ).fetchone()
+        try:
+            evidence = json.loads(row["details_json"] or "{}") if row else {}
+        except (TypeError, json.JSONDecodeError):
+            evidence = {}
+        baseline = next(
+            (
+                item for item in evidence.get("files", [])
+                if isinstance(item, dict) and str(Path(str(item.get("path", "")))) == selected
+            ),
+            None,
+        )
+        if baseline is None or baseline.get("state") != "VERIFIED":
+            raise OperationHistoryError(
+                "Seçilen çıktının işlem tamamlama parmak izi bulunamadı."
+            )
+        comparison = verify_output_evidence({
+            "algorithm": evidence.get("algorithm", ""),
+            "files": [baseline],
+        })
+        if not comparison or comparison[0].get("comparison") != "VERIFIED":
+            raise OperationHistoryError(
+                "Seçilen çıktı oluşturulduktan sonra değişmiş, taşınmış veya silinmiş. "
+                "ERP sonucu bu dosyaya bağlanamadı."
+            )
+        return {
+            "output_path": selected,
+            "output_name": str(baseline.get("name") or Path(selected).name),
+            "output_sha256": str(baseline.get("sha256") or ""),
+            "output_size": int(baseline.get("size") or 0),
+        }
 
     def external_acceptance(self, operation_id: int) -> list[ExternalAcceptance]:
         """Firma/kullanıcı kapsamındaki dış aktarım sonuçlarını döndürür.
@@ -691,6 +797,9 @@ class OperationHistory:
                 system=str(json.loads(row["details_json"] or "{}").get("system", "")),
                 verdict=str(json.loads(row["details_json"] or "{}").get("verdict", "")),
                 created_at=str(row["created_at"]),
+                reason_code=str(json.loads(row["details_json"] or "{}").get("reason_code", "")),
+                output_name=str(json.loads(row["details_json"] or "{}").get("output_name", "")),
+                output_sha256=str(json.loads(row["details_json"] or "{}").get("output_sha256", "")),
             )
             for row in rows
         ]
@@ -792,7 +901,9 @@ class OperationHistory:
             for row in rows
         ]
 
-    def recent(self, limit: int = 100) -> list[OperationRecord]:
+    def recent(self, limit: int | None = 100) -> list[OperationRecord]:
+        # SQLite LIMIT -1 means all rows, still restricted to this company.
+        row_limit = -1 if limit is None else max(1, int(limit))
         with self._connect() as connection:
             if self.company_id is None:
                 rows = connection.execute(
@@ -802,7 +913,7 @@ class OperationHistory:
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (max(1, int(limit)),),
+                    (row_limit,),
                 ).fetchall()
             else:
                 rows = connection.execute(
@@ -812,7 +923,7 @@ class OperationHistory:
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (self.company_id, max(1, int(limit))),
+                    (self.company_id, row_limit),
                 ).fetchall()
 
         result: list[OperationRecord] = []

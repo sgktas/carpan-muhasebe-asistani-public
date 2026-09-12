@@ -170,6 +170,10 @@ class TeamPage(QWidget):
         password_button = QPushButton("Parolayı sıfırla")
         password_button.setObjectName("secondary")
         password_button.clicked.connect(self._reset_password)
+        region_button = QPushButton("Görev bölgeleri")
+        region_button.setObjectName("secondary")
+        region_button.clicked.connect(self._edit_review_regions)
+        action_row.addWidget(region_button)
         action_row.addWidget(edit_button)
         action_row.addWidget(password_button)
         card_layout.addLayout(action_row)
@@ -236,6 +240,22 @@ class TeamPage(QWidget):
             QMessageBox.warning(self, "Erişim kaydedilemedi", str(error))
             return
         self.refresh()
+
+    def _edit_review_regions(self):
+        member = self._selected_member()
+        if member is None:
+            return
+        try:
+            current = self.identity_store.review_regions(self.session, member.user_id)
+            text, accepted = QInputDialog.getText(self, "Görev bölgeleri", "İnceleme görevlerinde erişilebilen bölgeler (virgülle ayırın).\nTüm bölgeler için * yazın. Bu ayar rapor modüllerinin erişimini değiştirmez.", text=", ".join(current) if current is not None else "*")
+            if not accepted:
+                return
+            regions = None if text.strip() == "*" else [part.strip() for part in text.split(",")]
+            self.identity_store.set_review_regions(self.session, member.user_id, regions)
+        except IdentityError as error:
+            QMessageBox.warning(self, "Görev bölgeleri", str(error))
+            return
+        QMessageBox.information(self, "Görev bölgeleri", "Görev erişimi güncellendi. Yeni sınır bir sonraki görev okuma/karar işleminde uygulanır.")
 
     def _reset_password(self) -> None:
         member = self._selected_member()

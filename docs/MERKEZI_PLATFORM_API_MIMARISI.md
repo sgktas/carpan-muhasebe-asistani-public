@@ -59,6 +59,9 @@ tutulur. Yenileme ucu eski belirteci tek işlemde iptal eder ve yeni belirteç
 Merkezi giriş, kullanıcı/yetki değişikliği ve ileride lisans hareketleri
 `carpan.audit_events` tablosunda firma başına hash zinciri ile kaydedilir.
 Bu zincir değişikliği algılar; yedekleme ve erişim logları ayrıca tutulmalıdır.
+VPS üzerinde yedekleme sonrasında `platform_api/scripts/verify_audit_chain.py`
+salt-okunur olarak zinciri yeniden hesaplar. Bu kontrol finansal dosya veya
+müşteri verisi taşımaz.
 
 ## Dağıtım sınırı
 

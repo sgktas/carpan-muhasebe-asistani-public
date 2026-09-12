@@ -17,10 +17,12 @@ from app.modules.report_editing.engine import (
     SALES_OUTPUT_COLUMNS,
     ExcelTemplateWriter,
     ReportEditingEngine,
+    _collection_template_value,
     refresh_customer_list_cache,
 )
 from app.core.customer_list_cache import CustomerListCache
 from app.core.template_integrity import TemplateIntegrityError
+from app.core.output_contract import OutputContractError
 
 
 def _save_xls(path: Path, sheet_name: str, headers: list[str], rows: list[list[object]]) -> Path:
@@ -339,6 +341,9 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
     sales_call = next(call for call in calls if call[0] == f"{SALES_OUTPUT_BASENAME}.xls")
     assert sales_call[1][0][0] is None
     assert sales_call[2]["delete_extra_sheets"] is True
+    assert sales_call[2]["text_columns"] == {
+        1: frozenset(range(1, 17))
+    }
 
     collection_call = next(
         call for call in calls if call[0] == f"{COLLECTION_OUTPUT_BASENAME}.xls"
@@ -347,7 +352,22 @@ def test_original_template_outputs_keep_names_and_collection_contains_only_n1(tm
     assert collection_call[1][0][0] is None
     assert len(collection_call[1][0][1]) == 1
     assert collection_call[1][0][1][0][4:6] == ["N", "1"]
+    assert collection_call[2]["text_columns"] == {
+        1: frozenset({1, 3, 6, 7})
+    }
     assert collection_call[2]["delete_extra_sheets"] is True
+
+
+def test_collection_identifier_values_are_normalized_as_text_before_excel_write():
+    assert _collection_template_value("MusteriKodu", 101571192469.0) == "101571192469"
+    assert _collection_template_value("BelgeNo", 3409092026010.0) == "3409092026010"
+    assert _collection_template_value("TahsilatTuru", 1.0) == "1"
+    assert _collection_template_value("SatisElemani", 164.0) == "000000164"
+    matrix = ExcelTemplateWriter._python_matrix(
+        [["101571192469", "3409092026010", "1", "000000164"]],
+        frozenset({1, 2, 3, 4}),
+    )
+    assert matrix == (("'101571192469", "'3409092026010", "'1", "'000000164"),)
 
 
 def test_classify_file_xls_satis_faturasi_taninir(tmp_path):
@@ -443,3 +463,72 @@ def test_invalid_fom_template_stops_before_any_output_is_created(tmp_path, monke
         ).run()
 
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("failure", ["writer", "contract", "publish", None])
+def test_fom_publishes_complete_batch_or_preserves_previous_output(tmp_path, monkeypatch, failure):
+    """Geç tahsilat/taşıma hatası satış dosyasını yarım sonuç olarak bırakmamalı."""
+    sales_row = {"MüşteriKodu": "TEST1", "FaturaNo": "F1", "Tarih": "11.09.2026",
+                 "ÜrünKodu": "U1", "NetFiyat": 100}
+    collection_row = {"MusteriKodu": "TEST1", "BelgeNo": "B1", "BelgeTarihi": "11.09.2026",
+                      "TahsilatTipi": "N", "TahsilatTuru": "1", "Tutar": 100}
+    sales = _save(tmp_path / "sales.xlsx", SALES_OUTPUT_COLUMNS,
+                  [[sales_row.get(header) for header in SALES_OUTPUT_COLUMNS]])
+    collections = _save(tmp_path / "collections.xlsx", COLLECTION_OUTPUT_COLUMNS,
+                        [[collection_row.get(header) for header in COLLECTION_OUTPUT_COLUMNS]])
+    templates = tmp_path / "templates" / "report_editing"
+    templates.mkdir(parents=True)
+    _save_xls(templates / "sales_template.xls", "SATIS", SALES_OUTPUT_COLUMNS + [""], [])
+    _save_xls(templates / "collections_template.xls", "TAHSILAT", COLLECTION_OUTPUT_COLUMNS + ["BÖLGE"], [])
+    template_bytes = {path: path.read_bytes() for path in templates.iterdir()}
+    out = tmp_path / "out"
+    previous = out / "FOM AKTARMA - 11092026"
+    previous.mkdir(parents=True)
+    marker = previous / "onceki.txt"
+    marker.write_text("önceki çıktı", encoding="utf-8")
+    written = []
+
+    def write_template(self, template_path, output_path, sheets, **kwargs):
+        assert list(out.glob("FOM AKTARMA*")) == [previous]
+        assert output_path.parent != previous
+        sheet_name = xlrd.open_workbook(str(template_path)).sheet_by_index(0).name
+        rows = sheets[0][1]
+        if template_path.name == "collections_template.xls":
+            assert written == [f"{SALES_OUTPUT_BASENAME}.xls"]
+            if failure == "writer":
+                raise RuntimeError("Test: tahsilat yazılamadı")
+            if failure == "contract":
+                rows = []  # Gerçek satır sayısı sözleşmesi başarısız olsun.
+        _save_xls(output_path, sheet_name, kwargs["headers"][0], rows)
+        written.append(output_path.name)
+        return output_path
+
+    monkeypatch.setattr(ExcelTemplateWriter, "write", write_template)
+    if failure == "publish":
+        real_rename = Path.rename
+
+        def deny_publish(path, target):
+            if path.name == "raporlar":
+                raise PermissionError("Test: sonuç klasörü taşınamadı")
+            return real_rename(path, target)
+
+        monkeypatch.setattr(Path, "rename", deny_publish)
+
+    engine = ReportEditingEngine([sales, collections], resource_root=tmp_path, output_root=out)
+    if failure:
+        expected_error = {"writer": RuntimeError, "contract": OutputContractError, "publish": PermissionError}[failure]
+        with pytest.raises(expected_error):
+            engine.run()
+        assert list(out.iterdir()) == [previous]
+    else:
+        result = engine.run()
+        assert result.output_dir == out / "FOM AKTARMA - 11092026_2"
+        assert len(result.created_files) == 4
+        assert all(path.parent == result.output_dir and path.is_file() for path in result.created_files)
+        assert set(result.output_dir.iterdir()) == set(result.created_files)
+        assert {f"{SALES_OUTPUT_BASENAME}.xls", f"{COLLECTION_OUTPUT_BASENAME}.xls"} <= {
+            path.name for path in result.created_files
+        }
+        assert set(out.iterdir()) == {previous, result.output_dir}
+    assert marker.read_text(encoding="utf-8") == "önceki çıktı"
+    assert all(path.read_bytes() == content for path, content in template_bytes.items())

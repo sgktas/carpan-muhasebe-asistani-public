@@ -23,6 +23,13 @@ class TahsilatRecord:
     musteri_ismi: str
     belge_tarihi: datetime | None
     tutar: float
+    # Tahsilatın tekrar kullanımı ancak kaynak satır kesin olarak biliniyorsa
+    # izlenebilir. Bu alanlar FOM/MANİM çıktılarına yazılmaz; yalnız yerel
+    # tüketim defterindeki kimlik için kullanılır.
+    source_hash: str = ""
+    source_sheet: str = ""
+    source_row: int = 0
+    source_amount: float | None = None
 
 
 @dataclass(frozen=True)

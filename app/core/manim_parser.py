@@ -21,6 +21,7 @@ class InvalidManimRow:
 class ManimParseResult:
     records: list[ManimRecord]
     invalid_rows: list[InvalidManimRow]
+    sheet_name: str = ""
 
     @property
     def total_rows(self) -> int:
@@ -55,7 +56,14 @@ class ManimParser:
         if not self.file_path.is_file():
             raise FileNotFoundError(f"MANİM dosyası bulunamadı: {self.file_path}")
 
-        dataframe = pd.read_excel(self.file_path, dtype=object)
+        # Kaynak kimliği yalnız dosya adıyla kurulamaz. Mevcut davranışı
+        # koruyarak ilk veri sayfasını açıkça belirtiyoruz; inceleme kuyruğu
+        # bu sayfa adıyla birlikte satırı saklar.
+        workbook = pd.ExcelFile(self.file_path)
+        if not workbook.sheet_names:
+            raise ValueError(f"MANİM dosyasında okunabilir sayfa bulunamadı: {self.file_path}")
+        sheet_name = str(workbook.sheet_names[0])
+        dataframe = pd.read_excel(workbook, sheet_name=sheet_name, dtype=object)
         dataframe.columns = [self._clean_header(column) for column in dataframe.columns]
         self._validate_columns(dataframe)
 
@@ -110,7 +118,7 @@ class ManimParser:
                 )
             )
 
-        return ManimParseResult(records=records, invalid_rows=invalid_rows)
+        return ManimParseResult(records=records, invalid_rows=invalid_rows, sheet_name=sheet_name)
 
     @staticmethod
     def _clean_header(value: object) -> str:

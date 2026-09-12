@@ -1,5 +1,143 @@
 # Sağlamlaştırma çalışma durumu
 
+## 12 Eylül 2026 — 3A ERP kabul matrisi: virman şablonu
+
+- Kullanıcının Netsis'te aktarım yaptığı son hesaplar arası virman dosyası,
+  yerel onaylı şablon olarak birebir sabitlendi; tek `Sheet1` sayfası ve 32
+  sütun korunur.
+- Çıktı sözleşmesi artık yalnız başlık, toplam ve banka kodunu değil,
+  her veri hücresinin onaylı ikinci satırdaki sayı/metin biçimini de denetler.
+  `Plas.Kodu` sayıya dönerse dosya başarılı sayılmaz.
+- Bu yerel kabul matrisi Netsis'e otomatik bağlanmaz; hatalı Excel'in kullanıcıya
+  ulaşmadan açık bir nedenle durdurulmasını sağlar.
+
+## 11 Eylül 2026 — ERP kabul kalitesi 2A-4: mutabakat farkı takibi
+
+- Banka Mutabakatı çıktısındaki fark özeti, Operasyon Merkezi'nde ayrıca
+  görünür: devreden bakiye farkı, bakiye tutsa da açıklanamayan kayıtlar veya
+  genel tutar farkı açıkça ayrılıyor.
+- Nokta atışı düzeltme Excel'i ayrıntıyı yerel tutuyor; operasyon özeti yalnız
+  sayısal fark ve adetleri saklıyor. 26 ilgili test geçti.
+
+## 11 Eylül 2026 — ERP kabul kalitesi 2A-3: manuel aktarım ret nedeni
+
+- Geçmiş İşlemler ekranında Netsis/Psoft aktarımı reddedildi seçildiğinde
+  kullanıcı banka kodu, şablon, zorunlu alan, tutar/toplam, dosya biçimi veya
+  aktarım ekranı ana nedenini seçiyor.
+- Operasyon Merkezi Netsis ve Psoft ret sayılarını ayrı gösteriyor; takip
+  satırında seçilmiş neden okunuyor. Bu yalnız yerel manuel aktarım sonucudur;
+  SQL/API veya ERP bağlantısı kurulmadı.
+
+## 11 Eylül 2026 — ERP kabul kalitesi 2A-2: FOM birlikte yayın
+
+- FOM raporları ve ERP entegrasyon çıktıları geçici çalışma alanında üretilir;
+  tüm yazımlar ve ERP sözleşmesi kontrolleri geçince sonuç klasörü yayımlanır.
+- Geç tahsilat hatası artık hazırlanmış satış dosyasını yarım başarılı sonuç
+  olarak bırakmaz. Eski sonuçlar, özgün dosya adları ve şablonlar korunur.
+- Sentetik FOM/çıktı sözleşmesi testlerinde 20 test geçti; yazım, doğrulama ve
+  taşıma hataları ile başarılı yayın doğrulandı. Gerçek Netsis/Psoft kabul
+  denemesi yapılmadı.
+
+## 11 Eylül 2026 — ERP kabul kalitesi 2A-1: MANİM aktarım ön kontrolü
+
+- MANİM/Netsis dosyası yazılmadan önce havale satırlarının cari kodu, işlem
+  tarihi, pozitif tutarı, bölgesi ve bankası doğrulanıyor.
+- Toplu banka kodlu aktarımda her satırın BM kodu, o satırın bölge/banka
+  ayarındaki kodla karşılaştırılıyor. Böylece Netsis'in genel "Banka Kodunu
+  Kontrol Ediniz" uyarısına düşecek yanlış/boş kod, dosya oluşmadan açık
+  bölge-banka-satır mesajıyla duruyor.
+- Hesaplar arası virman yalnız aynı banka transferi, kaynak/hedef BM kodları,
+  `G01` genel referansı ve `00` Plas.Kodu ile devam edebiliyor. Bu kontrol
+  onaylı şablonu değiştirmez; dosya yazıldıktan sonraki şablon sözleşmesi
+  denetimi de yerinde kalır.
+- 2A'nın sonraki alt adımı FOM satış/tahsilat çıktılarının doğrulama geçmeden
+  görünür klasöre yayınlanmamasıdır.
+
+## 11 Eylül 2026 — Operasyon otomasyonu 1E ikinci teslim: tahsilat kullanım defteri
+
+- Tahsilat raporundaki her kaynak satır dosya özeti + veri sayfası + satır
+  kimliğiyle yerel firma kapsamındaki kullanım defterine bağlandı. Defterde
+  müşteri adı, banka açıklaması veya dosya yolu tutulmaz.
+- Gerçek MANİM aktarımı yalnız çıktı klasörü yayımlandıktan sonra kullanım
+  kaydını kesinleştirir. Simülasyon bu defteri oluşturmaz veya değiştirmez.
+- Kısmi eşleştirmede kullanılan tutar kaynak satırdan düşer; kalan bakiye
+  sonraki eşleştirme havuzunda görünmeye devam eder. Tam tüketilen satır tekrar
+  aday yapılmaz. Aynı bakiye iki gerçek işlem tarafından aşılmak istenirse
+  ikinci işlem durur.
+- Manuel ekranda serbest cari/tutar düzeltmesi korunur. Kullanım defterine
+  yalnız önerilen tahsilat kaynak satırına güvenle bağlanabilen bölüm yazılır;
+  uygulama hiçbir zaman elle girilen bir cari kod için hayali kaynak satır
+  oluşturmaz.
+
+## 11 Eylül 2026 — Operasyon otomasyonu 1E ilk teslim: yayın günlüğü
+
+- MANİM çıktı klasörü yayımlandıktan sonra önbellek/eşleştirme/işlenmiş dosya
+  kaydı bitmeden uygulama kesilirse kaynaklar `PUBLISHED` kurtarma kaydında
+  tutulur. Aynı kaynaklar sessizce tekrar çalıştırılamaz.
+- Operasyon Merkezi, kurtarma gereken yayınları ve ilgili çıktı klasörünü
+  gösterir. Kullanıcı eski çıktının dış aktarıma gitmediğini kontrol ederek
+  yeniden işlem izni verebilir; bu görünür onay eski klasörü silmez.
+
+## 10 Eylül 2026 — Operasyon otomasyonu 1D: yan etkisiz önizleme tamamlandı
+
+- Aktarım öncesi simülasyon, yeni seçilen müşteri listesini artık hafızaya
+  almaz; dosya ve meta kaydı yalnız gerçek aktarım başarıyla tamamlandıktan
+  sonra güncellenir.
+- Önizleme boş bir kalıcı veri klasörü dahi oluşturmaz; çıktı, eşleştirme
+  hafızası, inceleme kuyruğu ve işlenmiş dosya kaydı yazmadan karar planını
+  hesaplar.
+- Simülasyon özetinde banka ve bölge adları Türkçe karakter farklarından
+  dolayı ayrı satırlara bölünmez.
+
+## 10 Eylül 2026 — Operasyon otomasyonu 1B: ayar değişikliği denetimi
+
+- Ayarlar ekranından yapılan bölge ve aktif profil değişiklikleri artık yerel
+  firma çalışma alanında önceki/yeni değer, kullanıcı ve sürümle kaydedilir.
+  "Ayar Değişiklik Geçmişi" ekranı bu kayıtları okunabilir biçimde gösterir.
+- Aynı ayarı iki açık pencerede değiştirmeye çalışan eski pencerenin denetim
+  kararı reddedilir. Ayarlar menüsünün mevcut `settings.manage` yetkisi bu
+  işlemi sınırlar; yeni bir rol adı veya dağıtık UI yetki kontrolü eklenmedi.
+- Onaylı Netsis/Psoft/FOM şablonları bu kayıttan değiştirilemez ve şablon
+  dosyalarına dokunulmadı. FOM için yeni şablon düzenleme yolu açılmadı.
+- Sıradaki bölüm kalıcı inceleme kuyruğu: birleşik banka hareketleri, atama ve
+  tekrar açma işlemleri uygulama kapanınca da izlenebilir olacak.
+
+## 10 Eylül 2026 — Operasyon otomasyonu 1C ilk teslim: inceleme kuyruğu
+
+- İnceleme bekleyen MANİM satırları artık firma kapsamlı yerel SQLite kuyruğuna
+  yazılıyor; uygulama kapanıp açılsa da açık kayıtlar kaybolmuyor.
+- Kaynak dosya/satır, bölge, banka, tutar ve kısa neden korunuyor; müşteri,
+  cari kodu, IBAN ve ham açıklama kuyruğa alınmıyor.
+- Atama, çözme ve yeniden açma durumları geçerli durum kontrolüyle korunuyor.
+- Birleşik banka hareketlerinde tek inceleme kararı altında tüm alt havale
+  satırları hem Excel inceleme çıktısına hem kalıcı kuyruğa yazılıyor.
+- Operasyon Merkezi'ne açık/atanmış/çözülmüş kuyruk grupları için bölge, banka,
+  alt hareket sayısı ve toplam tutar görünümü eklendi. Yetkili kullanıcı seçili
+  grubu üzerine alabilir, çözebilir veya yeniden açabilir.
+- Kaynak doğrulama güçlendirildi: yeni gruplar dosya içeriği özeti + sayfa +
+  satır kimliği taşır. Dosya değiştiğinde eski karar sessizce devam etmez.
+  Grup sürümü ve durum geçişi denetim olayı, eşzamanlı açık ekranlardaki eski
+  kararların birbirini ezmesini önler.
+
+## 10 Eylül 2026 — Operasyon otomasyonu 1D ilk teslim: simülasyon özeti
+
+- Karar kayıtlarından yan etkisiz MANİM/Netsis toplam özeti hesaplanıyor.
+- Bölge ve banka kırılımında MANİM toplamı, Netsis toplamı, fark, ödeme
+  onaylandı, referanslı ve inceleme tutarları gösteriliyor.
+- MANİM ekranına işlem sonrası simülasyon özetini açan görsel tablo eklendi.
+  Bu tablo karar planını okur; yeni çıktı, kuyruk veya tüketim kaydı oluşturmaz.
+- Dosya seçimi sonrasında gerçek aktarım başlamadan çalışan önizleme düğmesi
+  1D'nin sonraki alt adımıdır.
+- Önizleme arka planda çalışır; aktarım öncesi ve sonrası ayar özeti/toplam
+  karşılaştırması günlükte görünür. Ayar değişmiş veya toplam farklılaşmışsa
+  uyarı verir, kendiliğinden aktarım yapmaz.
+- Operasyon Merkezi, geçmiş aktarım işlemlerinde simülasyonla uyumlu olanları
+  ve fark çıkanları ayrı sayaçlarda gösterir. Fark çıkan işlem dikkat listesine
+  alınır; kullanıcı toplamları kontrol eder.
+- Mevcut inceleme Excel'i ve onaylı çıktı şablonları değiştirilmedi.
+- Birleşik banka hareketlerinin tek üst grup ve alt üye kimlikleri 1C'nin
+  sonraki alt adımında tamamlanacak.
+
 ## 10 Eylül 2026 — GitHub PostgreSQL denetim kaydı düzeltmesi
 
 - 1A gönderimi sonrası GitHub uygulama testleri geçti; gerçek PostgreSQL işi
@@ -394,3 +532,148 @@ gerçek ERP kabul testleri sonraki sağlamlaştırma kapsamındadır.
 - Public test koşucusundaki sentetik şablon manifesti, üretimdekiyle aynı
   bütünlük kapısını kullanır. Public kaynakta gerçek yerel şablon veya müşteri
   verisi bulunmaz; onaylı Netsis/FOM şablonlarına dokunulmadı.
+
+## 11 Eylül 2026 — Yerel haftalık operasyon özeti
+
+- Operasyon Merkezi'nde son yedi güne ait işlem, başarı, manuel ERP kabulü,
+  dikkat gerektiren işlem ve mutabakat kontrol adetleri ayrı bir özet kartında
+  görünür hale getirildi.
+- Özet yalnız yerel işlem geçmişinden türetilir; finansal satır, müşteri, IBAN
+  ve Excel içeriği merkezi platforma taşınmaz.
+- Tarih aralığı sabitlenmiş testlerle doğrulandı. Onaylı Excel şablonlarına ve
+  çıktı yazımına bu adımda dokunulmadı.
+
+## 11 Eylül 2026 — Geçmiş İşlemler dönem ve ERP eğilim görünümü
+
+- Geçmiş İşlemler ekranına tüm zamanlar, son 7 gün, son 30 gün ve son 90 gün
+  tarih filtreleri eklendi. Seçili dönem için başarılı/kısmi/hatalı işlem ile
+  Netsis/Psoft kabul-ret adetleri aynı ekranda özetlenir.
+- Bu görünüm işlem geçmişindeki durum ve kullanıcı kaydıyla sınırlıdır; finansal
+  içerik, müşteri bilgisi veya Excel verisi merkezileştirilmez.
+- ERP kabul kalitesi 2A paketi bu adımla tamamlandı. Onaylı çıktı şablonları,
+  dosya adları ve manuel aktarım yöntemi değiştirilmedi.
+
+## 11 Eylül 2026 — Ana iş ekranları için ortak iş akışı
+
+- MANİM Aktarma, FOM Rapor Düzenleme ve Banka Mutabakatı ekranlarına ortak
+  dört adımlı iş akışı göstergesi eklendi. Kullanıcı hangi aşamada olduğunu,
+  neyin hazır olduğunu ve nerede kontrol gerektiğini tek bakışta görür.
+- Gösterge yalnız arayüzde işlem durumunu açıklar; hiçbir Excel şablonunu,
+  çıktı adını veya aktarım kararını değiştirmez.
+# 12 Eylül 2026 — 2B yerel ekip görevleri ve onay
+
+Operasyon Merkezi'nin üstüne görev panosu eklendi. Atayan/sorumlu ayrımı,
+canlı üyelik ve rol kontrolü, görev bölgesi kapsamı, inceleme ve onaya gönderme,
+gerekçeli onay/iade, hedef süre, geciken görevler, sürüm çakışması ve atomik
+denetim kaydı birlikte uygulandı. Identity migration 2 eski üyelikleri korur.
+101 ilgili test geçti; iki ekran genişliğinde görsel kontrol yapıldı.
+Ayrıntılı kapsam ve yerel/merkezi kullanım sınırı: [2B](EKIP_GOREV_ONAY_2B.md).
+
+## 12 Eylül 2026 — Netsis retlerinden güvenli yeniden çalışma
+
+- Operasyon Merkezi, son sonucu reddedilmiş MANİM/Netsis işlemlerini ayrı bir
+  çalışma alanında çıktı adı, işlem numarası, ana ret nedeni ve kaynakların
+  hazır/eksik durumuyla gösterir.
+- Yetkili kullanıcı normal banka-bölge çıktısını veya toplu banka kodlu çıktıyı
+  seçip aynı kaynakları MANİM ekranına geri yükleyebilir. Bu işlem yalnız girdi
+  ve profil seçimini hazırlar; simülasyonu, Excel üretimini veya Netsis
+  aktarımını kendiliğinden başlatmaz.
+- Silinmiş veya taşınmış kaynaklar açıkça listelenir ve yeniden çalışma düğmesi
+  devre dışı kalır. Mevcut çıktılar silinmez; çıktı klasörü ayrıca açılabilir.
+- Onaylı Netsis/FOM şablonları, şablon kontrol değerleri ve çıktı yazıcıları bu
+  adımda değiştirilmedi. MANİM, geçmiş, rol/yetki ve tekrar-işleme kapsamındaki
+  71 regresyon testi başarıyla geçti.
+
+## 12 Eylül 2026 — 2D işlem sonrası operasyon kontrolü
+
+- Yeni tamamlanan MANİM işlemlerinin gerçek bölge/banka dağılımı, kaynak
+  gelen-giden tutarı, hazırlanan Netsis havalesi ve bekleyen bakiye Operasyon
+  Merkezi'nde kalıcı olarak görüntülenir.
+- Kısmi eşleştirmede tüm kaynak tutarı değil, gerçekten çıktı satırlarına
+  yazılan tutar korunur. Gerçek Netsis kabul/ret sonucu bu teknik çıktı
+  özetinden ayrı gösterilir.
+- Büyük işlemlerde hareket satırları ikinci kez JSON içine kopyalanmaz; özet
+  tutarlar küçük kalır, ayrıntılar mevcut firma kapsamlı hareket defterinden
+  gerektiğinde yüklenir.
+- Eski işlemlerde bu yeni sonuç kanıtı yoksa sistem tahmin üretmez. Onaylı
+  Excel şablonları değiştirilmedi; ilgili 65 regresyon testi geçti.
+
+## 12 Eylül 2026 — 2E operasyon kapanışı
+
+- Yetkili kullanıcı, tamamlanmış MANİM operasyonunu seçip Netsis kabulünü veya
+  seçilmiş ana ret nedenini doğrudan Operasyon Merkezi'nden kaydedebilir.
+- Kayıt yalnız yerel denetim geçmişine yazılır. Netsis bağlantısı, otomatik ERP
+  aktarımı, Excel hücresi veya onaylı şablon değişikliği yapılmaz.
+- Ret sonucu aynı ekrandaki güvenli yeniden çalışma listesine yansır; kaynaklar
+  mevcutsa kullanıcı yeni çalışma için MANİM ekranına geçebilir.
+- Yetki, işlem geçmişi, ret yönlendirmesi ve entegrasyon durumu kapsamındaki
+  27 test başarıyla geçti.
+
+## 12 Eylül 2026 — Merkezi denetim zinciri doğrulaması
+
+- Merkezi firma ve platform sahibi denetim zincirlerini değiştirmeden yeniden
+  hesaplayan `platform_api/scripts/verify_audit_chain.py` eklendi.
+- Denetim; firma kimliği, olay türü, sonuç, zaman ve öncül özet sözleşmesini
+  kontrol eder. Bozuk olayda yalnız zincir adı ve olay numarasını bildirir;
+  müşteri, banka, IBAN, Excel ya da finansal tutar okumaz, yazmaz veya ekrana
+  çıkarmaz.
+- Bu araç VPS'e ilk dağıtımdan ve her merkezi veritabanı yedeğinden sonra
+  çalıştırılmak üzere hazırdır. Merkezi API henüz VPS'e kurulmadığı için günlük
+  yerel Excel/Netsis akışına bağımlılık getirmez.
+
+## 12 Eylül 2026 — Entegrasyon sonuç güvenilirliği
+
+- Entegrasyonlar ekranı artık yalnız son 100 işlem yerine firma kapsamındaki
+  tüm hafif işlem özetlerinden gerçek en güncel Netsis/Psoft sonucunu seçer.
+- Sonucun tarihi de görünür. Geçmiş liste sırası farklı gelse bile en yeni işlem
+  zamanı ve işlem numarası esas alınır; eski bir ret veya kabul yanlışlıkla
+  güncel durum olarak gösterilmez.
+- Bu iyileştirme canlı ERP/banka bağlantısı kurmaz; Excel, banka, müşteri ve
+  finansal içerik yerelde kalır.
+
+## 12 Eylül 2026 — 3A-2 ERP kabul matrisi
+
+- Normal havale, toplu havale, hesaplar arası virman, FOM satış ve FOM
+  tahsilat çıktıları tek kabul matrisi altında toplandı.
+- Dosya/sayfa/başlık/satır/toplam kontrollerine; profil sabitleri, gerçek tarih
+  türü, iki ondalıklı tutar biçimi, metin kimlik alanları ve şablona bağlı
+  kritik hücre biçimleri eklendi.
+- FOM satışın ilk 16 metin alanı ve tahsilatın kimlik/metin alanları
+  sayıya dönüşmeden korunur. Profilde açıkça `text` olan masraf alanları
+  yalnız adında `Tutar` geçtiği için para biçimine zorlanmaz.
+- Beş çıktı türü Microsoft Excel ve onaylı yerel şablonlarla gerçek
+  dosya oluşturma testinden geçti. Hiçbir onaylı şablon veya kontrol değeri
+  değiştirilmedi.
+
+## 12 Eylül 2026 — 3A-3 dosya bazlı ERP kabul kanıtı
+
+- Netsis/Psoft kabul ve ret sonucu, işlemdeki belirli ERP çıktı dosyasına ve
+  işlem tamamlanırken alınan SHA-256 parmak izine bağlandı.
+- Değişmiş, taşınmış, silinmiş veya işleme ait olmayan dosyaya kabul kaydı
+  yazılması engellendi. Birden fazla çıktının yalnız birine verilen kabul,
+  tüm işlem kabulü olarak gösterilmiyor.
+- Operasyon Merkezi, Geçmiş İşlemler, dönem eğilimi ve Entegrasyonlar ekranı
+  aynı ortak toplulaştırma kuralına geçirildi. Eski işlem düzeyi kayıtlar
+  geriye uyumlu kaldı.
+- Hedef kapsamda 35 test, ardından tam regresyon paketi başarıyla geçti.
+  Onaylı şablonlara ve şablon kontrol değerlerine dokunulmadı.
+
+## 12 Eylül 2026 — 3A-4 ERP ret eğilimi
+
+- Geçmiş İşlemler ekranı, seçili dönem için Netsis ve Psoft tarafındaki en sık
+  iki güvenli ret kategorisini kabul/ret özetine ekler.
+- Dosya bazlı son karar esas alınır: daha sonra kabul edilen çıktı, eski ret
+  kategorisinde sayılmaz. Bu yalnız karar desteğidir; otomatik düzeltme veya
+  otomatik ERP kabulü yapmaz.
+- Hedef işlem geçmişi, eğilim ve arayüz testlerinde 28 test geçti. Onaylı
+  şablonlara, dosya adlarına veya hücre biçimlerine dokunulmadı.
+
+## 12 Eylül 2026 — 3B ERP kalite sinyalinin operasyon yönetimine bağlanması
+
+- Operasyon Merkezi'ne son yedi günlük Netsis/Psoft kabul-ret sayıları ve en
+  sık iki güvenli ret kategorisini gösteren ERP kalite sinyali eklendi.
+- Kısmi dosya sonuçları tam kabul gibi gösterilmez. Sinyal yalnız kullanıcıyı
+  kontrol için yönlendirir; otomatik düzeltme, ERP aktarımı veya şablon
+  değişikliği yapmaz.
+- Operasyon merkezi, eğilim, güvenli yeniden çalışma ve arayüz kapsamındaki
+  17 test geçti. Onaylı şablonlar korunuyor.

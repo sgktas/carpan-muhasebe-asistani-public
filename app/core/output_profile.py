@@ -66,8 +66,14 @@ class OutputProfile:
             OutputColumn(
                 header=col["header"],
                 width=col.get("width", 12),
-                style=("amount" if "tutar" in col["header"].casefold()
-                       else col.get("style", "text")),
+                # Profilde açıkça verilen biçim, onaylı şablon
+                # sözleşmesidir. Başlığında "Tutar" geçen boş
+                # masraf/döviz alanlarını kendiliğinden para biçimine
+                # çevirmek şablonun hücre yapısını bozuyordu.
+                style=col.get(
+                    "style",
+                    "amount" if "tutar" in col["header"].casefold() else "text",
+                ),
                 source_kind=col["source"],
                 field=col.get("field"),
                 value=col.get("value"),

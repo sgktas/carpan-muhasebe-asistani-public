@@ -1,8 +1,16 @@
 import xlrd
 import pytest
 
+from app.core.customer_list_cache import CustomerListCache
+from app.core.publication_journal import PublicationJournal, PublicationRecoveryRequired
 from app.core.processing_engine import ManualResolution, ProcessingEngine
+from app.core.tahsilat_parser import TahsilatParser
 from app.models.records import TahsilatRecord
+
+
+TEST_TAX_ID = "1" * 9 + "2"
+TEST_TAX_ID_ALPHA = "2" * 9 + "3"
+TEST_TAX_ID_BETA = "3" * 9 + "4"
 
 
 def _files(project):
@@ -18,6 +26,65 @@ def test_normal_kayit_netsis_dosyasina_yaziliyor(synthetic_project):
     assert result.produced_netsis_records == 1
     netsis_files = [f for f in result.created_files if "BODRUM_GARANTI" in f.name]
     assert len(netsis_files) == 1
+
+
+def test_simulasyon_yeni_musteri_listesini_hafizaya_ve_islenmis_dosyalara_yazmaz(
+    synthetic_project,
+):
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+
+    result = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root,
+    ).run(dry_run=True)
+
+    cache = CustomerListCache(project_root)
+    assert result.output_dir is None
+    assert cache.metadata() is None
+    assert cache.get() is None
+    assert not (project_root / "data").exists()
+    assert not (project_root / "data" / "processed_files.json").exists()
+
+    actual = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root,
+    ).run()
+    assert actual.produced_netsis_records == 1
+    assert result.simulation_summary.matches(actual.simulation_summary)
+    assert cache.metadata() is not None
+
+
+def test_simulasyon_daha_once_islenmis_manim_dosyasini_yeniden_hesaplar(
+    synthetic_project,
+):
+    files = _files(synthetic_project)
+    engine = ProcessingEngine(files, synthetic_project[3])
+    first = engine.run()
+    assert first.produced_netsis_records == 1
+
+    preview = ProcessingEngine(files, synthetic_project[3]).run(dry_run=True)
+    assert preview.total_manim_records > 0
+    assert preview.simulation_summary is not None
+    assert preview.simulation_summary.buckets
+    assert preview.output_dir is None
+
+
+def test_yayin_sonrasi_kesinti_ayni_kaynagin_sessiz_tekrarini_durdurur(
+    synthetic_project, monkeypatch,
+):
+    files = _files(synthetic_project)
+
+    def interrupted_mark_many(self, _items):
+        raise RuntimeError("test kesintisi")
+
+    monkeypatch.setattr("app.core.processing_engine.ProcessedFilesLog.mark_many", interrupted_mark_many)
+    with pytest.raises(RuntimeError, match="test kesintisi"):
+        ProcessingEngine(files, synthetic_project[3]).run()
+
+    journal = PublicationJournal(
+        synthetic_project[3] / "data" / "publication_journal.sqlite3",
+    )
+    assert journal.list(status="PUBLISHED")
+    with pytest.raises(PublicationRecoveryRequired, match="tamamlanmamış"):
+        ProcessingEngine(files, synthetic_project[3]).run()
 
 
 def test_netsis_writer_yerel_sablonu_secmesi_icin_yol_verilmeden_kurulur(
@@ -213,6 +280,63 @@ def test_kullanici_izin_verirse_mukerrer_dosya_yine_islenir(synthetic_project):
     result2 = engine2.run(allow_duplicate_files=allow)
     assert result2.duplicate_files == []
     assert result2.produced_netsis_records == 1
+
+
+def test_mukerrer_kaynak_onaylaninca_subeli_tahsilat_yeni_ciktiya_devredilir(
+    synthetic_project,
+):
+    import pandas as pd
+
+    from app.core.tahsilat_consumption_ledger import TahsilatConsumptionLedger
+
+    manim_path, tahsilat_path, customer_path, project_root = synthetic_project
+    pd.DataFrame([{
+        "Banka": "Garanti", "Kod - Şube": "123",
+        "İşlem Tarihi": pd.Timestamp("2026-07-15"),
+        "Açıklama": f"ABC LTD {TEST_TAX_ID}", "Tutar": 1000.0,
+        "Dekont Durumu": "Aktarıldı", "Karşı Hesap Adı": "", "Karşı Hesap Kodu": "",
+    }]).to_excel(manim_path, index=False)
+    pd.DataFrame([{
+        "Müşteri Kodu": "ABC001", "Müşteri İsmi": "ABC LTD",
+        "Belge Tarihi": pd.Timestamp("2026-07-15"), "Tutar": 1000.0,
+    }]).to_excel(tahsilat_path, index=False)
+    pd.DataFrame([{
+        "Müşteri Kodu": "ABC001", "Ünvan": "ABC LTD",
+        "Vergi No": TEST_TAX_ID, "Şube": "BODRUM",
+    }]).to_excel(customer_path, index=False)
+
+    first = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root, company_id=1,
+    )
+    first.operation_id = 100
+    first_result = first.run()
+    assert first_result.unresolved == 0, first_result.logs
+    assert first_result.consumed_tahsilat_rows == 1
+
+    second = ProcessingEngine(
+        [manim_path, tahsilat_path, customer_path], project_root, company_id=1,
+    )
+    second.operation_id = 101
+    duplicates = second.find_duplicate_manim_files()
+    allowed = {info["hash"] for info in duplicates.values()}
+    second_result = second.run(allow_duplicate_files=allowed)
+
+    assert second_result.unresolved == 0
+    assert second_result.produced_netsis_records == 1
+    assert second_result.consumed_tahsilat_rows == 1
+    source_rows = TahsilatParser(tahsilat_path).load()
+    ledger = TahsilatConsumptionLedger(
+        project_root / "data" / "tahsilat_consumption.sqlite3", company_id=1,
+    )
+    assert ledger.available_rows(source_rows) == []
+    with ledger._connection() as connection:
+        operation_ids = [
+            row["operation_id"]
+            for row in connection.execute(
+                "SELECT operation_id FROM tahsilat_consumptions"
+            )
+        ]
+    assert operation_ids == [101]
 
 
 def test_manuel_eslestirme_resolver_cagriliyor_ve_hafizaya_yaziliyor(synthetic_project):
@@ -647,9 +771,9 @@ def test_hafizadaki_listede_yeni_musteri_yoksa_islem_durmaz_ve_yenisi_saklanir(
 
     updated_customers = tmp_path / "input" / "guncel_musteri_listesi.xlsx"
     pd.DataFrame([
-        {"Müşteri Kodu": "ABC001", "Ünvan": "ABC LTD", "Vergi No": "2222222222", "Şube": "BODRUM"},
-        {"Müşteri Kodu": "XYZ999", "Ünvan": "XYZ FIRMASI", "Vergi No": "1111111111", "Şube": "BODRUM"},
-        {"Müşteri Kodu": "NEW001", "Ünvan": "YENI MUSTERI", "Vergi No": "3333333333", "Şube": "BODRUM"},
+        {"Müşteri Kodu": "ABC001", "Ünvan": "ABC LTD", "Vergi No": TEST_TAX_ID_ALPHA, "Şube": "BODRUM"},
+        {"Müşteri Kodu": "XYZ999", "Ünvan": "XYZ FIRMASI", "Vergi No": TEST_TAX_ID, "Şube": "BODRUM"},
+        {"Müşteri Kodu": "NEW001", "Ünvan": "YENI MUSTERI", "Vergi No": TEST_TAX_ID_BETA, "Şube": "BODRUM"},
     ]).to_excel(updated_customers, index=False)
     updated_manim = tmp_path / "input" / "TEST_BODRUM_YENI_MUSTERI_GUNCEL_Manim.xlsx"
     pd.DataFrame([{

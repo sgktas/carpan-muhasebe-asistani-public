@@ -96,9 +96,6 @@ class NetsisWriter:
 
     def write(self, records: list[NetsisRecord], output_path: str | Path) -> Path:
         records = sorted(records, key=self._sort_key)
-        if runtime_template_enforcement_enabled():
-            resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-            assert_approved_template(resource_root, self.template_path)
         if (
             os.name == "nt"
             and os.environ.get("MUHASEBE_ASISTANI_DISABLE_LOCAL_CONFIG") != "1"
@@ -108,6 +105,9 @@ class NetsisWriter:
                 f"'{self.profile.name}' için paket içi Netsis şablonu bulunamadı: "
                 f"{self.template_path}. Genel Excel çıktısı üretilmedi."
             )
+        if runtime_template_enforcement_enabled():
+            resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+            assert_approved_template(resource_root, self.template_path)
         if os.name == "nt" and self.template_path.is_file():
             try:
                 written_path = self._write_with_microsoft_excel(records, output_path)

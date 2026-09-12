@@ -10,7 +10,6 @@ class MappingStore:
 
     def __init__(self, file_path: str | Path | None = None):
         self.file_path = Path(file_path or Path("data") / "customer_mappings.json")
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self.data = self._load()
 
     def get(self, key: str) -> str | list[dict] | None:

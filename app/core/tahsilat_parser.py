@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 
 import pandas as pd
 
@@ -28,18 +29,34 @@ class TahsilatParser:
         if missing:
             raise ValueError("Tahsilat raporunda zorunlu sütunlar bulunamadı: " + ", ".join(missing))
 
+        source_hash = self._source_hash()
+        sheet_name = str(self.selected_sheet_name)
         records: list[TahsilatRecord] = []
-        for _, row in dataframe.iterrows():
+        # Excel'in ilk satırı başlıktır; satır kimliği kullanıcının gördüğü
+        # satır numarasıyla aynı kalır.
+        for source_row, (_, row) in enumerate(dataframe.iterrows(), start=2):
             customer_code = self._text(row[columns["musteri_kodu"]])
             if not customer_code:
                 continue
+            amount = self._amount(row[columns["tutar"]])
             records.append(TahsilatRecord(
                 musteri_kodu=customer_code,
                 musteri_ismi=self._text(row[columns["musteri_ismi"]]),
                 belge_tarihi=self._date(row[columns["belge_tarihi"]]) if columns["belge_tarihi"] else None,
-                tutar=self._amount(row[columns["tutar"]]),
+                tutar=amount,
+                source_hash=source_hash,
+                source_sheet=sheet_name,
+                source_row=source_row,
+                source_amount=amount,
             ))
         return records
+
+    def _source_hash(self) -> str:
+        digest = hashlib.sha256()
+        with self.file_path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
 
     def _read_dataframe(self) -> pd.DataFrame:
         """Doğru tahsilat veri sayfasını seçer.

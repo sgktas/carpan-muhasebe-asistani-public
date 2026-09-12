@@ -35,11 +35,13 @@ class HavaleProcessor:
         self.last_suggested_rows: list[TahsilatRecord] = []
         self.last_combined_group_key = ""
         self.last_combined_suggested_rows: list[TahsilatRecord] = []
+        self.last_consumption_rows: list[TahsilatRecord] = []
 
     def process(self, record: ManimRecord, region: str) -> tuple[list[NetsisRecord], str | None]:
         self.last_suggested_rows = []
         self.last_combined_group_key = ""
         self.last_combined_suggested_rows = []
+        self.last_consumption_rows = []
         if self._is_non_havale_status(record.dekont_durumu):
             return [], "Dekont durumu havale aktarımına uygun değil"
 
@@ -65,6 +67,7 @@ class HavaleProcessor:
         branch_rows = self.subeli_matcher.match(record, region)
         if branch_rows:
             branch_rows = self._balance_one_cent_difference(record.tutar, branch_rows)
+            self.last_consumption_rows = list(branch_rows)
             return [
                 self._netsis_record(record, row.musteri_kodu, row.tutar, "SUBELI_TAHSILAT")
                 for row in branch_rows
@@ -115,6 +118,10 @@ class HavaleProcessor:
                 musteri_ismi=row.musteri_ismi,
                 belge_tarihi=row.belge_tarihi,
                 tutar=float(amount),
+                source_hash=row.source_hash,
+                source_sheet=row.source_sheet,
+                source_row=row.source_row,
+                source_amount=row.source_amount,
             ))
         return balanced
 

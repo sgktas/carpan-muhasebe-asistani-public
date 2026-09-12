@@ -1,9 +1,10 @@
 from __future__ import annotations
+from app.ui.operation_activity import OperationActivity
 
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QSize, Qt, QUrl, Slot
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -33,8 +34,9 @@ from app.core.operation_history import OperationHistory
 from app.core.output_location import resolve_output_dir
 from app.core.reconciliation_engine import ReconciliationEngine, ReconciliationResult
 from app.core.region_config import RegionConfig, active_region_config_path
-from app.ui.common import add_page_header
+from app.ui.common import Disclosure, WorkflowSteps, add_page_header
 from app.ui.theme import asset_icon, crisp_pixmap
+from app.ui.local_task import LocalTask
 from app.writers.reconciliation_writer import ReconciliationReportWriter
 
 MODULE_ID = "bank_reconciliation"
@@ -102,6 +104,15 @@ class BankReconciliationPage(QWidget):
     def __init__(self, history: OperationHistory, parent=None):
         super().__init__(parent)
         self.history = history
+        self.scan_task = LocalTask(self)
+        self.scan_task.succeeded.connect(self._files_classified)
+        self.scan_task.failed.connect(self._reconciliation_failed)
+        self.scan_task.settled.connect(self._scan_finished)
+        self.task = LocalTask(self)
+        self.task.succeeded.connect(self._reconciliation_succeeded)
+        self.task.failed.connect(self._reconciliation_failed)
+        self.task.settled.connect(self._reconciliation_finished)
+        self._operation_id = None
         self.bank_file: Path | None = None
         self.netsis_file: Path | None = None
         self.last_output_path: Path | None = None
@@ -152,6 +163,16 @@ class BankReconciliationPage(QWidget):
         layout.setContentsMargins(34, 20, 34, 30)
         layout.setSpacing(18)
 
+        self.workflow_steps = WorkflowSteps(
+            [
+                ("Dosyaları seç", "Ekstre ve Netsis raporu"),
+                ("Çifti doğrula", "İki kaynak da hazır olsun"),
+                ("Farkı incele", "Hareket ve devir karşılaştırması"),
+                ("Raporu al", "Nokta atışı düzeltme raporu"),
+            ]
+        )
+        layout.addWidget(self.workflow_steps)
+
         # --- Girdi dosyaları: surukle-birak alani ---
         upload_card = QFrame()
         upload_card.setObjectName("surfaceCard")
@@ -167,6 +188,7 @@ class BankReconciliationPage(QWidget):
         upload_title.setObjectName("cardTitle")
         upload_subtitle = QLabel("Banka ekstresi + Netsis ay sonu raporu (ikisini birden sürükleyebilirsiniz)")
         upload_subtitle.setObjectName("cardSubtitle")
+        upload_subtitle.setWordWrap(True)
         upload_header_col.addWidget(upload_title)
         upload_header_col.addWidget(upload_subtitle)
         upload_header.addLayout(upload_header_col, 1)
@@ -221,6 +243,7 @@ class BankReconciliationPage(QWidget):
         file_actions.setSpacing(8)
         self.loaded_files_label = QLabel("Henüz dosya seçilmedi")
         self.loaded_files_label.setObjectName("cardSubtitle")
+        self.loaded_files_label.setWordWrap(True)
         file_actions.addWidget(self.loaded_files_label, 1)
 
         self.clear_button = QPushButton("Temizle")
@@ -238,7 +261,8 @@ class BankReconciliationPage(QWidget):
         self.select_button.clicked.connect(self._select_files)
         file_actions.addWidget(self.select_button)
         upload_layout.addLayout(file_actions)
-        layout.addWidget(upload_card)
+        self.input_panel = Disclosure("Karşılaştırılacak dosyalar", upload_card, expanded=True)
+        layout.addWidget(self.input_panel)
 
         # --- Mutabakat Yap butonu ---
         self.run_button = QPushButton("Mutabakat Yap")
@@ -247,6 +271,27 @@ class BankReconciliationPage(QWidget):
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self._run_reconciliation)
         layout.addWidget(self.run_button)
+
+        self.reconciliation_metrics = {}
+        metrics_grid = QGridLayout()
+        metrics_grid.setHorizontalSpacing(10)
+        for column, (key, title) in enumerate((("matched", "Eşleşen işlem"), ("bank_only", "Yalnız bankada"), ("netsis_only", "Yalnız Netsis'te"), ("difference", "Toplam fark"))):
+            metric = QFrame()
+            metric.setObjectName("metricCard")
+            metric_layout = QVBoxLayout(metric)
+            metric_layout.setContentsMargins(12, 9, 12, 9)
+            value = QLabel("—")
+            value.setObjectName("metricValue")
+            label = QLabel(title)
+            label.setObjectName("metricLabel")
+            metric_layout.addWidget(value)
+            metric_layout.addWidget(label)
+            metrics_grid.addWidget(metric, 0, column)
+            self.reconciliation_metrics[key] = value
+        layout.addLayout(metrics_grid)
+
+        self.result_card_container = QVBoxLayout()
+        layout.addLayout(self.result_card_container)
 
         # --- İşlem günlüğü ---
         log_card = QFrame()
@@ -265,19 +310,16 @@ class BankReconciliationPage(QWidget):
         log_header_col.addWidget(log_subtitle)
         log_layout.addLayout(log_header_col)
 
-        self.log = QTextEdit()
+        self.log = OperationActivity()
         self.log.setObjectName("log")
-        self.log.setReadOnly(True)
         self.log.setPlaceholderText("Mutabakat sonucu burada görüntülenecek.")
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.log.setMinimumHeight(120)
-        self.log.setMaximumHeight(220)
+        self.log.setMinimumHeight(280)
         log_layout.addWidget(self.log)
-        layout.addWidget(log_card)
+        self.detail_panel = Disclosure("Karşılaştırma ayrıntıları ve günlük", log_card)
+        layout.addWidget(self.detail_panel)
 
         # --- Zengin sonuc karti (logo + istatistikler) ---
-        self.result_card_container = QVBoxLayout()
-        layout.addLayout(self.result_card_container)
 
         layout.addStretch(1)
         scroll.setWidget(content)
@@ -317,9 +359,27 @@ class BankReconciliationPage(QWidget):
             self._load_files([Path(path) for path in selected])
 
     def _load_files(self, files: list[Path]) -> None:
+        if self.is_busy:
+            return
+        self.last_output_path = None
+        self._clear_result_card()
+        self.workflow_steps.reset()
+        self.input_panel.set_expanded(True)
+        self.run_button.setEnabled(False)
+        self.select_button.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        selected = tuple(files)
+        self.scan_task.start(lambda: [(p, _classify_reconciliation_file(p)) for p in selected])
+
+    @Slot()
+    def _scan_finished(self):
+        self.select_button.setEnabled(True)
+        self.clear_button.setEnabled(bool(self.bank_file or self.netsis_file))
+
+    @Slot(object)
+    def _files_classified(self, classified):
         unrecognized: list[Path] = []
-        for path in files:
-            kind = _classify_reconciliation_file(path)
+        for path, kind in classified:
             if kind == "bank":
                 self.bank_file = path
             elif kind == "netsis":
@@ -359,18 +419,24 @@ class BankReconciliationPage(QWidget):
         if self.bank_file and self.netsis_file:
             self.loaded_files_label.setText("İki dosya da hazır — Mutabakat Yap'a basabilirsiniz")
             self.file_status.setProperty("ready", "true")
+            self.workflow_steps.set_active(2)
         elif has_files:
             eksik = "Netsis raporu" if self.bank_file else "banka ekstresi"
             self.loaded_files_label.setText(f"1 dosya yüklendi, eksik: {eksik}")
             self.file_status.setProperty("ready", "false")
+            self.workflow_steps.set_active(1)
         else:
             self.loaded_files_label.setText("Henüz dosya seçilmedi")
             self.file_status.setProperty("ready", "false")
+            self.workflow_steps.reset()
         self.file_status.setText("Hazır" if (self.bank_file and self.netsis_file) else "Dosya bekleniyor")
         self.file_status.style().unpolish(self.file_status)
         self.file_status.style().polish(self.file_status)
 
     def _clear_files(self) -> None:
+        if self.is_busy:
+            return
+        self.last_output_path = None
         self.bank_file = None
         self.netsis_file = None
         self.run_button.setEnabled(False)
@@ -381,105 +447,174 @@ class BankReconciliationPage(QWidget):
     # ------------------------------------------------------------------ #
     # Mutabakat calistirma
     # ------------------------------------------------------------------ #
+    @property
+    def is_busy(self):
+        return self.task.busy or self.scan_task.busy
+
     def _run_reconciliation(self) -> None:
+        if self.is_busy or not self.bank_file or not self.netsis_file:
+            return
         self.log.clear()
-        self.log.append("Mutabakat işlemi başlatıldı...")
-        operation_id = self.history.start(MODULE_ID, MODULE_NAME, [self.bank_file, self.netsis_file])
+        self._clear_result_card()
+        self.last_output_path = None
+        self.workflow_steps.set_active(2)
         try:
-            bank_parser = BankStatementParser(self.bank_file)
-            bank_records = bank_parser.load()
-            metadata = bank_parser.load_metadata()
-            self.log.append(f"Banka ekstresi okundu: {len(bank_records)} işlem ({metadata.banka_adi or 'banka adı okunamadı'})")
-
-            netsis_records = NetsisReportParser(self.netsis_file).load()
-            self.log.append(f"Netsis raporu okundu: {len(netsis_records)} işlem")
-
-            bolge = _detect_region(self.bank_file, self.netsis_file)
-            self.log.append(f"Bölge: {bolge or 'tanınamadı'}")
-
-            result = ReconciliationEngine().reconcile(bank_records, netsis_records)
-            self.log.append(f"Eşleşen işlem sayısı: {result.eslesen_sayisi}")
-            self.log.append(f"Bölünmüş fiş olarak tanınan grup sayısı: {result.bolunmus_grup_sayisi}")
-            self.log.append(f"Sadece bankada: {len(result.sadece_bankada)} | Sadece Netsis'te: {len(result.sadece_netposte)}")
-
-            output_dir = resolve_output_dir(APP_PATHS) / "Banka Mutabakati"
-            timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
-            output_path = output_dir / f"Mutabakat_Raporu_{timestamp}.xlsx"
-            ReconciliationReportWriter().write(result, output_path)
-            self.last_output_path = output_path
-            self.log.append(f"Rapor kaydedildi: {output_path}")
-
-            toplam_alinan = sum(r.tutar for r in bank_records if r.tutar > 0)
-            toplam_gonderilen = sum(-r.tutar for r in bank_records if r.tutar < 0)
-            kalan_sayisi = len(result.sadece_bankada) + len(result.sadece_netposte)
-            durum = (
-                "TAM MUTABIK" if (result.mutabik and kalan_sayisi == 0)
-                else "BAKİYE TUTUYOR AMA AÇIKLANAMAYAN KAYIT VAR" if result.mutabik
-                else "MUTABIK DEĞİL"
-            )
-            self.log.append(f"Durum: {durum}")
-
-            devir_bakiyesi = None
-            if bank_records:
-                _, first_record = min(
-                    enumerate(bank_records),
-                    key=lambda item: (item[1].tarih or datetime.max, item[0]),
-                )
-                if first_record.bakiye is not None:
-                    devir_bakiyesi = round(first_record.bakiye - first_record.tutar, 2)
-            self.log.append(
-                f"Önceki aydan devreden bakiye: {devir_bakiyesi:,.2f} TL" if devir_bakiyesi is not None
-                else "Önceki aydan devreden bakiye bulunamadı"
-            )
-            self.log.append(f"Yeni aya devredecek bakiye: {result.banka_bakiyesi:,.2f} TL" if result.banka_bakiyesi is not None else "-")
-
-            en_buyuk_hareketler = sorted(bank_records, key=lambda r: abs(r.tutar), reverse=True)[:3]
-            en_buyuk_hareketler_veri = [
-                {
-                    "tarih": r.tarih.strftime("%d.%m.%Y") if r.tarih else "-",
-                    "tutar": r.tutar,
-                    "aciklama": r.aciklama,
-                }
-                for r in en_buyuk_hareketler
-            ]
-            if en_buyuk_hareketler_veri:
-                self.log.append("Bu dönemin en büyük hareketleri (giren/çıkan farkını en çok etkileyenler):")
-                for hareket in en_buyuk_hareketler_veri:
-                    self.log.append(f"  {hareket['tarih']} | {hareket['tutar']:,.2f} TL | {hareket['aciklama']}")
-
-            summary = {
-                "bolge": bolge,
-                "banka_adi": metadata.banka_adi,
-                "sirket_unvani": metadata.sirket_unvani,
-                "sube": metadata.sube,
-                "iban": metadata.iban,
-                "donem_baslangic": metadata.donem_baslangic,
-                "donem_bitis": metadata.donem_bitis,
-                "islem_sayisi": len(bank_records),
-                "toplam_alinan_tutar": toplam_alinan,
-                "toplam_gonderilen_tutar": toplam_gonderilen,
-                "devir_bakiyesi": devir_bakiyesi,
-                "banka_bakiyesi": result.banka_bakiyesi,
-                "netsis_bakiyesi": result.netsis_bakiyesi,
-                "fark": result.fark,
-                "eslesen_sayisi": result.eslesen_sayisi,
-                "bolunmus_grup_sayisi": result.bolunmus_grup_sayisi,
-                "sadece_bankada": len(result.sadece_bankada),
-                "sadece_netposte": len(result.sadece_netposte),
-                "mutabik": result.mutabik,
-                "durum": durum,
-                "en_buyuk_hareketler": en_buyuk_hareketler_veri,
-            }
-            self.history.complete(operation_id, [output_path], summary=summary)
-
-            self._show_result_card(summary, str(output_path), datetime.now().strftime("%d.%m.%Y %H:%M"))
-            self._refresh_log_tab()
+            self._operation_id = self.history.start(MODULE_ID, MODULE_NAME, [self.bank_file, self.netsis_file])
         except Exception as error:
-            self.history.fail(operation_id, str(error))
-            self.log.append(f"HATA: {error}")
-            QMessageBox.critical(self, "Hata", f"Mutabakat sırasında bir sorun oluştu:\n\n{error}")
+            self._reconciliation_failed(error)
+            return
+        for button in (self.run_button, self.select_button, self.clear_button):
+            button.setEnabled(False)
+        self.run_button.setText("Karşılaştırılıyor…")
+        bank_file, netsis_file = self.bank_file, self.netsis_file
+        self.task.start(lambda: self._prepare_reconciliation(bank_file, netsis_file))
+
+    @staticmethod
+    def _prepare_reconciliation(bank_file, netsis_file):
+        logs = ["Mutabakat işlemi başlatıldı."]
+        bank_parser = BankStatementParser(bank_file)
+        bank_records = bank_parser.load()
+        metadata = bank_parser.load_metadata()
+        logs.append(f"Banka ekstresi okundu: {len(bank_records)} işlem ({metadata.banka_adi or 'banka adı okunamadı'})")
+
+        netsis_records = NetsisReportParser(netsis_file).load()
+        logs.append(f"Netsis raporu okundu: {len(netsis_records)} işlem")
+
+        bolge = _detect_region(bank_file, netsis_file)
+        logs.append(f"Bölge: {bolge or 'tanınamadı'}")
+
+        result = ReconciliationEngine().reconcile(bank_records, netsis_records)
+        logs.append(f"Eşleşen işlem sayısı: {result.eslesen_sayisi}")
+        logs.append(f"Bölünmüş fiş olarak tanınan grup sayısı: {result.bolunmus_grup_sayisi}")
+        logs.append(f"Sadece bankada: {len(result.sadece_bankada)} | Sadece Netsis'te: {len(result.sadece_netposte)}")
+        if result.hareket_farki == 0 and result.devir_farki:
+            logs.append(
+                "NOKTA ATIŞI TESPİT: Dönem içi hareket toplamları kuruşuna kadar tutuyor; "
+                f"fark devreden bakiyeden geliyor: {result.devir_farki:,.2f} TL"
+            )
+
+        output_dir = resolve_output_dir(APP_PATHS) / "Banka Mutabakati"
+        timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
+        output_path = output_dir / f"Nokta_Atisi_Duzeltme_Raporu_{timestamp}.xlsx"
+        ReconciliationReportWriter().write(result, output_path)
+        logs.append(f"Rapor kaydedildi: {output_path}")
+
+        toplam_alinan = sum(r.tutar for r in bank_records if r.tutar > 0)
+        toplam_gonderilen = sum(-r.tutar for r in bank_records if r.tutar < 0)
+        kalan_sayisi = len(result.sadece_bankada) + len(result.sadece_netposte)
+        durum = (
+            "TAM MUTABIK" if (result.mutabik and kalan_sayisi == 0)
+            else "BAKİYE TUTUYOR AMA AÇIKLANAMAYAN KAYIT VAR" if result.mutabik
+            else "HAREKETLER TUTUYOR — DEVİR BAKİYESİ FARKLI"
+            if result.hareket_farki == 0 and result.devir_farki
+            else "MUTABIK DEĞİL"
+        )
+        logs.append(f"Durum: {durum}")
+
+        devir_bakiyesi = result.banka_devir_bakiyesi
+        logs.append(
+            f"Önceki aydan devreden bakiye: {devir_bakiyesi:,.2f} TL" if devir_bakiyesi is not None
+            else "Önceki aydan devreden bakiye bulunamadı"
+        )
+        logs.append(f"Yeni aya devredecek bakiye: {result.banka_bakiyesi:,.2f} TL" if result.banka_bakiyesi is not None else "-")
+
+        en_buyuk_hareketler = sorted(bank_records, key=lambda r: abs(r.tutar), reverse=True)[:3]
+        en_buyuk_hareketler_veri = [
+            {
+                "tarih": r.tarih.strftime("%d.%m.%Y") if r.tarih else "-",
+                "tutar": r.tutar,
+                "aciklama": r.aciklama,
+            }
+            for r in en_buyuk_hareketler
+        ]
+        if en_buyuk_hareketler_veri:
+            logs.append("Bu dönemin en büyük hareketleri (giren/çıkan farkını en çok etkileyenler):")
+            for hareket in en_buyuk_hareketler_veri:
+                logs.append(f"  {hareket['tarih']} | {hareket['tutar']:,.2f} TL | {hareket['aciklama']}")
+
+        summary = {
+            "bolge": bolge,
+            "banka_adi": metadata.banka_adi,
+            "sirket_unvani": metadata.sirket_unvani,
+            "sube": metadata.sube,
+            "iban": metadata.iban,
+            "donem_baslangic": metadata.donem_baslangic,
+            "donem_bitis": metadata.donem_bitis,
+            "islem_sayisi": len(bank_records),
+            "toplam_alinan_tutar": toplam_alinan,
+            "toplam_gonderilen_tutar": toplam_gonderilen,
+            "devir_bakiyesi": devir_bakiyesi,
+            "netsis_devir_bakiyesi": result.netsis_devir_bakiyesi,
+            "devir_farki": result.devir_farki,
+            "hareket_farki": result.hareket_farki,
+            "banka_bakiyesi": result.banka_bakiyesi,
+            "netsis_bakiyesi": result.netsis_bakiyesi,
+            "fark": result.fark,
+            "eslesen_sayisi": result.eslesen_sayisi,
+            "bolunmus_grup_sayisi": result.bolunmus_grup_sayisi,
+            "sadece_bankada": len(result.sadece_bankada),
+            "sadece_netposte": len(result.sadece_netposte),
+            "mutabik": result.mutabik,
+            "durum": durum,
+            "en_buyuk_hareketler": en_buyuk_hareketler_veri,
+            # Operasyon Merkezi yalnız bu sayısal özeti kullanır; ayrıntılı
+            # açıklamalar nokta atışı düzeltme Excel'inde yerel kalır.
+            "reconciliation": {
+                "status": (
+                    "FULL_MATCH" if result.mutabik and kalan_sayisi == 0
+                    else "OPEN_ITEMS" if result.mutabik
+                    else "OPENING_BALANCE" if result.hareket_farki == 0 and result.devir_farki
+                    else "MISMATCH"
+                ),
+                "bank_only_count": len(result.sadece_bankada),
+                "netsis_only_count": len(result.sadece_netposte),
+                "opening_difference": round(float(result.devir_farki or 0), 2),
+                "movement_difference": round(float(result.hareket_farki or 0), 2),
+                "difference": round(float(result.fark or 0), 2),
+            },
+        }
+        return summary, output_path, logs
+
+    @Slot(object)
+    def _reconciliation_succeeded(self, payload):
+        summary, output_path, logs = payload
+        self.history.complete(self._operation_id, [output_path], summary=summary)
+        self.last_output_path = output_path
+        self.input_panel.set_expanded(False)
+        self.log.append_many(logs)
+        self._show_result_card(summary, str(output_path), datetime.now().strftime("%d.%m.%Y %H:%M"))
+        self.reconciliation_metrics["matched"].setText(f"{summary.get('eslesen_sayisi', 0):,}")
+        self.reconciliation_metrics["bank_only"].setText(f"{len(summary.get('sadece_bankada', [])):,}")
+        self.reconciliation_metrics["netsis_only"].setText(f"{len(summary.get('sadece_netposte', [])):,}")
+        fark = summary.get("fark")
+        self.reconciliation_metrics["difference"].setText(
+            f"{fark:,.2f} TL" if isinstance(fark, (int, float)) else "—"
+        )
+        self.workflow_steps.set_active(3)
+        self.workflow_steps.set_state(2, "complete" if summary["reconciliation"]["status"] == "FULL_MATCH" else "attention")
+        self.workflow_steps.set_state(3, "complete")
+        self._refresh_log_tab()
+
+    @Slot(object)
+    def _reconciliation_failed(self, error):
+        if self._operation_id is not None:
+            self.history.fail(self._operation_id, str(error))
+        self.log.append(f"HATA: {error}")
+        self.detail_panel.set_expanded(True)
+        self.workflow_steps.set_state(2, "attention")
+        QMessageBox.critical(self, "Mutabakat tamamlanamadı", str(error))
+
+    @Slot()
+    def _reconciliation_finished(self):
+        self._operation_id = None
+        self.run_button.setText("Mutabakatı başlat")
+        self.run_button.setEnabled(bool(self.bank_file and self.netsis_file))
+        self.select_button.setEnabled(True)
+        self.clear_button.setEnabled(bool(self.bank_file or self.netsis_file))
 
     def _clear_result_card(self) -> None:
+        for value in self.reconciliation_metrics.values():
+            value.setText("—")
         while self.result_card_container.count():
             item = self.result_card_container.takeAt(0)
             widget = item.widget()
@@ -539,7 +674,7 @@ class BankReconciliationPage(QWidget):
 # ---------------------------------------------------------------------- #
 def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str) -> QFrame:
     card = QFrame()
-    card.setObjectName("card")
+    card.setObjectName("surfaceCard")
     layout = QVBoxLayout(card)
     layout.setContentsMargins(22, 18, 22, 18)
     layout.setSpacing(10)
@@ -560,6 +695,7 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
     bolge = summary.get("bolge")
     baslik_metni = f"{bolge} — {banka_adi}" if bolge else f"{banka_adi} (bölge tanınamadı)"
     title_label = QLabel(baslik_metni)
+    title_label.setWordWrap(True)
     title_label.setStyleSheet("font-size: 15px; font-weight: 700;")
     title_col.addWidget(title_label)
 
@@ -572,6 +708,7 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
         alt_bilgi_parcalari.append(f"Dönem: {summary['donem_baslangic']} – {summary['donem_bitis']}")
     if alt_bilgi_parcalari:
         subtitle_label = QLabel(" · ".join(alt_bilgi_parcalari))
+        subtitle_label.setWordWrap(True)
         subtitle_label.setStyleSheet("color: #5b6472; font-size: 12px;")
         title_col.addWidget(subtitle_label)
     header_row.addLayout(title_col, 1)
@@ -579,6 +716,8 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
     durum = summary.get("durum", "-")
     durum_renk = "#1a7a3c" if durum == "TAM MUTABIK" else "#b3261e"
     durum_label = QLabel(durum)
+    durum_label.setWordWrap(True)
+    durum_label.setMaximumWidth(230)
     durum_label.setStyleSheet(
         f"background-color: {durum_renk}; color: white; font-weight: 700; "
         "padding: 4px 10px; border-radius: 10px; font-size: 11px;"
@@ -598,6 +737,9 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
         ("Toplam Gönderilen Tutar", fmt(summary.get("toplam_gonderilen_tutar"))),
         ("İşlem Sayısı", str(summary.get("islem_sayisi", "-"))),
         ("Devreden Bakiye (önceki ay)", fmt(summary.get("devir_bakiyesi"))),
+        ("Netsis Devreden Bakiye", fmt(summary.get("netsis_devir_bakiyesi"))),
+        ("Devreden Bakiye Farkı", fmt(summary.get("devir_farki"))),
+        ("Dönem Hareketleri Farkı", fmt(summary.get("hareket_farki"))),
         ("Yeni Aya Devredecek Bakiye", fmt(summary.get("banka_bakiyesi"))),
         ("Netsis Bakiyesi", fmt(summary.get("netsis_bakiyesi"))),
         ("Fark", fmt(summary.get("fark"))),
@@ -609,6 +751,7 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
         row, col = divmod(index, 3)
         cell = QVBoxLayout()
         label_widget = QLabel(label)
+        label_widget.setWordWrap(True)
         label_widget.setStyleSheet("color: #8a93a1; font-size: 11px;")
         value_widget = QLabel(value)
         value_widget.setStyleSheet("font-weight: 600; font-size: 13px;")
@@ -634,6 +777,7 @@ def _build_summary_card(summary: dict, output_path: str | None, tarih_text: str)
 
     if output_path:
         open_button = QPushButton("Raporu Aç")
+        open_button.setObjectName("primary")
         open_button.clicked.connect(
             lambda checked=False, path=output_path: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         )

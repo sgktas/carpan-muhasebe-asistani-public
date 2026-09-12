@@ -587,25 +587,64 @@ class SubeliMatcher:
         target_date = record.islem_tarihi.date()
         return [row for row in rows if row.belge_tarihi and row.belge_tarihi.date() == target_date]
 
-    @staticmethod
-    def _rows_from_mapping(mapped: str | list[dict], amount: float) -> list[TahsilatRecord] | None:
+    def _rows_from_mapping(self, mapped: str | list[dict], amount: float) -> list[TahsilatRecord] | None:
+        """Resolve a remembered choice back to current report source rows.
+
+        A remembered customer code is an aid to matching, not evidence that a
+        collection was received again. Returning the actual current rows lets
+        the consumption ledger protect them; if those rows cannot be found we
+        deliberately fall back to the normal/manual review flow.
+        """
+        # Eski/izole çağıranlarda tahsilat raporu hiç verilmemiş olabilir.
+        # Bu geriye uyumluluk yolu gerçek MANİM işleminde kullanılmaz; normal
+        # akışta zorunlu tahsilat raporu bulunduğundan satır kimliği aranır.
+        if not self.tahsilat_records:
+            return self._legacy_rows_from_mapping(mapped, amount)
+
         if isinstance(mapped, str):
             code = mapped.strip()
             if not code:
                 return None
-            return [TahsilatRecord(musteri_kodu=code, musteri_ismi="(manuel eşleştirme)", belge_tarihi=None, tutar=amount)]
+            return self._find_reconciling_subset(
+                amount,
+                list(self._tahsilat_by_code.get(self._code_key(code), [])),
+            )
         if isinstance(mapped, list):
-            rows = []
+            rows: list[TahsilatRecord] = []
             for item in mapped:
                 try:
-                    rows.append(TahsilatRecord(
+                    code = str(item["musteri_kodu"]).strip()
+                    target = float(item["tutar"])
+                except (KeyError, TypeError, ValueError):
+                    return None
+                matched = self._find_reconciling_subset(
+                    target,
+                    list(self._tahsilat_by_code.get(self._code_key(code), [])),
+                )
+                if not matched:
+                    return None
+                rows.extend(matched)
+            return rows if rows and self._reconciles(amount, rows) else None
+        return None
+
+    @staticmethod
+    def _legacy_rows_from_mapping(mapped: str | list[dict], amount: float) -> list[TahsilatRecord] | None:
+        if isinstance(mapped, str):
+            code = mapped.strip()
+            return [TahsilatRecord(code, "(manuel eşleştirme)", None, amount)] if code else None
+        if isinstance(mapped, list):
+            try:
+                rows = [
+                    TahsilatRecord(
                         musteri_kodu=str(item["musteri_kodu"]).strip(),
                         musteri_ismi="(manuel eşleştirme)",
                         belge_tarihi=None,
                         tutar=float(item["tutar"]),
-                    ))
-                except (KeyError, TypeError, ValueError):
-                    return None
+                    )
+                    for item in mapped
+                ]
+            except (KeyError, TypeError, ValueError):
+                return None
             return rows or None
         return None
 

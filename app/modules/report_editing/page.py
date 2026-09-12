@@ -1,12 +1,14 @@
 from __future__ import annotations
+from app.ui.operation_activity import OperationActivity
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QSize, Qt, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -34,14 +36,24 @@ from app.modules.report_editing.engine import (
     ReportEditingEngine,
     refresh_customer_list_cache,
 )
-from app.ui.common import add_page_header
+from app.ui.common import Disclosure, WorkflowSteps, add_page_header
 from app.ui.theme import asset_icon, crisp_pixmap
+from app.ui.local_task import LocalTask
 
 
 class ReportEditingPage(QWidget):
     def __init__(self, history: OperationHistory, parent=None):
         super().__init__(parent)
         self.history = history
+        self.scan_task = LocalTask(self)
+        self.scan_task.succeeded.connect(self._files_classified)
+        self.scan_task.failed.connect(self._process_failed)
+        self.scan_task.settled.connect(self._scan_finished)
+        self.task = LocalTask(self)
+        self.task.succeeded.connect(self._process_succeeded)
+        self.task.failed.connect(self._process_failed)
+        self.task.settled.connect(self._process_finished)
+        self._operation_id = None
         self.files: list[Path] = []
         self._recognized_types: set[str] = set()
         self.last_output_dir: Path | None = None
@@ -71,6 +83,16 @@ class ReportEditingPage(QWidget):
             "MODÜL 02",
         )
 
+        self.workflow_steps = WorkflowSteps(
+            [
+                ("Raporları seç", "Ham dosyaları yükleyin"),
+                ("Türleri doğrula", "Satış, tahsilat ve müşteri"),
+                ("Dönüşümü uygula", "Kurallar ve şablon kontrolü"),
+                ("Çıktıları al", "Düzenlenmiş raporlar hazır"),
+            ]
+        )
+        layout.addWidget(self.workflow_steps)
+
         info_card = QFrame()
         info_card.setObjectName("surfaceCard")
         info_layout = QHBoxLayout(info_card)
@@ -95,7 +117,7 @@ class ReportEditingPage(QWidget):
             col.addWidget(title_label)
             col.addWidget(text_label)
             info_layout.addWidget(item, 1)
-        layout.addWidget(info_card)
+        layout.addWidget(Disclosure("Hangi raporlarla çalışabilirim?", info_card))
 
         upload_card = QFrame()
         upload_card.setObjectName("surfaceCard")
@@ -112,6 +134,7 @@ class ReportEditingPage(QWidget):
             "Ham müşteri listesi, satış raporu veya tahsilat raporu — tek başına ya da birlikte (.xlsx veya .xls)"
         )
         subtitle.setObjectName("cardSubtitle")
+        subtitle.setWordWrap(True)
         header_col.addWidget(title)
         header_col.addWidget(subtitle)
         header.addLayout(header_col, 1)
@@ -166,6 +189,7 @@ class ReportEditingPage(QWidget):
         actions = QHBoxLayout()
         self.loaded_label = QLabel("Henüz dosya seçilmedi")
         self.loaded_label.setObjectName("cardSubtitle")
+        self.loaded_label.setWordWrap(True)
         actions.addWidget(self.loaded_label, 1)
 
         self.clear_button = QPushButton("Temizle")
@@ -183,11 +207,12 @@ class ReportEditingPage(QWidget):
         self.select_button.clicked.connect(self.select_files)
         actions.addWidget(self.select_button)
         upload_layout.addLayout(actions)
-        layout.addWidget(upload_card)
+        self.input_panel = Disclosure("Girdi raporları · seç / kontrol et", upload_card, expanded=True)
+        layout.addWidget(self.input_panel)
 
         process_card = QFrame()
         process_card.setObjectName("surfaceCard")
-        process_layout = QHBoxLayout(process_card)
+        process_layout = QVBoxLayout(process_card)
         process_layout.setContentsMargins(20, 16, 20, 16)
         process_layout.setSpacing(18)
 
@@ -197,6 +222,7 @@ class ReportEditingPage(QWidget):
         progress_title.setObjectName("cardTitle")
         self.progress_detail = QLabel("Ham raporları yükleyerek işleme başlayın.")
         self.progress_detail.setObjectName("cardSubtitle")
+        self.progress_detail.setWordWrap(True)
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setValue(0)
@@ -205,6 +231,24 @@ class ReportEditingPage(QWidget):
         progress_col.addWidget(self.progress_detail)
         progress_col.addWidget(self.progress)
         process_layout.addLayout(progress_col, 1)
+
+        summary_grid = QGridLayout()
+        summary_grid.setHorizontalSpacing(10)
+        self.summary_metrics = {}
+        for column, (key, title) in enumerate((("outputs", "Çıktı dosyası"), ("warnings", "Kontrol"), ("mode", "Çalışma tipi"))):
+            metric = QFrame()
+            metric.setObjectName("metricCard")
+            metric_layout = QVBoxLayout(metric)
+            metric_layout.setContentsMargins(12, 9, 12, 9)
+            value = QLabel("—")
+            value.setObjectName("metricValue")
+            label = QLabel(title)
+            label.setObjectName("metricLabel")
+            metric_layout.addWidget(value)
+            metric_layout.addWidget(label)
+            summary_grid.addWidget(metric, 0, column)
+            self.summary_metrics[key] = value
+        process_layout.addLayout(summary_grid)
 
         self.open_output_button = QPushButton("Çıktı klasörünü aç")
         self.open_output_button.setObjectName("secondary")
@@ -219,6 +263,12 @@ class ReportEditingPage(QWidget):
         self.start_button.clicked.connect(self.start_process)
         process_layout.addWidget(self.start_button, 0, Qt.AlignBottom)
         layout.addWidget(process_card)
+
+        self.result_summary = QLabel("Hazır olduğunuzda raporları seçin. Satış ve tahsilat raporları tek başına da işlenebilir.")
+        self.result_summary.setObjectName("planNotice")
+        self.result_summary.setWordWrap(True)
+        self.result_summary.setTextFormat(Qt.PlainText)
+        layout.addWidget(self.result_summary)
 
         log_card = QFrame()
         log_card.setObjectName("surfaceCard")
@@ -238,13 +288,13 @@ class ReportEditingPage(QWidget):
         log_header.addLayout(log_col, 1)
         log_layout.addLayout(log_header)
 
-        self.log = QTextEdit()
+        self.log = OperationActivity()
         self.log.setObjectName("log")
-        self.log.setReadOnly(True)
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.log.setPlaceholderText("Rapor düzenleme kayıtları burada görüntülenecek.")
         log_layout.addWidget(self.log, 1)
-        layout.addWidget(log_card, 1)
+        self.detail_panel = Disclosure("İşlem ayrıntıları ve günlük", log_card)
+        layout.addWidget(self.detail_panel, 1)
 
         scroll.setWidget(content)
         root.addWidget(scroll)
@@ -277,6 +327,11 @@ class ReportEditingPage(QWidget):
             self._load_files([Path(path) for path in selected])
 
     def _load_files(self, files: list[Path]) -> None:
+        if self.is_busy:
+            return
+        self.workflow_steps.reset()
+        self.input_panel.set_expanded(True)
+        self.result_summary.setText("Dosyalar kontrol ediliyor.")
         unique: list[Path] = []
         seen: set[str] = set()
         for path in files:
@@ -289,6 +344,14 @@ class ReportEditingPage(QWidget):
         self.open_output_button.setVisible(False)
         self.log.clear()
 
+        self.start_button.setEnabled(False)
+        self.select_button.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        files = tuple(self.files)
+        self.scan_task.start(lambda: self._classify_files(files))
+
+    @staticmethod
+    def _classify_files(files):
         recognized_labels = {
             "customer": "Müşteri listesi",
             "sales": "Satış raporu",
@@ -297,7 +360,7 @@ class ReportEditingPage(QWidget):
         listed: list[str] = []
         problems: list[str] = []
         recognized_types: set[str] = set()
-        for path in self.files:
+        for path in files:
             try:
                 file_type = ReportEditingEngine.classify_file(path)
             except Exception as error:
@@ -307,6 +370,16 @@ class ReportEditingPage(QWidget):
             if file_type:
                 recognized_types.add(file_type)
             listed.append(f"{label}  •  {path.name}")
+        return listed, problems, recognized_types
+
+    @Slot()
+    def _scan_finished(self):
+        self.select_button.setEnabled(True)
+        self.clear_button.setEnabled(bool(self.files))
+
+    @Slot(object)
+    def _files_classified(self, payload):
+        listed, problems, recognized_types = payload
         self._recognized_types = recognized_types
 
         self.drop_hint.setVisible(False)
@@ -342,6 +415,10 @@ class ReportEditingPage(QWidget):
         if template_problem:
             self.progress_detail.setText("Onaylı şablon geri yüklenmeden işlem başlatılamaz.")
             self.log.append(f"UYARI: {template_problem}")
+        if all_ready:
+            self.workflow_steps.set_active(2)
+        else:
+            self.workflow_steps.set_state(1, "attention")
         self.start_button.setEnabled(all_ready)
         self.clear_button.setEnabled(bool(self.files))
         for problem in problems:
@@ -375,6 +452,11 @@ class ReportEditingPage(QWidget):
         )
 
     def clear_files(self) -> None:
+        if self.is_busy:
+            return
+        self._recognized_types = set()
+        self.input_panel.set_expanded(True)
+        self.result_summary.setText("Raporlarınızı seçerek başlayın.")
         self.files = []
         self.last_output_dir = None
         self.file_list.clear()
@@ -390,70 +472,110 @@ class ReportEditingPage(QWidget):
         self.loaded_label.setText("Henüz dosya seçilmedi")
         self.progress.setValue(0)
         self.progress_detail.setText("Ham raporları yükleyerek işleme başlayın.")
+        self.workflow_steps.reset()
         self.start_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
         self.log.clear()
 
+    @property
+    def is_busy(self):
+        return self.task.busy or self.scan_task.busy
+
     def start_process(self) -> None:
+        if self.is_busy or not self.files or not self.start_button.isEnabled():
+            return
         template_problem = self._selected_template_problem()
         if template_problem:
-            self.progress.setValue(0)
-            self.progress_detail.setText("Şablon kontrolü gerekli.")
-            self.log.append(f"UYARI: {template_problem}")
-            QMessageBox.warning(self, "Onaylı şablon gerekli", template_problem)
+            self.workflow_steps.set_state(1, "attention")
+            self.progress_detail.setText(template_problem)
+            return
+        try:
+            self._operation_id = self.history.start(MODULE_ID, MODULE_NAME, self.files)
+        except Exception as error:
+            self._process_failed(error)
             return
         self.start_button.setEnabled(False)
         self.select_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
-        self.progress.setValue(35)
-        self.progress_detail.setText("Raporlar okunuyor ve dönüşüm kuralları uygulanıyor...")
-        self.log.append("FOM rapor düzenleme işlemi başlatıldı.")
+        self.progress.setRange(0, 0)
+        self.workflow_steps.set_active(2)
+        self.progress_detail.setText("Raporlar hazırlanıyor… İşlem günlüğünü inceleyebilirsiniz.")
+        files = tuple(self.files)
+        self.task.start(lambda: self._prepare_reports(files))
 
-        operation_id = self.history.start(MODULE_ID, MODULE_NAME, self.files)
-        try:
-            engine = ReportEditingEngine(
-                self.files,
-                resource_root=APP_PATHS.resource_root,
-                output_root=resolve_output_dir(APP_PATHS),
-                customer_cache_path=CustomerListCache(APP_PATHS.data_root).get(),
-                create_template_outputs=True,
+    @staticmethod
+    def _prepare_reports(files):
+        engine = ReportEditingEngine(
+            files,
+            resource_root=APP_PATHS.resource_root,
+            output_root=resolve_output_dir(APP_PATHS),
+            customer_cache_path=CustomerListCache(APP_PATHS.data_root).get(),
+            create_template_outputs=True,
+        )
+        result = engine.run()
+        cached_customer_list = refresh_customer_list_cache(result, APP_PATHS.data_root)
+        if cached_customer_list:
+            result.logs.append(
+                "Düzenlenmiş müşteri listesi MANİM Aktarma hafızasına da kaydedildi."
             )
-            result = engine.run()
-            cached_customer_list = refresh_customer_list_cache(result, APP_PATHS.data_root)
-            if cached_customer_list:
-                result.logs.append(
-                    "Düzenlenmiş müşteri listesi MANİM Aktarma hafızasına da kaydedildi."
-                )
-            for message in result.logs:
-                self.log.append(message)
-            for path in result.created_files:
-                self.log.append(f"Çıktı: {path.name}")
-            self.log.append(f"Çıktı klasörü: {result.output_dir}")
+        return result
 
-            self.history.complete(
-                operation_id,
-                result.created_files,
-                result.summary(),
-                status="SUCCESS" if result.unmatched_customer_codes == 0 else "PARTIAL",
-            )
-            self.last_output_dir = result.output_dir
-            self.progress.setValue(100)
-            self.progress_detail.setText(
-                f"İşlem tamamlandı. {len(result.created_files)} dosya oluşturuldu."
-            )
-            self.open_output_button.setVisible(True)
-        except Exception as error:
-            self.history.fail(operation_id, str(error))
-            self.progress.setValue(0)
-            self.progress_detail.setText("İşlem tamamlanamadı. Hata ayrıntısını inceleyin.")
-            self.log.append(f"HATA: {error}")
-            QMessageBox.critical(self, "FOM rapor düzenleme hatası", str(error))
-        finally:
-            self.start_button.setEnabled(bool(self.files))
-            self.select_button.setEnabled(True)
-            self.clear_button.setEnabled(bool(self.files))
+    @Slot(object)
+    def _process_succeeded(self, result):
+        self.progress.setRange(0, 100)
+        self.log.append_many(result.logs)
+        for path in result.created_files:
+            self.log.append(f"Çıktı: {path.name}")
+        self.log.append(f"Çıktı klasörü: {result.output_dir}")
+
+        self.history.complete(
+            self._operation_id,
+            result.created_files,
+            result.summary(),
+            status="SUCCESS" if result.unmatched_customer_codes == 0 else "PARTIAL",
+        )
+        self.last_output_dir = result.output_dir
+        self.progress.setValue(100)
+        self.progress_detail.setText(
+            f"İşlem tamamlandı. {len(result.created_files)} dosya oluşturuldu."
+        )
+        self.workflow_steps.set_state(0, "complete")
+        self.workflow_steps.set_state(1, "complete")
+        self.workflow_steps.set_state(2, "attention" if result.unmatched_customer_codes else "complete")
+        self.workflow_steps.set_state(3, "complete")
+        self.open_output_button.setVisible(True)
+        self.input_panel.set_expanded(False)
+        self.result_summary.setText(
+            f"{len(result.created_files):,} dosya hazır · "
+            f"{result.unmatched_customer_codes:,} müşteri kodu kontrol bekliyor.\n"
+            + "\n".join(path.name for path in result.created_files)
+            + "\nÇıktı klasörünü açarak manuel aktarım için dosyaları alabilirsiniz."
+        )
+        self.summary_metrics["outputs"].setText(f"{len(result.created_files):,}")
+        self.summary_metrics["warnings"].setText(f"{result.unmatched_customer_codes:,}")
+        self.summary_metrics["mode"].setText("Tek / birlikte")
+
+    @Slot(object)
+    def _process_failed(self, error):
+        if self._operation_id is not None:
+            self.history.fail(self._operation_id, str(error))
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress_detail.setText("Rapor hazırlanamadı. Ayrıntılardan nedeni kontrol edin.")
+        self.workflow_steps.set_state(2, "attention")
+        self.log.append(f"HATA: {error}")
+        self.detail_panel.set_expanded(True)
+        self.result_summary.setText("Rapor hazırlama tamamlanamadı. İşlem ayrıntılarını inceleyin.")
+        QMessageBox.critical(self, "Rapor hazırlanamadı", str(error))
+
+    @Slot()
+    def _process_finished(self):
+        self._operation_id = None
+        self.start_button.setEnabled(bool(self.files))
+        self.select_button.setEnabled(True)
+        self.clear_button.setEnabled(bool(self.files))
 
     def open_output_dir(self) -> None:
         if self.last_output_dir and self.last_output_dir.is_dir():

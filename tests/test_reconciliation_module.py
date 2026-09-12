@@ -153,6 +153,7 @@ def test_ucdan_uca_eksik_kayit_tespit_edilir(tmp_path):
     workbook = load_workbook(output_path, data_only=False)
     assert workbook["Özet"]["B1"].number_format == "#,##0.00"
     assert workbook["Özet"].column_dimensions["A"].width == 42
-    assert workbook["Sadece Bankada"]["C2"].number_format == "#,##0.00"
-    assert workbook["Sadece Bankada"].column_dimensions["B"].width == 90
-    assert workbook["Sadece Bankada"].freeze_panes == "A2"
+    correction_sheet = workbook["Nokta Atışı Düzeltme"]
+    assert correction_sheet["F2"].number_format == "#,##0.00"
+    assert correction_sheet["A2"].value == "YALNIZ BANKADA"
+    assert correction_sheet.freeze_panes == "A2"

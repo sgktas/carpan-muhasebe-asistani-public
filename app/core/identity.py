@@ -74,13 +74,24 @@ class AuthenticatedSession:
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "ADMIN": frozenset({"*"}),
-    "OPERATOR": frozenset({"module.*", "history.read", "operations.acceptance.record"}),
+    "OPERATOR": frozenset(
+        {
+            "module.*",
+            "history.read",
+            "operations.acceptance.record",
+            "operations.review.assign_self",
+            "operations.review.work",
+        }
+    ),
     "APPROVER": frozenset(
         {
             "module.manim_transfer",
             "history.read",
             "operations.approve",
             "operations.acceptance.record",
+            "operations.review.assign_self",
+            "operations.review.work",
+            "operations.review.approve",
         }
     ),
     "AUDITOR": frozenset({"history.read", "audit.read"}),
@@ -120,6 +131,64 @@ class IdentityStore:
             }
             if 1 not in versions:
                 self._apply_v1(connection)
+            if 2 not in versions:
+                connection.execute("CREATE TABLE IF NOT EXISTS review_region_access (company_id INTEGER NOT NULL, user_id INTEGER NOT NULL, regions_json TEXT NOT NULL, PRIMARY KEY(company_id, user_id), FOREIGN KEY(company_id, user_id) REFERENCES company_memberships(company_id, user_id))")
+                connection.execute("INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)", (self._now(),))
+
+    def current_session(self, session: AuthenticatedSession) -> AuthenticatedSession:
+        """Revalidate membership on every sensitive workflow operation."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT u.username,u.display_name,m.role,c.code,c.name
+                   FROM company_memberships m JOIN users u ON u.id=m.user_id
+                   JOIN companies c ON c.id=m.company_id
+                   WHERE m.company_id=? AND m.user_id=? AND m.active=1 AND u.active=1 AND c.active=1""",
+                (session.company_id, session.user_id),
+            ).fetchone()
+        if row is None:
+            raise IdentityError("Firma erişiminiz kapatılmış. Yeniden giriş yapın.")
+        return AuthenticatedSession(session.user_id, row["username"], row["display_name"], session.company_id, row["code"], row["name"], row["role"])
+
+    def review_regions(self, session: AuthenticatedSession, user_id: int | None = None) -> tuple[str, ...] | None:
+        session = self.current_session(session)
+        target = session.user_id if user_id is None else int(user_id)
+        if target != session.user_id and not session.can("users.manage"):
+            raise IdentityError("Başka kullanıcının bölge yetkisini okuyamazsınız.")
+        with self._connect() as connection:
+            row = connection.execute("SELECT regions_json FROM review_region_access WHERE company_id=? AND user_id=?", (session.company_id, target)).fetchone()
+        return tuple(json.loads(row[0])) if row else None
+
+    def set_review_regions(self, session: AuthenticatedSession, user_id: int, regions: list[str] | None) -> None:
+        session = self.current_session(session)
+        self._require_admin(session)
+        normalized = sorted({self.normalize_review_region(r) for r in regions or [] if str(r).strip()})
+        if regions is not None and not normalized:
+            raise IdentityError("En az bir bölge seçin veya tüm bölgeler erişimini kullanın.")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            target = connection.execute("SELECT role FROM company_memberships WHERE company_id=? AND user_id=?", (session.company_id, user_id)).fetchone()
+            if not target:
+                raise IdentityError("Kullanıcı bu firmaya bağlı değil.")
+            if target[0] == "ADMIN" and regions is not None:
+                raise IdentityError("Yönetici firma genelindeki görevleri yönetir; bölge sınırı uygulanamaz.")
+            previous = connection.execute("SELECT regions_json FROM review_region_access WHERE company_id=? AND user_id=?", (session.company_id, user_id)).fetchone()
+            if regions is None:
+                connection.execute("DELETE FROM review_region_access WHERE company_id=? AND user_id=?", (session.company_id, user_id))
+            else:
+                connection.execute("INSERT INTO review_region_access VALUES(?,?,?) ON CONFLICT(company_id,user_id) DO UPDATE SET regions_json=excluded.regions_json", (session.company_id,user_id,json.dumps(normalized)))
+            self._append_audit(connection, company_id=session.company_id, user_id=session.user_id, action="REVIEW_REGIONS_UPDATED", outcome="SUCCESS", details={"target_user_id": user_id, "before": json.loads(previous[0]) if previous else None, "after": normalized if regions is not None else None})
+
+    def review_members(self, session: AuthenticatedSession) -> list[CompanyMember]:
+        session = self.current_session(session)
+        if not session.can("history.read"):
+            raise IdentityError("Görevleri görüntüleme yetkiniz yok.")
+        with self._connect() as connection:
+            rows = connection.execute("SELECT u.id,u.username,u.display_name,u.last_login_at,m.role FROM company_memberships m JOIN users u ON u.id=m.user_id WHERE m.company_id=? AND m.active=1 AND u.active=1", (session.company_id,)).fetchall()
+        return [CompanyMember(r["id"],r["username"],r["display_name"],r["role"],True,r["last_login_at"]) for r in rows]
+
+    @staticmethod
+    def normalize_review_region(value):
+        return str(value).strip().upper().translate(str.maketrans("İŞĞÜÖÇ", "ISGUOC"))
 
     def _apply_v1(self, connection: sqlite3.Connection) -> None:
         connection.executescript(
@@ -285,6 +354,40 @@ class IdentityStore:
                 last_login_at=row["last_login_at"],
             )
             for row in rows
+        ]
+
+    def assignable_members(self, session: AuthenticatedSession) -> list[CompanyMember]:
+        """İnceleme işi atanabilecek aktif firma üyelerini döndürür.
+
+        Bu görünüm yalnız yöneticinin/operatörün atama işleminde kullanılır;
+        kullanıcı yönetimi ayrıcalığı vermez ve finansal kayıt içermez.
+        """
+
+        session = self.current_session(session)
+        if not session.can("operations.review.assign"):
+            raise IdentityError("İnceleme işini başka kullanıcıya atma yetkiniz yok.")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT u.id, u.username, u.display_name, u.last_login_at, m.role
+                FROM company_memberships m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.company_id = ? AND m.active = 1 AND u.active = 1
+                ORDER BY u.display_name, u.username
+                """,
+                (session.company_id,),
+            ).fetchall()
+        return [
+            CompanyMember(
+                user_id=int(row["id"]),
+                username=str(row["username"]),
+                display_name=str(row["display_name"]),
+                role=str(row["role"]),
+                active=True,
+                last_login_at=row["last_login_at"],
+            )
+            for row in rows
+            if AuthenticatedSession(int(row["id"]), str(row["username"]), str(row["display_name"]), session.company_id, session.company_code, session.company_name, str(row["role"])).can("operations.review.work")
         ]
 
     def create_user(
@@ -724,8 +827,8 @@ class IdentityStore:
             raise IdentityError("Geçersiz kullanıcı rolü.")
         return normalized
 
-    @staticmethod
-    def _require_admin(session: AuthenticatedSession) -> None:
+    def _require_admin(self, session: AuthenticatedSession) -> None:
+        session = self.current_session(session)
         if not session.can("users.manage"):
             raise IdentityError("Bu işlem için yönetici yetkisi gerekli.")
 

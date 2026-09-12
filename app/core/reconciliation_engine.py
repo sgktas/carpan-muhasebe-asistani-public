@@ -36,6 +36,10 @@ class ReconciliationResult:
     mutabik: bool
     eslesen_sayisi: int
     bolunmus_grup_sayisi: int = 0
+    banka_devir_bakiyesi: float | None = None
+    netsis_devir_bakiyesi: float | None = None
+    devir_farki: float | None = None
+    hareket_farki: float | None = None
     sadece_bankada: list[BankStatementRecord] = field(default_factory=list)
     sadece_netposte: list[NetsisReportRecord] = field(default_factory=list)
 
@@ -48,9 +52,9 @@ class ReconciliationEngine:
     1) Birebir eşleştirme: aynı tarih + aynı tutar.
 
     2) Bölünmüş fiş eşleştirmesi (açıklama bazlı): MANİM Aktarma modülündeki
-       "Şubeliler" kayıtlarıyla aynı gerçek dünya durumu — tek bir banka
-       kaydı Netsis'te birden fazla satıra bölünmüş olabilir (veya tam
-       tersi). Açıklamalar birebir aynı olmayabilir (Netsis kesebilir, FAST/
+       "Şubeliler" kayıtlarıyla aynı gerçek dünya durumu — bir veya birden
+       fazla banka kaydı Netsis'te birden fazla satıra bölünmüş olabilir
+       (veya tam tersi). Açıklamalar birebir aynı olmayabilir (Netsis kesebilir, FAST/
        HAVALE gibi farklı önekler kullanılabilir), bu yüzden açıklamadaki
        "önemli kelimeler" (şirket adı gibi ayırt edici kelimeler; FAST/
        HAVALE/SANAYİ/TİCARET gibi genel ekler hariç) karşılaştırılır.
@@ -116,6 +120,19 @@ class ReconciliationEngine:
 
         banka_bakiyesi = self._closing_balance(bank_records)
         netsis_bakiyesi = self._closing_balance(netsis_records)
+        banka_devir_bakiyesi = self._opening_balance(bank_records)
+        netsis_devir_bakiyesi = self._opening_balance(netsis_records)
+        hareket_farki = round(
+            sum(record.tutar for record in bank_records)
+            - sum(record.tutar for record in netsis_records),
+            self.ROUNDING,
+        )
+        devir_farki = None
+        if banka_devir_bakiyesi is not None and netsis_devir_bakiyesi is not None:
+            devir_farki = round(
+                banka_devir_bakiyesi - netsis_devir_bakiyesi,
+                self.ROUNDING,
+            )
 
         fark = None
         mutabik = False
@@ -130,6 +147,10 @@ class ReconciliationEngine:
             mutabik=mutabik,
             eslesen_sayisi=matched_count,
             bolunmus_grup_sayisi=bolunmus_grup_sayisi,
+            banka_devir_bakiyesi=banka_devir_bakiyesi,
+            netsis_devir_bakiyesi=netsis_devir_bakiyesi,
+            devir_farki=devir_farki,
+            hareket_farki=hareket_farki,
             sadece_bankada=sadece_bankada,
             sadece_netposte=sadece_netposte,
         )
@@ -143,6 +164,19 @@ class ReconciliationEngine:
             key=lambda item: (item[1].tarih or _MIN_DATE, item[0]),
         )
         return closing_record.bakiye
+
+    @staticmethod
+    def _opening_balance(records: list) -> float | None:
+        """Dönemin ilk hareketinden hemen önceki devreden bakiyeyi bulur."""
+        if not records:
+            return None
+        _, first_record = min(
+            enumerate(records),
+            key=lambda item: (item[1].tarih or _MIN_DATE, item[0]),
+        )
+        if first_record.bakiye is None:
+            return None
+        return round(first_record.bakiye - first_record.tutar, 2)
 
     # ------------------------------------------------------------------ #
     # 2. asama: aciklama bazli (onemli kelime ortusmesi) eslestirme
@@ -168,35 +202,113 @@ class ReconciliationEngine:
         for gun in set(bank_by_date) & set(netsis_by_date):
             if gun is None:
                 continue
-            for anchor in bank_by_date[gun]:
-                if id(anchor) in matched_bank_ids:
-                    continue
-                candidates = [
-                    r for r in netsis_by_date[gun]
-                    if id(r) not in matched_netsis_ids and self._descriptions_overlap(anchor.aciklama, r.aciklama)
-                ]
-                if len(candidates) < 2:
-                    continue
-                if self._sums_reconcile(anchor.tutar, [c.tutar for c in candidates]):
-                    matched_bank_ids.add(id(anchor))
-                    matched_netsis_ids.update(id(r) for r in candidates)
-                    grup_sayisi += 1
-                    eslesen_toplam += 1 + len(candidates)
+            bank_items = bank_by_date[gun]
+            netsis_items = netsis_by_date[gun]
 
-            for anchor in netsis_by_date[gun]:
-                if id(anchor) in matched_netsis_ids:
+            # Açıklaması birbiriyle örtüşen satırları iki taraflı bir grafik
+            # olarak ele alıyoruz. Böylece aynı zincir müşterinin iki banka
+            # havalesinin beş Netsis şube satırına dağıtıldığı 2->5 gibi
+            # çoktan-çoğa durumlar tek bir finansal grup olarak bulunabiliyor.
+            bank_edges: dict[int, set[int]] = defaultdict(set)
+            netsis_edges: dict[int, set[int]] = defaultdict(set)
+            for bank_index, bank_record in enumerate(bank_items):
+                for netsis_index, netsis_record in enumerate(netsis_items):
+                    if self._descriptions_overlap(bank_record.aciklama, netsis_record.aciklama):
+                        bank_edges[bank_index].add(netsis_index)
+                        netsis_edges[netsis_index].add(bank_index)
+
+            components: list[tuple[set[int], set[int]]] = []
+            visited_bank: set[int] = set()
+            visited_netsis: set[int] = set()
+            for start in bank_edges:
+                if start in visited_bank:
                     continue
-                candidates = [
-                    r for r in bank_by_date[gun]
-                    if id(r) not in matched_bank_ids and self._descriptions_overlap(anchor.aciklama, r.aciklama)
-                ]
-                if len(candidates) < 2:
-                    continue
-                if self._sums_reconcile(anchor.tutar, [c.tutar for c in candidates]):
-                    matched_netsis_ids.add(id(anchor))
-                    matched_bank_ids.update(id(r) for r in candidates)
+                component_bank: set[int] = set()
+                component_netsis: set[int] = set()
+                pending_bank = [start]
+                pending_netsis: list[int] = []
+                while pending_bank or pending_netsis:
+                    while pending_bank:
+                        bank_index = pending_bank.pop()
+                        if bank_index in component_bank:
+                            continue
+                        component_bank.add(bank_index)
+                        visited_bank.add(bank_index)
+                        pending_netsis.extend(bank_edges.get(bank_index, ()))
+                    while pending_netsis:
+                        netsis_index = pending_netsis.pop()
+                        if netsis_index in component_netsis:
+                            continue
+                        component_netsis.add(netsis_index)
+                        visited_netsis.add(netsis_index)
+                        pending_bank.extend(netsis_edges.get(netsis_index, ()))
+                if component_bank and component_netsis:
+                    components.append((component_bank, component_netsis))
+
+            incomplete_components: list[tuple[set[int], set[int]]] = []
+            for component_bank, component_netsis in components:
+                bank_group = [bank_items[index] for index in component_bank]
+                netsis_group = [netsis_items[index] for index in component_netsis]
+                if self._sums_reconcile(
+                    sum(record.tutar for record in bank_group),
+                    [record.tutar for record in netsis_group],
+                ):
+                    matched_bank_ids.update(id(record) for record in bank_group)
+                    matched_netsis_ids.update(id(record) for record in netsis_group)
                     grup_sayisi += 1
-                    eslesen_toplam += 1 + len(candidates)
+                    eslesen_toplam += len(bank_group) + len(netsis_group)
+                else:
+                    incomplete_components.append((component_bank, component_netsis))
+
+            # Bazı Netsis dağıtımlarında son bir şube satırının açıklaması
+            # farklı bir havaleden kalabiliyor. Açıklama grubunun eksik tutarını
+            # aynı gündeki, hiçbir açıklama grubuna bağlanmamış TEK bir
+            # kombinasyon tamamlıyorsa onu da gruba dahil ediyoruz. Birden fazla
+            # olasılıkta otomatik eşleştirme yapılmıyor.
+            orphan_bank = [
+                record for index, record in enumerate(bank_items)
+                if index not in bank_edges and id(record) not in matched_bank_ids
+            ]
+            orphan_netsis = [
+                record for index, record in enumerate(netsis_items)
+                if index not in netsis_edges and id(record) not in matched_netsis_ids
+            ]
+            for component_bank, component_netsis in incomplete_components:
+                bank_group = [bank_items[index] for index in component_bank]
+                netsis_group = [netsis_items[index] for index in component_netsis]
+                bank_total = sum(record.tutar for record in bank_group)
+                netsis_total = sum(record.tutar for record in netsis_group)
+                difference = round(bank_total - netsis_total, self.ROUNDING)
+
+                extra_bank: list[BankStatementRecord] = []
+                extra_netsis: list[NetsisReportRecord] = []
+                if difference != 0:
+                    possible_netsis = self._find_unique_reconciling_subset(
+                        difference, orphan_netsis, min_size=1
+                    ) or []
+                    possible_bank = self._find_unique_reconciling_subset(
+                        -difference, orphan_bank, min_size=1
+                    ) or []
+                    # Eksik tutar iki taraftan da tamamlanabiliyorsa karar
+                    # belirsizdir; otomatik eşleştirme yerine fark listesinde kalır.
+                    if bool(possible_netsis) != bool(possible_bank):
+                        extra_netsis = possible_netsis
+                        extra_bank = possible_bank
+
+                if difference == 0 or extra_bank or extra_netsis:
+                    final_bank = bank_group + extra_bank
+                    final_netsis = netsis_group + extra_netsis
+                    if not self._sums_reconcile(
+                        sum(record.tutar for record in final_bank),
+                        [record.tutar for record in final_netsis],
+                    ):
+                        continue
+                    matched_bank_ids.update(id(record) for record in final_bank)
+                    matched_netsis_ids.update(id(record) for record in final_netsis)
+                    orphan_bank = [record for record in orphan_bank if id(record) not in matched_bank_ids]
+                    orphan_netsis = [record for record in orphan_netsis if id(record) not in matched_netsis_ids]
+                    grup_sayisi += 1
+                    eslesen_toplam += len(final_bank) + len(final_netsis)
 
         kalan_bankada = [r for r in sadece_bankada if id(r) not in matched_bank_ids]
         kalan_netposte = [r for r in sadece_netposte if id(r) not in matched_netsis_ids]
@@ -253,23 +365,27 @@ class ReconciliationEngine:
         return kalan_bankada, kalan_netposte, grup_sayisi, eslesen_toplam
 
     @classmethod
-    def _find_unique_reconciling_subset(cls, amount: float, pool: list) -> list | None:
+    def _find_unique_reconciling_subset(
+        cls,
+        amount: float,
+        pool: list,
+        *,
+        min_size: int = 2,
+    ) -> list | None:
         """Havuzdaki kayıtlardan, toplamı ``amount``'a eşit olan TEK bir alt
         küme varsa döner; hiç yoksa ya da birden fazla olası kombinasyon
         varsa (belirsiz) ``None`` döner. Aşırı kombinasyon aramasını önlemek
         için havuz boyutu sınırlıdır.
         """
-        if len(pool) < 2 or len(pool) > MAX_SUBSET_SEARCH_CANDIDATES:
+        if len(pool) < min_size or len(pool) > MAX_SUBSET_SEARCH_CANDIDATES:
             return None
         found: list | None = None
-        for size in range(2, len(pool) + 1):
+        for size in range(min_size, len(pool) + 1):
             for combo in combinations(pool, size):
                 if cls._sums_reconcile(amount, [r.tutar for r in combo]):
                     if found is not None:
                         return None  # birden fazla olasi kombinasyon -> belirsiz
                     found = list(combo)
-            if found is not None:
-                return found
         return found
 
     @staticmethod

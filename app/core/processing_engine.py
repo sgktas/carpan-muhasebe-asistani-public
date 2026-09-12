@@ -35,8 +35,12 @@ from app.core.movement_router import MovementRouter
 from app.core.output_order import region_sort_key
 from app.core.manim_parser import InvalidManimRow, ManimParser
 from app.core.processed_files_log import ProcessedFilesLog
+from app.core.publication_journal import PublicationJournal
 from app.core.region_config import RegionConfig, active_region_config_path
+from app.core.review_queue import ReviewMember, ReviewQueue
+from app.core.operation_simulation import OperationSimulation, SimulationSummary
 from app.core.tahsilat_parser import TahsilatParser
+from app.core.tahsilat_consumption_ledger import TahsilatConsumptionLedger
 from app.core.text_keys import bank_key
 from app.models.records import ManimRecord
 from app.processors.havale_processor import HavaleProcessor
@@ -61,6 +65,9 @@ class ProcessingResult:
     odeme_onaylandi_items: list[tuple] = field(default_factory=list)
     odeme_onaylandi_path: Path | None = None
     decision_audits: list[dict] = field(default_factory=list)
+    review_queue_groups: int = 0
+    simulation_summary: SimulationSummary | None = None
+    consumed_tahsilat_rows: int = 0
 
 
 class ProcessingEngine:
@@ -72,6 +79,7 @@ class ProcessingEngine:
         project_root: str | Path,
         data_root: str | Path | None = None,
         output_root: str | Path | None = None,
+        company_id: int | None = None,
     ):
         self.files = [Path(file) for file in files]
         # project_root: paketle gelen, salt-okunur kaynaklar (config/templates)
@@ -84,6 +92,8 @@ class ProcessingEngine:
         )
         # Eski çağıran kodlarla uyumluluk için alias korunur.
         self.project_root = self.resource_root
+        self.company_id = company_id
+        self.operation_id: int | None = None
 
         self.region_config = RegionConfig(
             active_region_config_path(self.resource_root / "config", self.data_root)
@@ -137,7 +147,13 @@ class ProcessingEngine:
             )
         )
 
-    def run(self, resolver=None, allow_duplicate_files: set[str] | None = None) -> ProcessingResult:
+    def run(
+        self,
+        resolver=None,
+        allow_duplicate_files: set[str] | None = None,
+        *,
+        dry_run: bool = False,
+    ) -> ProcessingResult:
         result = ProcessingResult()
         inputs = self.input_classifier.classify(self.files)
         manim_files = inputs.manim_files
@@ -165,17 +181,42 @@ class ProcessingEngine:
 
         allow_duplicate_files = allow_duplicate_files or set()
         processed_log = ProcessedFilesLog(self.data_root / "data" / "processed_files.json")
+        publication_journal = None
+        reusable_operation_ids: tuple[int, ...] = ()
+        if not dry_run:
+            publication_journal = PublicationJournal(
+                self.data_root / "data" / "publication_journal.sqlite3",
+                company_id=self.company_id,
+            )
+            publication_journal.assert_reprocessable([
+                processed_log.hash_file(path) for path in manim_files
+            ])
+            source_hashes = {processed_log.hash_file(path) for path in manim_files}
+            if source_hashes and source_hashes.issubset(allow_duplicate_files):
+                reusable_operation_ids = (
+                    publication_journal.committed_operation_ids_for_exact_sources(source_hashes)
+                )
 
         tahsilat_parser = TahsilatParser(tahsilat_file)
-        tahsilat = tahsilat_parser.load()
+        tahsilat_source_rows = tahsilat_parser.load()
+        consumption_ledger = None
+        if dry_run:
+            # Simülasyon kaynak bakiyeleri değiştirmez ve boş bir defter
+            # veritabanı dahi oluşturmamalıdır.
+            tahsilat = list(tahsilat_source_rows)
+        else:
+            consumption_ledger = TahsilatConsumptionLedger(
+                self.data_root / "data" / "tahsilat_consumption.sqlite3",
+                company_id=self.company_id,
+            )
+            tahsilat = consumption_ledger.available_rows(
+                tahsilat_source_rows,
+                reusable_operation_ids=reusable_operation_ids,
+            )
         customers = CustomerParser(customer_file, profile=customer_list_profile).load()
-        # Kullanıcının bu turda verdiği liste güncel kabul edilir. İçinde
-        # MANİM'de geçen birkaç yeni kod henüz olmasa bile listeyi reddedip
-        # tüm aktarımı durdurmayız; o satırlar aşağıda manuel eşleştirme
-        # ekranına gider, liste ise sonraki işlemlerde kullanılmak üzere
-        # hafızaya alınır.
-        if customer_file_is_fresh:
-            customer_cache.save(customer_file)
+        # Yeni müşteri listesi bu turda okunur; ancak hafızaya alma ancak
+        # gerçek aktarım başarıyla sonlandıktan sonra yapılır. Böylece
+        # aktarım öncesi simülasyon hiçbir kalıcı veriyi değiştirmez.
         customer_region_by_code, customer_region_by_name = self.region_resolver.customer_indexes(customers)
         mapping_store = MappingStore(self.data_root / "data" / "customer_mappings.json")
         region_branch_aliases = {
@@ -200,6 +241,8 @@ class ProcessingEngine:
         islem_tarihleri: set[date] = set()
         processed_candidates: list[tuple[str, str, int]] = []
         mapping_updates: list[tuple[str, list[dict]]] = []
+        consumption_rows = []
+        source_identities: dict[tuple[str, int], tuple[str, str]] = {}
 
         result.logs.append(
             f"Girdi profili: {input_profile.name} | Çıktı profili: {output_profile.name} | "
@@ -207,6 +250,15 @@ class ProcessingEngine:
         )
         result.logs.append(f"Referanslı çıktı profili: {reference_output_profile.name}")
         result.logs.append(f"Tahsilat raporu: {tahsilat_file.name}")
+        if reusable_operation_ids:
+            result.logs.append(
+                "Yeniden çıktı onayı: aynı MANİM kaynaklarının önceki tahsilat "
+                "dağılımları bu çalıştırmaya devredildi."
+            )
+        if len(tahsilat) != len(tahsilat_source_rows):
+            result.logs.append(
+                f"Tahsilat kullanım defteri: {len(tahsilat_source_rows) - len(tahsilat)} satırın bakiyesi kapalı olduğu için eşleştirme havuzundan çıkarıldı."
+            )
         if tahsilat_parser.selected_sheet_name != 0:
             result.logs.append(
                 f"Tahsilat veri sayfası: {tahsilat_parser.selected_sheet_name} "
@@ -228,7 +280,11 @@ class ProcessingEngine:
         for manim_file in manim_files:
             file_hash = processed_log.hash_file(manim_file)
             previous = processed_log.is_processed(file_hash)
-            if previous and file_hash not in allow_duplicate_files:
+            # Önizleme salt okunur bir yeniden hesaplamadır. Dosya daha önce
+            # aktarılmış olsa bile seçili kaynak yeniden okunmalıdır; aksi
+            # halde simülasyon boş karar planı gösterir. Gerçek aktarımda
+            # mükerrer dosya güvenliği değişmez.
+            if previous and not dry_run and file_hash not in allow_duplicate_files:
                 result.duplicate_files.append(manim_file.name)
                 result.logs.append(
                     f"UYARI: {manim_file.name} daha önce işlenmiş görünüyor "
@@ -239,6 +295,10 @@ class ProcessingEngine:
             file_region = self.region_resolver.from_file_name(manim_file.name)
             parse_result = ManimParser(manim_file, profile=input_profile).load_with_issues()
             records = parse_result.records
+            source_identities.update({
+                (record.kaynak_dosya, int(record.kaynak_satir)): (file_hash, parse_result.sheet_name)
+                for record in records
+            })
             invalid_rows.extend(parse_result.invalid_rows)
             result.total_manim_records += parse_result.total_rows
             result.invalid_manim_records += len(parse_result.invalid_rows)
@@ -385,6 +445,7 @@ class ProcessingEngine:
                     decision="MATCH", outcome="HAVALE",
                     rule_code="AUTOMATIC_CUSTOMER_MATCH",
                 )
+                consumption_rows.extend(processor.last_consumption_rows)
 
             if row_region_counts:
                 distribution = ", ".join(
@@ -399,9 +460,14 @@ class ProcessingEngine:
         # Aynı müşteri/tahsilat adayı için iki ayrı banka hareketi oluşabilir.
         # Toplam tahsilatla kuruşu kuruşuna tutarsa otomatik aktar; fark varsa
         # kayıtlar manuel toplu eşleştirme için inceleme ekranında kalır.
-        pending = self._match_combined_bank_movements(
-            pending, outputs, result, output_profile, processor
+        combined_outcome = CombinedBankMovementMatcher(self.region_config).match(
+            pending, outputs, output_profile, processor,
         )
+        pending = combined_outcome.pending
+        result.produced_netsis_records += combined_outcome.produced_netsis_records
+        result.logs.extend(combined_outcome.logs)
+        result.decision_audits.extend(combined_outcome.decision_audits)
+        consumption_rows.extend(combined_outcome.consumption_rows)
 
         if pending and resolver:
             resolutions = resolver(pending, customers, tahsilat) or {}
@@ -422,19 +488,62 @@ class ProcessingEngine:
             result.logs.extend(manual_outcome.logs)
             mapping_updates.extend(manual_outcome.mapping_updates)
             result.decision_audits.extend(manual_outcome.decision_audits)
+            consumption_rows.extend(manual_outcome.consumption_rows)
 
         result.virman_records = sum(len(records) for records in virman_by_region.values())
         result.skipped_reference = sum(len(records) for records in referansli_by_region.values())
         result.unresolved = len(pending)
-        review_rows = [
-            build_review_row(item.region, item.record, item.reason)
-            for item in pending
-        ]
+        # Simülasyon özeti yalnız mevcut kararları hesaplar; çıktı, hafıza ve
+        # tüketim kaydı oluşturmaz. 1D önizleme ekranı aynı servisi kullanır.
+        result.simulation_summary = OperationSimulation().summarize(
+            result.decision_audits,
+            netsis_records=(row for rows in outputs.values() for row in rows),
+        )
+        review_rows: list[dict] = []
+        review_groups: list[list[ReviewMember]] = []
+        for item in pending:
+            # Birleşik hareketlerde ekranda tek karar görünür, ancak kalıcı
+            # inceleme kuyruğu ve inceleme Excel'i grubun bütün banka
+            # hareketlerini korur.
+            records = item.group_records or [item.record]
+            review_rows.extend(
+                build_review_row(item.region, record, item.reason)
+                for record in records
+            )
+            review_groups.append([
+                ReviewMember(
+                    source_file=str(record.kaynak_dosya),
+                    source_row=int(record.kaynak_satir),
+                    amount=float(record.tutar),
+                    region=item.region,
+                    bank=str(record.banka),
+                    reason=item.reason,
+                    source_hash=source_identities.get(
+                        (record.kaynak_dosya, int(record.kaynak_satir)), ("", "")
+                    )[0],
+                    sheet_name=source_identities.get(
+                        (record.kaynak_dosya, int(record.kaynak_satir)), ("", "")
+                    )[1],
+                )
+                for record in records
+            ])
 
         # Tüm MANİM dosyaları mükerrer olduğu için atlandıysa yeni çıktı veya
         # işlenmiş dosya kaydı oluşturulmaz.
-        if not processed_candidates:
+        if not processed_candidates or dry_run:
+            if dry_run:
+                result.logs.append("Simülasyon tamamlandı; çıktı ve işlenmiş dosya kaydı oluşturulmadı.")
             return result
+
+        # Çıktı üretmeden hemen önce, simülasyon sırasında hiç yazılmayan
+        # satır bazlı kullanım tutarlarını tekrar doğrula. Eşzamanlı başka bir
+        # gerçek aktarım arada aynı bakiyeyi kullanmışsa dosya üretilmez.
+        if consumption_ledger is None:
+            raise RuntimeError("Gerçek aktarım için tahsilat kullanım defteri başlatılamadı.")
+        consumption_ledger.assert_can_consume(
+            consumption_rows,
+            reusable_operation_ids=reusable_operation_ids,
+        )
 
         output_artifacts = ManimOutputService(
             self.output_root,
@@ -462,13 +571,52 @@ class ProcessingEngine:
         result.odeme_onaylandi_items = list(odeme_onaylandi_items)
         result.logs.extend(output_artifacts.logs)
 
+        # Klasör artık kullanıcı tarafından görülebilir. Devamındaki yerel
+        # kayıtlar kesintiye uğrarsa aynı kaynak otomatik tekrar işlenmez.
+        publication_id = publication_journal.publish(
+            operation_id=self.operation_id,
+            source_hashes=[item[0] for item in processed_candidates],
+            output_dir=output_artifacts.output_dir,
+            output_files=output_artifacts.created_files,
+        )
+
+        review_queue = ReviewQueue(
+            self.data_root / "data" / "operations.sqlite3",
+            company_id=self.company_id,
+        )
+        for members in review_groups:
+            group_id = review_queue.enqueue(
+                members,
+                operation_id=self.operation_id,
+            )
+            if group_id:
+                result.review_queue_groups += 1
+        if result.review_queue_groups:
+            result.logs.append(
+                f"Kalıcı inceleme kuyruğuna {result.review_queue_groups} grup kaydedildi."
+            )
+
         # Çıktılar görünür ve eksiksiz hale geldikten sonra kalıcı yan etkiler
-        # uygulanır. İşlenmiş dosya geçmişi en son yazılır.
+        # uygulanır. Tahsilat kullanım kaydı önce gelir: sonraki yerel adım
+        # kesilirse yayın günlüğü zaten otomatik tekrar çalıştırmayı engeller.
+        # İşlenmiş dosya geçmişi en son yazılır.
+        result.consumed_tahsilat_rows = consumption_ledger.replace_for_retry(
+            consumption_rows,
+            operation_id=self.operation_id,
+            reusable_operation_ids=reusable_operation_ids,
+        )
+        if customer_file_is_fresh:
+            customer_cache.save(customer_file)
         mapping_store.set_many(mapping_updates)
         processed_log.mark_many(processed_candidates)
+        publication_journal.commit(publication_id)
         result.logs.append(
             f"İşlem başarıyla tamamlandı; {len(processed_candidates)} MANİM dosyası işlenmiş olarak kaydedildi."
         )
+        if result.consumed_tahsilat_rows:
+            result.logs.append(
+                f"Tahsilat kullanım defterine {result.consumed_tahsilat_rows} kaynak satır işlendi."
+            )
 
         return result
 

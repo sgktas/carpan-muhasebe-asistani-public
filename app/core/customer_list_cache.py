@@ -18,7 +18,6 @@ class CustomerListCache:
 
     def __init__(self, data_root: Path):
         self._dir = data_root / "data"
-        self._dir.mkdir(parents=True, exist_ok=True)
         self._meta_path = self._dir / "last_musteri_listesi_meta.json"
 
     def _cache_path(self, suffix: str) -> Path:
@@ -35,6 +34,7 @@ class CustomerListCache:
         return self._read_meta()
 
     def save(self, source: Path, *, original_name: str | None = None) -> None:
+        self._dir.mkdir(parents=True, exist_ok=True)
         # Önceki farklı uzantılı hafıza dosyası varsa temizle (örn. .xls -> .xlsx değişimi).
         for old in self._dir.glob("last_musteri_listesi.*"):
             old.unlink(missing_ok=True)

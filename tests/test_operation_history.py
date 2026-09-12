@@ -204,14 +204,30 @@ def test_external_erp_acceptance_is_scoped_and_keeps_latest_result(tmp_path):
         operation_id,
         system="NETSIS",
         verdict="rejected",
+        reason_code="BANK_ACCOUNT_CODE",
     )
 
     results = owner.external_acceptance(operation_id)
-    assert [(item.system, item.verdict) for item in results] == [
-        ("NETSIS", "ACCEPTED"),
-        ("NETSIS", "REJECTED"),
+    assert [(item.system, item.verdict, item.reason_code) for item in results] == [
+        ("NETSIS", "ACCEPTED", ""),
+        ("NETSIS", "REJECTED", "BANK_ACCOUNT_CODE"),
     ]
     assert owner.events(operation_id)[-1].code == "ERP_ACCEPTANCE_RECORDED"
+
+    with pytest.raises(OperationHistoryError, match="ret nedeni"):
+        owner.record_external_acceptance(
+            operation_id,
+            system="NETSIS",
+            verdict="ACCEPTED",
+            reason_code="BANK_ACCOUNT_CODE",
+        )
+    with pytest.raises(OperationHistoryError, match="ret nedeni geçersiz"):
+        owner.record_external_acceptance(
+            operation_id,
+            system="NETSIS",
+            verdict="REJECTED",
+            reason_code="FREE_TEXT",
+        )
 
     different_user = OperationHistory(database, company_id=7, user_id=42)
     with pytest.raises(OperationHistoryError):
@@ -223,6 +239,51 @@ def test_external_erp_acceptance_is_scoped_and_keeps_latest_result(tmp_path):
 
     other_company = OperationHistory(database, company_id=8, user_id=41)
     assert other_company.external_acceptance(operation_id) == []
+
+
+def test_external_acceptance_is_bound_to_the_exact_unchanged_output(tmp_path):
+    database = tmp_path / "operations.sqlite3"
+    history = OperationHistory(database, company_id=7, user_id=41)
+    first = tmp_path / "01_ANTALYA.xls"
+    second = tmp_path / "02_FETHIYE.xls"
+    first.write_bytes(b"approved-output-one")
+    second.write_bytes(b"approved-output-two")
+    operation_id = history.start("manim_transfer", "MANİM", [tmp_path / "source.xlsx"])
+    history.complete(operation_id, [first, second])
+
+    history.record_external_acceptance(
+        operation_id,
+        system="NETSIS",
+        verdict="ACCEPTED",
+        output_file=first,
+    )
+
+    acceptance = history.external_acceptance(operation_id)[-1]
+    assert acceptance.output_name == first.name
+    assert len(acceptance.output_sha256) == 64
+    latest = history.recent()[0]
+    assert latest.summary["external_acceptance"]["output_path"] == str(first)
+    assert latest.summary["external_acceptance_by_file"][str(first)]["verdict"] == "ACCEPTED"
+
+    first.write_bytes(b"changed-after-generation")
+    with pytest.raises(OperationHistoryError, match="değişmiş"):
+        history.record_external_acceptance(
+            operation_id,
+            system="NETSIS",
+            verdict="REJECTED",
+            reason_code="FILE_FORMAT",
+            output_file=first,
+        )
+
+    outside = tmp_path / "outside.xls"
+    outside.write_bytes(b"not-an-operation-output")
+    with pytest.raises(OperationHistoryError, match="bu işlemin oluşturduğu"):
+        history.record_external_acceptance(
+            operation_id,
+            system="NETSIS",
+            verdict="ACCEPTED",
+            output_file=outside,
+        )
 
 
 def test_decision_audit_is_normalized_and_scoped_to_running_operation(tmp_path):

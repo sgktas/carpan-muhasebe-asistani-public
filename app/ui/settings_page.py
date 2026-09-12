@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -15,11 +17,18 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core.active_profile_store import ActiveProfileStore
+from app.core.configuration_change_audit import (
+    ConfigurationChangeAudit,
+    ConfigurationChangeConflict,
+)
+from app.core.operation_history import OperationHistory
 from app.core.app_paths import APP_PATHS
 from app.core.backup_service import BackupError, create_local_backup, restore_local_backup
 from app.core.customer_list_profile import CustomerListProfileStore
@@ -44,10 +53,34 @@ from app.ui.profile_editor_dialogs import (
 from app.ui.region_management_dialog import RegionManagementDialog
 
 
+_LATEST_CONFIGURATION_FINGERPRINT = object()
+
+
 class SettingsPage(QWidget):
-    def __init__(self, local_session=None, parent=None):
+    def __init__(self, local_session=None, history: OperationHistory | None = None, parent=None):
         super().__init__(parent)
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
+        self._configuration_audit = (
+            ConfigurationChangeAudit(
+                history.database_path,
+                company_id=local_session.company_id,
+                user_id=local_session.user_id,
+                actor=local_session.display_name,
+            )
+            if history is not None and local_session is not None else None
+        )
+        self._configuration_fingerprints: dict[str, str | None] = (
+            {
+                subject: self._configuration_audit.latest_fingerprint(subject)
+                for subject in (
+                    "active_profile:input",
+                    "active_profile:output",
+                    "active_profile:customer_list",
+                    "regions",
+                )
+            }
+            if self._configuration_audit is not None else {}
+        )
         self._user_config_dir = APP_PATHS.data_root / "config"
         self._user_templates_dir = APP_PATHS.data_root / "templates"
         self._input_profile_store = InputProfileStore(APP_PATHS.config_dir, self._user_config_dir)
@@ -453,8 +486,38 @@ class SettingsPage(QWidget):
         )
 
     def _open_region_management(self) -> None:
+        before = self._region_store.config().snapshot()
+        expected = self._configuration_audit.latest_fingerprint("regions") if self._configuration_audit else None
         RegionManagementDialog(self._region_store, self).exec()
+        after = self._region_store.config().snapshot()
+        try:
+            self._record_configuration_change("regions", before, after, expected)
+        except ConfigurationChangeConflict as error:
+            QMessageBox.warning(self, "Ayar geçmişi", str(error))
         self._refresh_region_summary()
+
+    def _configuration_history_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 20)
+        copy = QVBoxLayout()
+        title = QLabel("Ayar Değişiklik Geçmişi")
+        title.setObjectName("cardTitle")
+        subtitle = QLabel(
+            "Bölge ve profil seçimlerindeki önceki/yeni değerleri, yapan kullanıcıyı ve sürümü yerel firma çalışma alanında izleyin."
+        )
+        subtitle.setObjectName("cardSubtitle")
+        subtitle.setWordWrap(True)
+        copy.addWidget(title)
+        copy.addWidget(subtitle)
+        layout.addLayout(copy, 1)
+        button = QPushButton("Geçmişi Gör")
+        button.setObjectName("secondary")
+        button.setEnabled(self._configuration_audit is not None)
+        button.clicked.connect(self._show_configuration_history)
+        layout.addWidget(button)
+        return card
 
     # ------------------------------------------------------------------ #
     # Girdi / Çıktı / Müşteri listesi profilleri
@@ -519,7 +582,7 @@ class SettingsPage(QWidget):
         top_row.addLayout(button_col)
         outer.addLayout(top_row)
 
-        def _handle_change(index: int) -> None:
+        def _handle_change(index: int, *, persist: bool) -> None:
             if index < 0 or index >= len(profiles):
                 return
             description_label.setText(profiles[index].description)
@@ -530,10 +593,11 @@ class SettingsPage(QWidget):
                 "Onaylı Netsis profilleri değiştirilemez. Farklı bir şablon için yeni profil ekleyin."
                 if protected else ""
             )
-            on_change(combo.itemData(index))
+            if persist:
+                on_change(combo.itemData(index))
 
-        combo.currentIndexChanged.connect(_handle_change)
-        _handle_change(active_index if profiles else -1)
+        combo.currentIndexChanged.connect(lambda index: _handle_change(index, persist=True))
+        _handle_change(active_index if profiles else -1, persist=False)
         return frame
 
     def _open_editor(self, kind: str, edit: bool, combo: QComboBox, profiles_ref: list) -> None:
@@ -563,17 +627,104 @@ class SettingsPage(QWidget):
         else:
             return
 
+        before = self._profile_file_snapshot(kind, getattr(selected_profile, "profile_id", ""))
         if dialog.exec():
             saved_id = getattr(dialog, "saved_profile_id", None)
             if saved_id:
-                if kind == "input":
-                    self._active_profiles.set_input_profile_id(saved_id)
-                elif kind == "output":
-                    self._active_profiles.set_output_profile_id(saved_id)
-                elif kind == "customer_list":
-                    self._active_profiles.set_customer_list_profile_id(saved_id)
+                after = self._profile_file_snapshot(kind, saved_id)
+                try:
+                    self._record_configuration_change(f"profile:{kind}:{saved_id}", before, after)
+                except ConfigurationChangeConflict as error:
+                    QMessageBox.warning(self, "Ayar geçmişi", str(error))
+                    self._rebuild_profile_rows()
+                    return
+                self._set_active_profile(kind, saved_id)
             QMessageBox.information(self, "Kaydedildi", "Profil kaydedildi ve aktif profil olarak seçildi.")
             self._rebuild_profile_rows()
+
+    def _profile_file_snapshot(self, kind: str, profile_id: str) -> dict:
+        profile_id = str(profile_id).strip()
+        path = self._user_config_dir / {
+            "input": "input_profiles",
+            "output": "output_profiles",
+            "customer_list": "customer_list_profiles",
+        }[kind] / f"{profile_id}.json"
+        if not profile_id or not path.is_file():
+            return {"profile_id": profile_id, "local_override": None}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {"unreadable": True}
+        return {"profile_id": profile_id, "local_override": payload}
+
+    def _set_active_profile(self, kind: str, profile_id: str) -> None:
+        selections = self._active_profiles.selection_snapshot()
+        before = {"profile_id": selections[f"{kind}_profile_id"]}
+        after = {"profile_id": str(profile_id)}
+        subject = f"active_profile:{kind}"
+        expected = self._configuration_fingerprints.get(subject)
+        if before == after:
+            return
+        try:
+            self._record_configuration_change(subject, before, after, expected)
+        except ConfigurationChangeConflict as error:
+            QMessageBox.warning(self, "Ayar değiştirilemedi", str(error))
+            self._rebuild_profile_rows()
+            return
+        setters = {
+            "input": self._active_profiles.set_input_profile_id,
+            "output": self._active_profiles.set_output_profile_id,
+            "customer_list": self._active_profiles.set_customer_list_profile_id,
+        }
+        setters[kind](str(profile_id))
+
+    def _record_configuration_change(
+        self,
+        subject: str,
+        before: dict,
+        after: dict,
+        expected: str | None | object = _LATEST_CONFIGURATION_FINGERPRINT,
+    ) -> None:
+        if self._configuration_audit is None:
+            return
+        # Parametre verilmediyse en güncel sürüm kullanılır. Ekran
+        # açıldığında henüz kayıt olmadığı için yakalanmış açık
+        # ``None`` ise korunur; aksi halde eski pencere yeni seçimi sessizce
+        # ezebiliyordu.
+        if expected is _LATEST_CONFIGURATION_FINGERPRINT:
+            expected = self._configuration_audit.latest_fingerprint(subject)
+        change = self._configuration_audit.record(
+            subject, before=before, after=after, expected_fingerprint=expected,
+        )
+        if change is not None:
+            self._configuration_fingerprints[subject] = change.after_fingerprint
+
+    def _show_configuration_history(self) -> None:
+        if self._configuration_audit is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ayar değişiklik geçmişi")
+        dialog.resize(900, 460)
+        layout = QVBoxLayout(dialog)
+        info = QLabel("Yerel firma çalışma alanındaki son ayar değişiklikleri. Excel şablonları bu kayıttan değiştirilmez.")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["Tarih", "Kullanıcı", "Ayar", "Sürüm", "Değişiklik"])
+        changes = self._configuration_audit.recent()
+        table.setRowCount(len(changes))
+        for row, change in enumerate(changes):
+            values = [change.created_at, change.actor or "-", change.subject, str(change.revision),
+                      f"{json.dumps(change.before, ensure_ascii=False)} → {json.dumps(change.after, ensure_ascii=False)}"]
+            for column, value in enumerate(values):
+                table.setItem(row, column, QTableWidgetItem(value))
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(table, 1)
+        close = QPushButton("Kapat")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close)
+        dialog.exec()
 
     def _rebuild_profile_rows(self) -> None:
         for widget in self._profile_row_widgets:
@@ -593,7 +744,7 @@ class SettingsPage(QWidget):
                 "Girdi profili (banka hareket raporu formatı)",
                 input_profiles,
                 self._active_profiles.get_input_profile_id(),
-                self._active_profiles.set_input_profile_id,
+                lambda profile_id: self._set_active_profile("input", profile_id),
                 self._user_config_dir / "input_profiles",
                 kind="input",
             ),
@@ -601,7 +752,7 @@ class SettingsPage(QWidget):
                 "Çıktı profili (muhasebe programı şablonu)",
                 output_profiles,
                 self._active_profiles.get_output_profile_id(),
-                self._active_profiles.set_output_profile_id,
+                lambda profile_id: self._set_active_profile("output", profile_id),
                 self._user_config_dir / "output_profiles",
                 kind="output",
             ),
@@ -609,7 +760,7 @@ class SettingsPage(QWidget):
                 "Müşteri listesi profili (cari/müşteri veritabanı dışa aktarımı)",
                 customer_list_profiles,
                 self._active_profiles.get_customer_list_profile_id(),
-                self._active_profiles.set_customer_list_profile_id,
+                lambda profile_id: self._set_active_profile("customer_list", profile_id),
                 self._user_config_dir / "customer_list_profiles",
                 kind="customer_list",
             ),
@@ -699,6 +850,7 @@ class SettingsPage(QWidget):
         layout.addWidget(self._platform_connection_card())
         layout.addWidget(self._template_integrity_card())
         layout.addWidget(self._region_management_card())
+        layout.addWidget(self._configuration_history_card())
 
         profile_card = QFrame()
         profile_card.setObjectName("surfaceCard")

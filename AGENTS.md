@@ -34,8 +34,10 @@ ve onaylanan orijinal şablonları kullan.** Bu kural her revize ve paket için 
   sayısal biçimini yeni veri satırlarında da koru.
 - Hesaplar arası toplu virman çıktısı
   `templates/local/netsis_virman_toplu_template.xlsx` dosyasını kullanır.
-  Bu, kullanıcının 6 Eylül 2026 tarihinde onayladığı şablonun yalnız dolu
-  `Sheet1` sayfası bırakılmış güncel sürümüdür. Kaynak banka kodu A, hedef
+  Bu, kullanıcının 12 Eylül 2026 tarihinde son güncel olarak onayladığı
+  `09_HESAPLAR_ARASI_VIRMAN_11092026.xlsx` dosyasının birebir kopyasıdır.
+  Tek `Sheet1` sayfası, 32 sütun ve ikinci satırdaki tüm hücre biçimleri
+  korunur. Kaynak banka kodu A, hedef
   banka kodu H, yön değeri 1 ve tutar O sütunundadır. Plas.Kodu U sütununda
   metin olarak `00` görünmelidir; sayısal `0.00` biçimi kullanılmaz.
 - MANİM hareket rotaları `app/core/movement_router.py` içindeki tek karar

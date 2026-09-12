@@ -107,6 +107,32 @@ def test_admin_can_create_and_manage_role_scoped_user(tmp_path):
         store.audit_events(operator)
 
 
+def test_review_assignment_permissions_expose_only_active_company_members(tmp_path):
+    store = IdentityStore(tmp_path / "platform.sqlite3")
+    admin = _create_admin(store)
+    operator_id = store.create_user(
+        admin, username="operator", display_name="Operatör", password="Operator1234", role="OPERATOR",
+    )
+    approver_id = store.create_user(
+        admin, username="approver", display_name="Onay Sorumlusu", password="Approver1234", role="APPROVER",
+    )
+    operator = store.authenticate("operator", "Operator1234", admin.company_id)
+    approver = store.authenticate("approver", "Approver1234", admin.company_id)
+
+    assert not operator.can("operations.review.assign")
+    assert operator.can("operations.review.assign_self")
+    assert approver.can("operations.review.assign_self")
+    assert not approver.can("operations.review.assign")
+    assert {member.user_id for member in store.assignable_members(admin)} == {operator_id, approver_id, admin.user_id}
+    with pytest.raises(IdentityError):
+        store.assignable_members(operator)
+
+    store.update_member(admin, approver_id, role="APPROVER", active=False)
+    assert {member.user_id for member in store.assignable_members(admin)} == {operator_id, admin.user_id}
+    with pytest.raises(IdentityError):
+        store.assignable_members(approver)
+
+
 def test_admin_cannot_remove_own_admin_access(tmp_path):
     store = IdentityStore(tmp_path / "platform.sqlite3")
     admin = _create_admin(store)

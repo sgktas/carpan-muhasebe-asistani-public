@@ -140,3 +140,32 @@ def test_main_window_intersects_local_modules_with_central_license(tmp_path, mon
         "manim_transfer", "operations_center", "history", "team", "audit", "integrations", "settings"
     ]
     window.close()
+
+
+def test_main_window_keeps_navigation_usable_when_sidebar_is_collapsed(tmp_path, monkeypatch):
+    monkeypatch.setattr(identity, "PASSWORD_ITERATIONS", 1_000)
+    store = IdentityStore(tmp_path / "platform.sqlite3")
+    admin = store.create_initial_admin(
+        "Çarpan Test", "admin", "Test Yönetici", "Guvenli1234"
+    )
+    monkeypatch.setattr(
+        main_window,
+        "APP_PATHS",
+        SimpleNamespace(
+            state_dir=tmp_path / "state",
+            assets_dir=Path(__file__).resolve().parents[1] / "assets",
+        ),
+    )
+
+    window = main_window.MainWindow(admin, store)
+    window._toggle_sidebar()
+
+    assert window.sidebar.width() == 78
+    assert all(not button.text() and button.toolTip() for button in window.nav_buttons)
+    window._on_nav_clicked(0)
+    assert window.workspace_heading.text() == "MANİM Aktarma"
+    assert "Banka hareketlerini" in window.workspace_subtitle.text()
+    window._toggle_sidebar()
+    assert window.sidebar.width() == 250
+    assert window.nav_buttons[0].text() == "MANİM Aktarma"
+    window.close()

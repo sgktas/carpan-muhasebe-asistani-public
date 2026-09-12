@@ -17,6 +17,8 @@ def test_preflight_requires_owner_connection_schema_before_deployment(monkeypatc
     monkeypatch.setattr(preflight_deployment.Settings, "from_environment", classmethod(lambda cls: _settings()))
     monkeypatch.setattr(preflight_deployment, "database_schema_ready", lambda settings: True)
     monkeypatch.setattr(preflight_deployment, "owner_database_schema_ready", lambda settings: False)
+    monkeypatch.setattr(preflight_deployment, "server_capacity_ready", lambda: (True, "Sunucu kapasitesi"))
+    monkeypatch.setattr(preflight_deployment, "api_port_available", lambda: True)
 
     assert preflight_deployment.main() == 1
     output = capsys.readouterr().out
@@ -29,6 +31,30 @@ def test_preflight_accepts_only_when_both_database_connections_are_ready(monkeyp
     monkeypatch.setattr(preflight_deployment.Settings, "from_environment", classmethod(lambda cls: _settings()))
     monkeypatch.setattr(preflight_deployment, "database_schema_ready", lambda settings: True)
     monkeypatch.setattr(preflight_deployment, "owner_database_schema_ready", lambda settings: True)
+    monkeypatch.setattr(preflight_deployment, "server_capacity_ready", lambda: (True, "Sunucu kapasitesi"))
+    monkeypatch.setattr(preflight_deployment, "api_port_available", lambda: True)
 
     assert preflight_deployment.main() == 0
     assert "Merkezi API dağıtıma hazır." in capsys.readouterr().out
+
+
+def test_preflight_stops_when_server_capacity_is_not_enough(monkeypatch, capsys):
+    monkeypatch.setattr(preflight_deployment.Settings, "from_environment", classmethod(lambda cls: _settings()))
+    monkeypatch.setattr(preflight_deployment, "server_capacity_ready", lambda: (False, "Sunucu kapasitesi: RAM 1.8 GB"))
+    monkeypatch.setattr(preflight_deployment, "api_port_available", lambda: True)
+    monkeypatch.setattr(preflight_deployment, "database_schema_ready", lambda settings: True)
+    monkeypatch.setattr(preflight_deployment, "owner_database_schema_ready", lambda settings: True)
+
+    assert preflight_deployment.main() == 1
+    assert "HATA: Sunucu kapasitesi: RAM 1.8 GB" in capsys.readouterr().out
+
+
+def test_preflight_stops_when_api_port_is_unavailable(monkeypatch, capsys):
+    monkeypatch.setattr(preflight_deployment.Settings, "from_environment", classmethod(lambda cls: _settings()))
+    monkeypatch.setattr(preflight_deployment, "server_capacity_ready", lambda: (True, "Sunucu kapasitesi"))
+    monkeypatch.setattr(preflight_deployment, "api_port_available", lambda: False)
+    monkeypatch.setattr(preflight_deployment, "database_schema_ready", lambda settings: True)
+    monkeypatch.setattr(preflight_deployment, "owner_database_schema_ready", lambda settings: True)
+
+    assert preflight_deployment.main() == 1
+    assert "HATA: Yerel API portu 8010" in capsys.readouterr().out

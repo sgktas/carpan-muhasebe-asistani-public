@@ -15,6 +15,11 @@ from app.core.output_order import (
     special_file_prefix,
 )
 from app.core.output_profile import OutputProfile
+from app.core.output_quality_gate import (
+    OutputQualityReport,
+    validate_netsis_rows,
+    validate_virman_rows,
+)
 from app.core.region_config import RegionConfig
 from app.models.records import ManimRecord
 from app.writers.netsis_writer import NetsisWriter
@@ -81,9 +86,13 @@ class ManimOutputService:
         self.regions = regions
 
     def write(self, plan: ManimOutputPlan) -> ManimOutputArtifacts:
+        quality_report = self._validate_plan(plan)
         start_date, end_date = self._date_span(plan.islem_tarihleri)
         date_label = self._file_date_label(start_date, end_date)
         logs = [
+            "Aktarım ön kontrolü tamamlandı: "
+            f"{quality_report.checked_havale_rows} havale, "
+            f"{quality_report.checked_virman_rows} virman satırı doğrulandı.",
             "İşlem tarih aralığı: "
             + (
                 start_date.strftime("%d.%m.%Y")
@@ -237,6 +246,26 @@ class ManimOutputService:
                 else None
             ),
             logs=logs,
+        )
+
+    def _validate_plan(self, plan: ManimOutputPlan) -> OutputQualityReport:
+        """Excel yazımı başlamadan önce veri/banka kodu ön kontrolünü yapar."""
+        checked_havale_rows = 0
+        for (region, bank), rows in plan.outputs.items():
+            checked_havale_rows += validate_netsis_rows(
+                rows,
+                plan.output_profile,
+                self.region_config,
+                output_region=region,
+                output_bank=bank,
+            )
+        checked_virman_rows = validate_virman_rows(
+            self._ordered_virman_records(plan),
+            self.region_config,
+        )
+        return OutputQualityReport(
+            checked_havale_rows=checked_havale_rows,
+            checked_virman_rows=checked_virman_rows,
         )
 
     def _sort_plan(self, plan: ManimOutputPlan) -> None:

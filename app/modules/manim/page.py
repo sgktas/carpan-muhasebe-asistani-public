@@ -1,4 +1,6 @@
 from __future__ import annotations
+from app.ui.operation_activity import OperationActivity
+from app.ui.simulation_dashboard import SimulationDashboard
 
 from dataclasses import dataclass, field
 import logging
@@ -8,15 +10,21 @@ from threading import Event
 from PySide6.QtCore import QObject, QSize, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFileDialog,
     QComboBox,
+    QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QLineEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QScrollArea,
     QSizePolicy,
     QTextEdit,
@@ -31,12 +39,13 @@ from app.core.app_logging import LOGGER_NAME
 from app.core.customer_list_cache import CustomerListCache
 from app.core.output_location import resolve_output_dir
 from app.core.operation_history import OperationHistory
+from app.core.operation_simulation import simulation_summary_payload
 from app.core.output_profile import OutputProfileStore
 from app.core.personnel_list_cache import PersonnelListCache
 from app.core.processing_engine import ManualResolution, ProcessingEngine
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.models.records import TahsilatRecord
-from app.ui.common import add_page_header
+from app.ui.common import Disclosure, WorkflowSteps, add_page_header
 from app.ui.manual_match_dialog import ManualMatchDialog
 from app.ui.odeme_onaylandi_review_dialog import OdemeOnaylandiReviewDialog
 from app.ui.theme import asset_icon, crisp_pixmap
@@ -86,6 +95,23 @@ class _ProcessingWorker(QObject):
         return request.resolutions or {}
 
 
+class _SimulationWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, engine: ProcessingEngine):
+        super().__init__()
+        self.engine = engine
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            configuration = self.engine.prepare_configuration()
+            self.finished.emit((self.engine.run(dry_run=True), configuration.fingerprint))
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
 class ManimModulePage(QWidget):
     def __init__(self, history: OperationHistory, parent=None):
         super().__init__(parent)
@@ -96,7 +122,11 @@ class ManimModulePage(QWidget):
         self.last_odeme_onaylandi_path: Path | None = None
         self._processing_thread: QThread | None = None
         self._processing_worker: _ProcessingWorker | None = None
+        self._simulation_thread: QThread | None = None
+        self._simulation_worker: _SimulationWorker | None = None
         self._operation_id: int | None = None
+        self._preflight_summary = None
+        self._preflight_fingerprint: str | None = None
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
         self._output_profile_store = OutputProfileStore(
             APP_PATHS.config_dir, APP_PATHS.data_root / "config"
@@ -112,6 +142,7 @@ class ManimModulePage(QWidget):
         self.tabs.setObjectName("manimTabs")
 
         page = QScrollArea()
+        self.work_scroll = page
         page.setWidgetResizable(True)
         page.setFrameShape(QFrame.NoFrame)
         page.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -129,6 +160,16 @@ class ManimModulePage(QWidget):
             "MODÜL 01",
         )
 
+        self.workflow_steps = WorkflowSteps(
+            [
+                ("Dosyaları seç", "Excel girdilerini yükleyin"),
+                ("Planı kontrol et", "Simülasyonla dağılımı görün"),
+                ("Kararları gözden geçir", "Gerekirse eşleştirme yapın"),
+                ("Çıktıyı hazırla", "Netsis dosyalarını alın"),
+            ]
+        )
+        layout.addWidget(self.workflow_steps)
+
         upload_card = QFrame()
         upload_card.setObjectName("surfaceCard")
         upload_layout = QVBoxLayout(upload_card)
@@ -143,6 +184,7 @@ class ManimModulePage(QWidget):
         upload_title.setObjectName("cardTitle")
         self.upload_subtitle = QLabel(self._input_files_description())
         self.upload_subtitle.setObjectName("cardSubtitle")
+        self.upload_subtitle.setWordWrap(True)
         upload_header_col.addWidget(upload_title)
         upload_header_col.addWidget(self.upload_subtitle)
         upload_header.addLayout(upload_header_col, 1)
@@ -152,6 +194,16 @@ class ManimModulePage(QWidget):
         self.file_status.setProperty("ready", "false")
         upload_header.addWidget(self.file_status, 0, Qt.AlignTop)
         upload_layout.addLayout(upload_header)
+
+        self.retry_context_label = QLabel()
+        self.retry_context_label.setObjectName("retryContextBanner")
+        self.retry_context_label.setStyleSheet(
+            "background:#fff7ed; border:1px solid #fdba74; border-radius:8px; "
+            "color:#9a3412; padding:10px 12px; font-weight:600;"
+        )
+        self.retry_context_label.setWordWrap(True)
+        self.retry_context_label.setVisible(False)
+        upload_layout.addWidget(self.retry_context_label)
 
         self.drop_frame = QFrame()
         self.drop_frame.setObjectName("dropArea")
@@ -197,6 +249,7 @@ class ManimModulePage(QWidget):
         file_actions.setSpacing(8)
         self.loaded_files_label = QLabel("Henüz dosya seçilmedi")
         self.loaded_files_label.setObjectName("cardSubtitle")
+        self.loaded_files_label.setWordWrap(True)
         file_actions.addWidget(self.loaded_files_label, 1)
 
         self.clear_button = QPushButton("Temizle")
@@ -214,11 +267,12 @@ class ManimModulePage(QWidget):
         self.select_button.clicked.connect(self.select_files)
         file_actions.addWidget(self.select_button)
         upload_layout.addLayout(file_actions)
-        layout.addWidget(upload_card)
+        self.input_panel = Disclosure("Girdi dosyaları · seç / kontrol et", upload_card, expanded=True)
+        layout.addWidget(self.input_panel)
 
         process_card = QFrame()
         process_card.setObjectName("surfaceCard")
-        process_layout = QHBoxLayout(process_card)
+        process_layout = QVBoxLayout(process_card)
         process_layout.setContentsMargins(20, 16, 20, 16)
         process_layout.setSpacing(18)
 
@@ -228,6 +282,7 @@ class ManimModulePage(QWidget):
         progress_title.setObjectName("cardTitle")
         self.progress_detail = QLabel("Dosyaları yükleyerek işleme başlayın.")
         self.progress_detail.setObjectName("cardSubtitle")
+        self.progress_detail.setWordWrap(True)
         self.progress = QProgressBar()
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
@@ -242,24 +297,65 @@ class ManimModulePage(QWidget):
         progress_col.addWidget(self.result_summary)
         process_layout.addLayout(progress_col, 1)
 
+        summary_title = QLabel("Aktarım özeti")
+        summary_title.setObjectName("cardTitle")
+        process_layout.addWidget(summary_title)
+        summary_grid = QGridLayout()
+        summary_grid.setHorizontalSpacing(10)
+        summary_grid.setVerticalSpacing(8)
+        self.summary_metrics: dict[str, QLabel] = {}
+        for column, (key, title) in enumerate(
+            (("sources", "Kaynak hareketi"), ("netsis", "Netsis satırı"), ("review", "İnceleme"), ("pending", "Bekleyen bakiye"))
+        ):
+            metric = QFrame()
+            metric.setObjectName("metricCard")
+            metric_layout = QVBoxLayout(metric)
+            metric_layout.setContentsMargins(12, 9, 12, 9)
+            metric_layout.setSpacing(2)
+            value = QLabel("—")
+            value.setObjectName("metricValue")
+            label = QLabel(title)
+            label.setObjectName("metricLabel")
+            metric_layout.addWidget(value)
+            metric_layout.addWidget(label)
+            summary_grid.addWidget(metric, 0, column)
+            self.summary_metrics[key] = value
+        process_layout.addLayout(summary_grid)
+        primary_actions = QHBoxLayout()
+        primary_actions.addStretch(1)
+        process_layout.addLayout(primary_actions)
+        result_actions = QHBoxLayout()
+        result_actions.setSpacing(8)
+        process_layout.addLayout(result_actions)
+
         self.open_output_button = QPushButton("Çıktı klasörünü aç")
         self.open_output_button.setObjectName("secondary")
         self.open_output_button.setVisible(False)
         self.open_output_button.clicked.connect(self.open_output_dir)
-        process_layout.addWidget(self.open_output_button, 0, Qt.AlignBottom)
+        result_actions.addWidget(self.open_output_button)
 
-        self.review_odeme_button = QPushButton("Ödeme Onaylandı Kayıtlarını Gözden Geçir")
+        self.review_odeme_button = QPushButton("Ödeme onaylandı kayıtlarını incele")
         self.review_odeme_button.setObjectName("secondary")
         self.review_odeme_button.setVisible(False)
         self.review_odeme_button.clicked.connect(self.review_odeme_onaylandi)
-        process_layout.addWidget(self.review_odeme_button, 0, Qt.AlignBottom)
+        result_actions.addWidget(self.review_odeme_button)
+        self.simulation_button = QPushButton("Simülasyon Özetini Gör")
+        self.simulation_button.setObjectName("secondary")
+        self.simulation_button.setVisible(False)
+        self.simulation_button.clicked.connect(self.show_simulation_summary)
+        result_actions.addWidget(self.simulation_button)
+        self.preflight_button = QPushButton("1. Planı önizle")
+        self.preflight_button.setObjectName("secondary")
+        self.preflight_button.setEnabled(False)
+        self.preflight_button.clicked.connect(self.run_preflight_simulation)
+        primary_actions.addWidget(self.preflight_button)
 
-        self.start_button = QPushButton("İşleme başla")
+        self.start_button = QPushButton("2. Çıktıları hazırla")
         self.start_button.setObjectName("primary")
         self.start_button.setEnabled(False)
         self.start_button.setMinimumHeight(42)
         self.start_button.clicked.connect(self.start_process)
-        process_layout.addWidget(self.start_button, 0, Qt.AlignBottom)
+        primary_actions.addWidget(self.start_button)
         layout.addWidget(process_card)
 
         log_card = QFrame()
@@ -271,21 +367,25 @@ class ManimModulePage(QWidget):
         log_header = QHBoxLayout()
         log_header_col = QVBoxLayout()
         log_header_col.setSpacing(3)
-        log_title = QLabel("İşlem günlüğü")
+        log_title = QLabel("Operasyon çalışma alanı")
         log_title.setObjectName("cardTitle")
-        log_subtitle = QLabel("Doğrulamalar, eşleştirmeler ve çıktı bilgileri")
+        log_subtitle = QLabel("Aktarım planını inceleyin; işlem ayrıntılarına gerektiğinde geçin.")
         log_subtitle.setObjectName("cardSubtitle")
+        log_subtitle.setWordWrap(True)
         log_header_col.addWidget(log_title)
         log_header_col.addWidget(log_subtitle)
         log_header.addLayout(log_header_col, 1)
         log_layout.addLayout(log_header)
 
-        self.log = QTextEdit()
+        self.log = OperationActivity()
         self.log.setObjectName("log")
-        self.log.setReadOnly(True)
         self.log.setPlaceholderText("İşlem kayıtları burada görüntülenecek.")
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        log_layout.addWidget(self.log, 1)
+        self.operation_tabs = QTabWidget()
+        self.dashboard = SimulationDashboard()
+        self.operation_tabs.addTab(self.dashboard, "Aktarım planı")
+        self.operation_tabs.addTab(self.log, "İşlem günlüğü")
+        log_layout.addWidget(self.operation_tabs, 1)
         layout.addWidget(log_card, 1)
 
         page.setWidget(content)
@@ -445,6 +545,11 @@ class ManimModulePage(QWidget):
             self._load_files([Path(path) for path in selected])
 
     def _load_files(self, files: list[Path]) -> None:
+        if self._processing_thread is not None or self._simulation_thread is not None:
+            return
+        self._reset_simulation()
+        self.retry_context_label.clear()
+        self.retry_context_label.setVisible(False)
         unique: list[Path] = []
         seen: set[str] = set()
         for path in files:
@@ -476,14 +581,58 @@ class ManimModulePage(QWidget):
         self.loaded_files_label.setText(
             f"{count} Excel dosyası seçildi. İşleme başlamadan önce listeyi kontrol edin."
         )
+        self.loaded_files_label.setWordWrap(True)
+        self.upload_subtitle.setWordWrap(True)
+        self.workflow_steps.reset()
+        self.input_panel.set_expanded(True)
         self.progress.setValue(20)
         self.progress_detail.setText("1/4 • Dosyalar yüklendi ve ön kontrol için hazır.")
+        self.workflow_steps.set_active(1)
         self.start_button.setEnabled(True)
+        self.preflight_button.setEnabled(True)
         self.clear_button.setEnabled(True)
         self.log.append(f"{count} Excel dosyası yüklendi.")
 
+    def prepare_safe_retry(
+        self,
+        files: list[str | Path],
+        *,
+        output_profile_id: str,
+        origin_operation_id: int,
+        reason: str,
+    ) -> None:
+        """Ret alınan çalışmanın kaynaklarını yükler; işlemi otomatik başlatmaz."""
+        if self._processing_thread is not None or self._simulation_thread is not None:
+            raise RuntimeError("MANİM'de devam eden işlem bitmeden yeniden çalışma hazırlanamaz.")
+        paths = [Path(value) for value in files]
+        missing = [path for path in paths if not path.is_file()]
+        if not paths or missing:
+            names = ", ".join(path.name for path in missing) or "kaynak dosya"
+            raise FileNotFoundError(f"Yeniden çalışma kaynakları bulunamadı: {names}")
+        profile_index = self.havale_template_combo.findData(output_profile_id)
+        if profile_index < 0:
+            raise ValueError("Seçilen havale çıktı profili artık kullanılamıyor.")
+        self.havale_template_combo.setCurrentIndex(profile_index)
+        self.tabs.setCurrentIndex(0)
+        self._load_files(paths)
+        profile_name = self.havale_template_combo.currentText()
+        self.retry_context_label.setText(
+            f"Netsis ret kaydı #{origin_operation_id} yeniden çalışma için hazırlandı. "
+            f"Neden: {reason} Yeni çıktı: {profile_name}. Önce planı kontrol edin; işlem siz başlatmadan çalışmaz."
+        )
+        self.retry_context_label.setVisible(True)
+        self.log.append(
+            f"Güvenli yeniden çalışma hazırlandı: işlem #{origin_operation_id} · {profile_name}."
+        )
+
     def clear_files(self) -> None:
+        if self._processing_thread is not None or self._simulation_thread is not None:
+            return
+        self.input_panel.set_expanded(True)
+        self._reset_simulation()
         self.files = []
+        self.retry_context_label.clear()
+        self.retry_context_label.setVisible(False)
         self.last_output_dir = None
         self.file_list.clear()
         self.file_list.setVisible(False)
@@ -498,22 +647,31 @@ class ManimModulePage(QWidget):
         self.loaded_files_label.setText("Henüz dosya seçilmedi")
         self.progress.setValue(0)
         self.progress_detail.setText("Dosyaları yükleyerek işleme başlayın.")
+        self.workflow_steps.reset()
         self.result_summary.setVisible(False)
+        for value in self.summary_metrics.values():
+            value.setText("—")
         self.start_button.setEnabled(False)
+        self.preflight_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
         self.review_odeme_button.setVisible(False)
+        self.preflight_button.setEnabled(False)
         self.log.clear()
 
     def start_process(self) -> None:
-        if self._processing_thread is not None:
+        if self._processing_thread is not None or self._simulation_thread is not None or not self.files:
             return
         self.start_button.setEnabled(False)
         self.select_button.setEnabled(False)
+        self.preflight_button.setEnabled(False)
         self.clear_button.setEnabled(False)
         self.open_output_button.setVisible(False)
         self.review_odeme_button.setVisible(False)
         self.progress_detail.setText("2/4 • Dosyalar doğrulanıyor ve kayıtlar sınıflandırılıyor...")
+        self.workflow_steps.set_active(2)
+        if self._preflight_summary is None:
+            self.workflow_steps.set_state(1, "pending")
         self.result_summary.setVisible(False)
         self.log.append("\nİşlem başlatıldı...")
         self.progress.setRange(0, 0)
@@ -524,11 +682,19 @@ class ManimModulePage(QWidget):
                 project_root=APP_PATHS.resource_root,
                 data_root=APP_PATHS.data_root,
                 output_root=resolve_output_dir(APP_PATHS),
+                company_id=self.history.company_id,
             )
+            configuration = engine.prepare_configuration()
+            self._actual_configuration_fingerprint = configuration.fingerprint
+            if self._preflight_fingerprint and self._preflight_fingerprint != configuration.fingerprint:
+                self.log.append(
+                    "UYARI: Simülasyondan sonra profil veya bölge ayarı değişti; aktarım sonucu önizlemeden farklılaşabilir."
+                )
             self._operation_id = self.history.start(
                 MODULE_ID, MODULE_NAME, self.files,
-                configuration=engine.prepare_configuration(),
+                configuration=configuration,
             )
+            engine.operation_id = self._operation_id
             revision = self.history.configuration(self._operation_id)
             if revision is not None:
                 self.log.append(f"Bu işlemde kullanılan ayar sürümü: {revision.revision}")
@@ -572,6 +738,7 @@ class ManimModulePage(QWidget):
     @Slot(object)
     def _handle_manual_review(self, request: _ManualReviewRequest) -> None:
         self.progress_detail.setText("3/4 • Belirsiz kayıtlar kullanıcı onayı bekliyor.")
+        self.workflow_steps.set_state(2, "attention")
         try:
             request.resolutions = self._resolve_pending_manually(
                 request.pending_items,
@@ -583,8 +750,7 @@ class ManimModulePage(QWidget):
 
     @Slot(object)
     def _process_succeeded(self, result) -> None:
-        for message in result.logs:
-            self.log.append(message)
+        self.log.append_many(result.logs)
         self.log.append(f"\nToplam MANİM satırı: {result.total_manim_records}")
         self.log.append(f"Geçersiz kaynak satırı: {result.invalid_manim_records}")
         self.log.append(f"Oluşturulan Netsis satırı: {result.produced_netsis_records}")
@@ -593,20 +759,28 @@ class ManimModulePage(QWidget):
         self.log.append(f"Hesaplar arası virman: {result.virman_records}")
         self.log.append(f"Kural Çalıştı: {result.skipped_rule}")
         self.log.append(f"İnceleme gereken: {result.unresolved}")
+        if result.consumed_tahsilat_rows:
+            self.log.append(
+                f"Kullanımı kesinleşen tahsilat kaynak satırı: {result.consumed_tahsilat_rows}"
+            )
+        if result.simulation_summary is not None:
+            summary = result.simulation_summary
+            self.log.append(
+                f"Simülasyon özeti: MANİM {summary.manim_total:,.2f} TL → "
+                f"Netsis {summary.netsis_total:,.2f} TL; fark {summary.difference:,.2f} TL."
+            )
         if result.output_dir:
             self.log.append(f"Çıktı klasörü: {result.output_dir}")
 
         status = "SUCCESS" if result.unresolved == 0 else "PARTIAL"
         if self._operation_id is not None:
-            for message in result.logs:
-                self.history.add_event(
-                    self._operation_id,
-                    "PROCESS_LOG",
-                    message,
-                    level="WARNING" if message.startswith("UYARI") else "INFO",
-                )
-            for audit in result.decision_audits:
-                self.history.add_decision(self._operation_id, **audit)
+            simulation_record = self._simulation_record(result.simulation_summary)
+            self.history.add_events(self._operation_id, [
+                {"code": "PROCESS_LOG", "message": message,
+                 "level": "WARNING" if message.startswith("UYARI") else "INFO"}
+                for message in result.logs
+            ])
+            self.history.add_decisions(self._operation_id, result.decision_audits)
             self.history.complete(
                 self._operation_id,
                 result.created_files,
@@ -619,6 +793,11 @@ class ManimModulePage(QWidget):
                     "virman_records": result.virman_records,
                     "skipped_rule": result.skipped_rule,
                     "unresolved": result.unresolved,
+                    "consumed_tahsilat_rows": result.consumed_tahsilat_rows,
+                    "simulation": simulation_record,
+                    "operation_result": simulation_summary_payload(
+                        result.simulation_summary
+                    ),
                 },
                 status=status,
                 financial_movements=result.decision_audits,
@@ -628,18 +807,42 @@ class ManimModulePage(QWidget):
         self.last_odeme_onaylandi_path = result.odeme_onaylandi_path
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
-        self.progress_detail.setText("4/4 • İşlem başarıyla tamamlandı.")
+        self.progress_detail.setText(
+            "4/4 • Çıktılar hazır; kontrol bekleyen kayıtlar var." if result.unresolved
+            else "4/4 • Dosya hazırlama tamamlandı. Netsis aktarımını ayrıca kontrol edin."
+        )
+        self.workflow_steps.set_state(0, "complete")
+        self.workflow_steps.set_state(1, "complete" if self._preflight_summary is not None else "pending")
+        self.workflow_steps.set_state(2, "attention" if result.unresolved else "complete")
+        self.workflow_steps.set_state(3, "complete")
         self.result_summary.setText(
             f"Netsis: {result.produced_netsis_records:,} • "
             f"Ödeme Onaylandı: {result.skipped_payment:,} • "
             f"Referanslı: {result.skipped_reference:,} • "
             f"Virman: {result.virman_records:,} • "
             f"Kural Çalıştı: {result.skipped_rule:,} • "
-            f"İnceleme: {result.unresolved:,}"
+            f"İnceleme: {result.unresolved:,} • "
+            f"Tahsilat kaynağı: {result.consumed_tahsilat_rows:,}"
         )
         self.result_summary.setVisible(True)
+        self.summary_metrics["sources"].setText(f"{result.total_manim_records:,}")
+        self.summary_metrics["netsis"].setText(f"{result.produced_netsis_records:,}")
+        self.summary_metrics["review"].setText(f"{result.unresolved:,}")
+        self.summary_metrics["pending"].setText(
+            f"{abs(result.simulation_summary.difference):,.2f} TL"
+            if result.simulation_summary is not None and result.simulation_summary.difference
+            else "0,00 TL"
+        )
         self.open_output_button.setVisible(bool(result.output_dir))
+        self.input_panel.set_expanded(False)
         self.review_odeme_button.setVisible(bool(result.odeme_onaylandi_items))
+        self._last_simulation_summary = result.simulation_summary
+        self._last_summary_is_preview = False
+        self.dashboard.set_summary(result.simulation_summary, preview=False)
+        self.operation_tabs.setCurrentIndex(0)
+        self.work_scroll.ensureWidgetVisible(self.dashboard)
+        self._compare_with_preflight(result.simulation_summary)
+        self.simulation_button.setVisible(result.simulation_summary is not None)
         self.upload_subtitle.setText(self._input_files_description())
 
     @Slot(str)
@@ -650,10 +853,131 @@ class ManimModulePage(QWidget):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress_detail.setText("İşlem tamamlanamadı. Hata ayrıntısını inceleyin.")
-        self.result_summary.setText("Çıktı oluşturulmadı; kaynak dosyalar işlenmiş olarak işaretlenmedi.")
+        self.workflow_steps.set_state(2, "attention")
+        self.result_summary.setText("İşlem tamamlanamadı. Yeniden denemeden önce işlem günlüğünü ve varsa çıktı klasörünü kontrol edin.")
         self.result_summary.setVisible(True)
         self.log.append(f"HATA: {error}")
+        self.operation_tabs.setCurrentIndex(1)
         QMessageBox.critical(self, "İşlem hatası", error)
+
+    def show_simulation_summary(self) -> None:
+        summary = getattr(self, "_last_simulation_summary", None)
+        if summary is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("MANİM · Aktarım planı")
+        dialog.resize(1160, 820)
+        layout = QVBoxLayout(dialog)
+        dashboard = SimulationDashboard(dialog)
+        dashboard.set_summary(summary, preview=getattr(self, "_last_summary_is_preview", True))
+        layout.addWidget(dashboard)
+        close = QPushButton("Kapat")
+        close.setObjectName("secondary")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close, 0, Qt.AlignRight)
+        dialog.exec()
+
+    def run_preflight_simulation(self) -> None:
+        if not self.files or self._simulation_thread is not None or self._processing_thread is not None:
+            return
+        self._reset_simulation()
+        self.preflight_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.select_button.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        self.progress_detail.setText("Simülasyon hazırlanıyor; Excel çıktısı oluşturulmayacak...")
+        self.workflow_steps.set_active(1)
+        engine = ProcessingEngine(
+            self.files,
+            project_root=APP_PATHS.resource_root,
+            data_root=APP_PATHS.data_root,
+            output_root=resolve_output_dir(APP_PATHS),
+            company_id=self.history.company_id,
+        )
+        self._simulation_thread = QThread(self)
+        self._simulation_worker = _SimulationWorker(engine)
+        self._simulation_worker.moveToThread(self._simulation_thread)
+        self._simulation_thread.started.connect(self._simulation_worker.run)
+        self._simulation_worker.finished.connect(self._simulation_succeeded)
+        self._simulation_worker.failed.connect(self._simulation_failed)
+        self._simulation_worker.finished.connect(self._simulation_thread.quit)
+        self._simulation_worker.failed.connect(self._simulation_thread.quit)
+        self._simulation_thread.finished.connect(self._simulation_worker.deleteLater)
+        self._simulation_thread.finished.connect(self._simulation_thread.deleteLater)
+        self._simulation_thread.finished.connect(self._simulation_finished)
+        self._simulation_thread.start()
+
+    @Slot(object)
+    def _simulation_succeeded(self, payload) -> None:
+        result, fingerprint = payload
+        if result.simulation_summary is None:
+            QMessageBox.information(self, "Simülasyon", "Simülasyon için hesaplanabilir karar kaydı bulunamadı.")
+            return
+        self._last_simulation_summary = result.simulation_summary
+        self._last_summary_is_preview = True
+        self.dashboard.set_summary(result.simulation_summary, preview=True)
+        self.operation_tabs.setCurrentIndex(0)
+        self._preflight_summary = result.simulation_summary
+        self._preflight_fingerprint = str(fingerprint)
+        self.input_panel.set_expanded(False)
+        self.progress_detail.setText("Simülasyon tamamlandı; çıktı ve işlenmiş dosya kaydı oluşturulmadı.")
+        self.workflow_steps.set_active(2)
+        self.simulation_button.setVisible(True)
+        self.dashboard.setFocus()
+        self.work_scroll.ensureWidgetVisible(self.dashboard)
+
+    def _reset_simulation(self) -> None:
+        self._preflight_summary = None
+        self._preflight_fingerprint = None
+        self._last_simulation_summary = None
+        self.simulation_button.setVisible(False)
+        self.dashboard.set_summary(None)
+
+    @Slot(str)
+    def _simulation_failed(self, error: str) -> None:
+        self.progress_detail.setText("Simülasyon tamamlanamadı.")
+        self.workflow_steps.set_state(1, "attention")
+        QMessageBox.critical(self, "Simülasyon hatası", error)
+
+    @Slot()
+    def _simulation_finished(self) -> None:
+        self._simulation_thread = None
+        self._simulation_worker = None
+        self.preflight_button.setEnabled(bool(self.files) and self._processing_thread is None)
+        self.start_button.setEnabled(bool(self.files) and self._processing_thread is None)
+        self.select_button.setEnabled(self._processing_thread is None)
+        self.clear_button.setEnabled(bool(self.files) and self._processing_thread is None)
+
+    def _compare_with_preflight(self, actual) -> None:
+        preview = self._preflight_summary
+        if preview is None or actual is None:
+            return
+        if self._simulation_record(actual)["status"] == "MATCH":
+            self.log.append("Simülasyon dağılımı doğrulandı: bölge/banka, kaynak kararları, tutarlar ve ayar sürümü aynı. Bu, Netsis kabul onayı değildir.")
+            return
+        self.log.append(
+            "UYARI: Gerçek plan simülasyondan farklı. "
+            f"Simülasyon Netsis {preview.netsis_total:,.2f} TL, gerçek plan {actual.netsis_total:,.2f} TL."
+        )
+
+    def _simulation_record(self, actual) -> dict:
+        if actual is None:
+            return {"status": "NOT_AVAILABLE"}
+        preview = self._preflight_summary
+        if preview is None:
+            status = "NOT_RUN"
+        elif preview.matches(actual) and self._preflight_fingerprint == getattr(self, "_actual_configuration_fingerprint", None):
+            status = "MATCH"
+        else:
+            status = "MISMATCH"
+        return {
+            "status": status,
+            "preflight_manim_total": str(preview.manim_total) if preview else None,
+            "preflight_netsis_total": str(preview.netsis_total) if preview else None,
+            "actual_manim_total": str(actual.manim_total),
+            "actual_netsis_total": str(actual.netsis_total),
+            "configuration_fingerprint": self._preflight_fingerprint if preview else None,
+        }
 
     @Slot()
     def _processing_finished(self) -> None:
@@ -661,8 +985,13 @@ class ManimModulePage(QWidget):
         self._processing_worker = None
         self._operation_id = None
         self.start_button.setEnabled(bool(self.files))
+        self.preflight_button.setEnabled(bool(self.files))
         self.select_button.setEnabled(True)
         self.clear_button.setEnabled(bool(self.files))
+
+    @property
+    def is_busy(self):
+        return self._processing_thread is not None or self._simulation_thread is not None
 
     @staticmethod
     def _input_files_description() -> str:

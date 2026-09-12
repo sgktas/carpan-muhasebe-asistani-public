@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QMessageBox,
 )
 
 from app.core.app_paths import APP_PATHS
@@ -70,7 +71,11 @@ class MainWindow(QWidget):
                     "operations_center",
                     "Operasyon Merkezi",
                     "history",
-                    lambda: OperationCenterPage(self.history),
+                    lambda: OperationCenterPage(
+                        self.history,
+                        identity_store=self.identity_store,
+                        session=self.session,
+                    ),
                 )
             )
             self.management_items.append(
@@ -109,12 +114,14 @@ class MainWindow(QWidget):
                 ("integrations", "Entegrasyonlar", "settings", lambda: IntegrationsPage(history=self.history))
             )
             self.management_items.append(
-                ("settings", "Ayarlar", "settings", lambda: SettingsPage(self.session))
+                ("settings", "Ayarlar", "settings", lambda: SettingsPage(self.session, self.history))
             )
 
         self.nav_buttons: list[QPushButton] = []
         self.nav_icon_names: list[str] = []
         self.nav_items: list[tuple[str, str]] = []
+        self._nav_section_labels: list[QLabel] = []
+        self._sidebar_collapsed = False
         self._central_refresh_thread: QThread | None = None
         self._central_refresh_worker: BackgroundWorker | None = None
         self._pending_logout = False
@@ -134,15 +141,78 @@ class MainWindow(QWidget):
         self.sidebar = self._build_sidebar()
         root.addWidget(self.sidebar)
 
+        workspace = QFrame()
+        workspace.setObjectName("workspace")
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
+        workspace_layout.addWidget(self._build_workspace_header())
+
         self.pages = QStackedWidget()
+        self._pages_by_id: dict[str, QWidget] = {}
         for module in self.modules:
-            self.pages.addWidget(module.page_factory())
+            page = module.page_factory()
+            self.pages.addWidget(page)
+            self._pages_by_id[module.module_id] = page
         for _item_id, _label, _icon, page_factory in self.management_items:
-            self.pages.addWidget(page_factory())
-        root.addWidget(self.pages, 1)
+            page = page_factory()
+            self.pages.addWidget(page)
+            self._pages_by_id[_item_id] = page
+        workspace_layout.addWidget(self.pages, 1)
+        root.addWidget(workspace, 1)
+
+        operation_center = self._pages_by_id.get("operations_center")
+        if isinstance(operation_center, OperationCenterPage):
+            operation_center.safe_manim_retry_requested.connect(
+                self._open_safe_manim_retry
+            )
 
         if self.nav_buttons:
             self._set_active_nav(0)
+
+    def _build_workspace_header(self) -> QFrame:
+        header = QFrame()
+        header.setObjectName("workspaceHeader")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(28, 12, 28, 12)
+        layout.setSpacing(10)
+        self.workspace_heading = QLabel("Çalışma alanı")
+        self.workspace_heading.setObjectName("workspaceHeading")
+        self.workspace_subtitle = QLabel("Günlük finans operasyonları")
+        self.workspace_subtitle.setObjectName("workspaceSubtitle")
+        title_column = QVBoxLayout()
+        title_column.setSpacing(1)
+        title_column.addWidget(self.workspace_heading)
+        title_column.addWidget(self.workspace_subtitle)
+        layout.addLayout(title_column, 1)
+        self.workspace_status = QLabel("Yerel çalışma alanı")
+        self.workspace_status.setObjectName("workspaceStatus")
+        layout.addWidget(self.workspace_status)
+        return header
+
+    @Slot(object)
+    def _open_safe_manim_retry(self, request: dict) -> None:
+        page = self._pages_by_id.get("manim_transfer")
+        prepare = getattr(page, "prepare_safe_retry", None)
+        if not callable(prepare):
+            QMessageBox.warning(self, "Yeniden çalışma", "MANİM modülü kullanılamıyor.")
+            return
+        try:
+            prepare(
+                request.get("input_files", []),
+                output_profile_id=str(request.get("output_profile_id", "netsis")),
+                origin_operation_id=int(request.get("operation_id", 0)),
+                reason=str(request.get("reason", "Netsis aktarımı reddedildi.")),
+            )
+        except Exception as error:
+            QMessageBox.warning(self, "Yeniden çalışma hazırlanamadı", str(error))
+            return
+        index = next(
+            (position for position, (item_id, _label) in enumerate(self.nav_items) if item_id == "manim_transfer"),
+            -1,
+        )
+        if index >= 0:
+            self._on_nav_clicked(index)
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -175,11 +245,18 @@ class MainWindow(QWidget):
         descriptor.setObjectName("brandDescriptor")
         descriptor.setAlignment(Qt.AlignRight)
         brand_layout.addWidget(descriptor)
+        self.brand_descriptor = descriptor
         layout.addWidget(brand_area)
-        layout.addSpacing(24)
+        self.sidebar_toggle = QPushButton("Menüyü daralt")
+        self.sidebar_toggle.setObjectName("sidebarToggle")
+        self.sidebar_toggle.setCursor(Qt.PointingHandCursor)
+        self.sidebar_toggle.clicked.connect(self._toggle_sidebar)
+        layout.addWidget(self.sidebar_toggle)
+        layout.addSpacing(12)
 
         modules_label = QLabel("MODÜLLER")
         modules_label.setObjectName("navSection")
+        self._nav_section_labels.append(modules_label)
         layout.addWidget(modules_label)
         layout.addSpacing(3)
 
@@ -195,6 +272,7 @@ class MainWindow(QWidget):
             layout.addSpacing(18)
             management_label = QLabel("YÖNETİM")
             management_label.setObjectName("navSection")
+            self._nav_section_labels.append(management_label)
             layout.addWidget(management_label)
             layout.addSpacing(3)
             for item_id, label, icon_name, _factory in self.management_items:
@@ -242,10 +320,39 @@ class MainWindow(QWidget):
         user_col.addWidget(status_label)
         user_col.addWidget(self._central_status_label)
         user_col.addWidget(logout_button)
+        self.user_name_label = name_label
+        self.user_status_label = status_label
+        self.logout_button = logout_button
         user_layout.addLayout(user_col, 1)
         return user_card
 
+    def _toggle_sidebar(self) -> None:
+        self._sidebar_collapsed = not self._sidebar_collapsed
+        collapsed = self._sidebar_collapsed
+        self.sidebar.setFixedWidth(78 if collapsed else 250)
+        self.brand_descriptor.setVisible(not collapsed)
+        self.sidebar_toggle.setText("Menüyü aç" if collapsed else "Menüyü daralt")
+        self.sidebar_toggle.setToolTip("Gezinme menüsünü aç" if collapsed else "Gezinme menüsünü daralt")
+        for label in self._nav_section_labels:
+            label.setVisible(not collapsed)
+        self.user_name_label.setVisible(not collapsed)
+        self.user_status_label.setVisible(not collapsed)
+        self._central_status_label.setVisible(not collapsed)
+        self.logout_button.setText("⎋" if collapsed else "Çıkış yap")
+        self.logout_button.setToolTip("Çıkış yap")
+        for index, button in enumerate(self.nav_buttons):
+            label = self.nav_items[index][1]
+            button.setText("" if collapsed else label)
+            button.setToolTip(label)
+            button.setMinimumHeight(44)
+        self.sidebar.style().unpolish(self.sidebar)
+        self.sidebar.style().polish(self.sidebar)
+        self.sidebar.update()
+
     def _logout(self) -> None:
+        if self._local_operation_running():
+            self._central_status_label.setText("Dosyalar hazırlanıyor; işlem tamamlanınca çıkış yapabilirsiniz.")
+            return
         self.identity_store.record_logout(self.session)
         if self._central_refresh_thread is not None:
             self._pending_logout = True
@@ -299,11 +406,18 @@ class MainWindow(QWidget):
             self._complete_logout()
 
     def closeEvent(self, event) -> None:
+        if self._local_operation_running():
+            self._central_status_label.setText("Dosyalar hazırlanıyor; işlem tamamlanınca pencereyi kapatabilirsiniz.")
+            event.ignore()
+            return
         if self._central_refresh_thread is not None:
             self._central_status_label.setText("Merkezi kontrol tamamlanıyor; pencere birazdan kapanacak.")
             event.ignore()
             return
         super().closeEvent(event)
+
+    def _local_operation_running(self):
+        return any(bool(getattr(widget, "is_busy", False)) for widget in self.findChildren(QWidget))
 
     def _add_nav_button(
         self,
@@ -352,3 +466,22 @@ class MainWindow(QWidget):
             button.style().unpolish(button)
             button.style().polish(button)
             button.update()
+        if 0 <= active_index < len(self.nav_items):
+            label = self.nav_items[active_index][1]
+            self.workspace_heading.setText(label)
+            self.workspace_subtitle.setText(self._workspace_subtitle(active_index))
+
+    def _workspace_subtitle(self, index: int) -> str:
+        item_id = self.nav_items[index][0]
+        subtitles = {
+            "manim_transfer": "Banka hareketlerini kontrol edin, eşleştirin ve aktarım planını yönetin.",
+            "report_editing": "Satış ve tahsilat raporlarını Netsis/Psoft aktarımına hazırlayın.",
+            "bank_reconciliation": "Banka ve Netsis hareketlerini karşılaştırıp farkları inceleyin.",
+            "operations_center": "Bugünkü öncelikleri, inceleme kuyruklarını ve ERP kalite sinyallerini izleyin.",
+            "history": "Tamamlanan işlemleri ve çıktı sonuçlarını izleyin.",
+            "team": "Ekip, rol ve sorumluluk kapsamını yönetin.",
+            "audit": "Güvenlik olaylarını ve erişim kayıtlarını inceleyin.",
+            "integrations": "Onaylı çıktı sözleşmelerini ve entegrasyon durumlarını kontrol edin.",
+            "settings": "Çalışma alanı ayarlarını ve onaylı şablon kontrollerini yönetin.",
+        }
+        return subtitles.get(item_id, "Çalışma alanınızı yönetin.")

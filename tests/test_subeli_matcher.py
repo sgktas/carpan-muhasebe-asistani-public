@@ -239,6 +239,22 @@ def test_hafiza_bolunmus_kod_formati(tmp_path):
     assert {(row.musteri_kodu, row.tutar) for row in result} == {("C001", 100.0), ("C002", 200.0)}
 
 
+def test_hafiza_mevcut_tahsilat_kaynak_satirlarini_korur(tmp_path):
+    store = MappingStore(tmp_path / "mapping.json")
+    store.set("KAYNAKLI ACIKLAMA", "C001")
+    source = TahsilatRecord(
+        "C001", "TEST", None, 250.0,
+        source_hash="tahsilat-ozeti", source_sheet="ŞUBELİLER", source_row=14,
+        source_amount=250.0,
+    )
+
+    result = SubeliMatcher([source], [], store).match(
+        _manim("KAYNAKLI ACIKLAMA", 250.0)
+    )
+
+    assert result == [source]
+
+
 def test_zincir_firma_isimden_bulunur_ve_bolgeye_ait_subeler_seçilir(tmp_path):
     from app.models.records import CustomerRecord
 
