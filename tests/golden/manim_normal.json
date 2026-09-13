@@ -1,0 +1,8 @@
+{
+  "decisions": [
+    {"amount": "777.00", "bank": "GARANTI", "outcome": "REFERANSLI", "region": "BODRUM", "rule_code": "REFERENCE"},
+    {"amount": "1000.00", "bank": "GARANTI", "outcome": "HAVALE", "region": "BODRUM", "rule_code": "AUTOMATIC_CUSTOMER_MATCH"},
+    {"amount": "2500.00", "bank": "GARANTI", "outcome": "ODEME_ONAYLANDI", "region": "BODRUM", "rule_code": "PAYMENT_APPROVED"}
+  ],
+  "summary": {"consumed_collection_rows": 0, "payment_approved": 1, "referenced": 1, "resolved": 1, "source_records": 3, "unresolved": 0, "virman": 0}
+}

@@ -1,0 +1,13 @@
+{
+  "row_count": 1,
+  "rows": [
+    {
+      "amount": "1000.00",
+      "customer_code": "ABC001",
+      "date": "2026-07-15",
+      "description": "NORMAL ODEME",
+      "project_code": "0"
+    }
+  ],
+  "total": "1000.00"
+}

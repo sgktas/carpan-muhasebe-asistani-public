@@ -1,0 +1,4 @@
+{
+  "rows": [{"amount": "120.00", "bank": "TestBankA", "customer_code": "BTDTESTB100", "date": "2026-01-15", "region": "TEST_REGION_A", "source_type": "ACIKLAMA_KODU"}],
+  "total": "120.00"
+}
