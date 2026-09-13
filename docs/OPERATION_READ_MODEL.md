@@ -78,7 +78,7 @@ bir migration kararıdır.
 
 ## P3-D UI sözleşmesi
 
-Gelecekte Operasyon Merkezi:
+Operasyon Merkezi P3-D'de seçili operasyon için bu sözleşmeye bağlanmıştır:
 
 - ham `history_status`, publication ve review alanlarını ayrı göstermeli;
 - `consistency_status` değerini tek başına muhasebe başarısı gibi sunmamalı;
@@ -87,6 +87,30 @@ Gelecekte Operasyon Merkezi:
 - `RECOVERY_REQUIRED` durumunda mevcut açık kurtarma akışını kullanmalı;
 - read model üzerinden hiçbir recovery veya workflow yazma işlemi yapmamalı;
 - `None` operation kimlikli kayıtları sahte operasyonlarla birleştirmemelidir.
+
+Yeni kompakt tutarlılık kartında history, publication, açık review sayısı,
+fiziksel çıktı varlığı ve processed-source durumu birlikte gösterilir.
+`consistency_status` yalnız kart başlığı/severity seçiminde; kararlı reason
+kodları ise kontrollü Türkçe açıklamalarda kullanılır. Özellikle
+`processed_source_missing` veri kaybı veya işlem başarısızlığı olarak sunulmaz;
+`output_missing` yalnız kayıtlı fiziksel yolun bulunamadığını söyler.
+
+P3-D performans sınırı olarak read model her liste satırı için çağrılmaz.
+OperationHistory'den zaten alınan firma-kapsamlı operasyonlar seçim kutusuna
+konur ve yalnız kullanıcının seçtiği operasyon için birleşik görünüm hesaplanır.
+Bu nedenle N+1 store taraması oluşmaz.
+
+Doğrudan store okumaları şimdilik korunur:
+
+- genel metrikler, haftalık özet, ERP sonuçları ve öncelikli liste
+  `OperationHistory` üzerinden devam eder;
+- kurtarma tablosu ve mevcut onay eylemi doğrudan `PublicationJournal`
+  kullanmaya devam eder;
+- ayrıntılı görevler ve tüm workflow yazıları `ReviewBoard` /
+  `ReviewWorkflow` içinde kalır.
+
+Bu ilk UI geçişi aynı görünür tutarlılık sonucunu iki ayrı yerde hesaplamaz;
+birleşik durum kartının tek hesap kaynağı `UnifiedOperationView`'dır.
 
 ## Sınırlamalar
 
@@ -98,3 +122,6 @@ Gelecekte Operasyon Merkezi:
 - Consumption state operation düzeyinde gösterilmez.
 - Processed-files firma kimliğini kaydın içinde taşımaz; firma ayrımı aktif
   workspace dosya sınırıyla sağlanır.
+- Operasyon Merkezi'nin toplu tabloları henüz read model'e geçirilmemiştir.
+  Daha sonraki bir geçiş, bounded batch-read API olmadan her satır için tekil
+  lookup çağırmamalıdır.

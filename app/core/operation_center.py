@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from app.core.erp_acceptance_target import aggregate_erp_acceptance
 from app.core.operation_history import ERP_REJECTION_REASON_LABELS, OperationRecord
+from app.core.operation_read_model import ATTENTION, CONSISTENT, RECOVERY_REQUIRED
+
+if TYPE_CHECKING:
+    from app.core.operation_read_model import UnifiedOperationView
 
 
 ATTENTION_STATUSES = frozenset({"PARTIAL", "FAILED", "INTERRUPTED"})
@@ -36,6 +40,69 @@ class OperationCenterSnapshot:
     reconciliation_attention: int
     weekly_summary: OperationPeriodSummary
     attention_records: tuple[OperationRecord, ...]
+
+
+@dataclass(frozen=True)
+class OperationStatusPresentation:
+    """Human-readable rendering of a read model; never a new domain state."""
+
+    title: str
+    explanation: str
+    severity: str
+    action_hint: str
+    reason_texts: tuple[str, ...]
+
+
+_CONSISTENCY_PRESENTATION = {
+    CONSISTENT: (
+        "Durum tutarlı",
+        "İşlem geçmişi ile bağlı operasyon kayıtlarında bilinen bir tutarsızlık görünmüyor.",
+        "success",
+        "Bu operasyon için ek bir tutarlılık işlemi gerekmiyor.",
+    ),
+    ATTENTION: (
+        "Kontrol gerekiyor",
+        "Operasyonun kayıtlı durumları birlikte değerlendirildiğinde kontrol edilmesi gereken bir ayrıntı var.",
+        "warning",
+        "Aşağıdaki nedeni ve ilgili operasyon bölümünü kontrol edin.",
+    ),
+    RECOVERY_REQUIRED: (
+        "Kurtarma kontrolü gerekiyor",
+        "Çıktı yayımlanmış fakat yerel tamamlanma zinciri kesinleşmemiş.",
+        "critical",
+        "Yayın ve kurtarma kontrolü bölümünden mevcut çıktıyı doğrulayın.",
+    ),
+}
+
+_ATTENTION_REASON_TEXT = {
+    "publication_pending_commit": "Çıktı yayımlandı; yerel tamamlanma kaydı bekliyor.",
+    "history_publication_mismatch": "İşlem geçmişi ile tamamlanmış yayın durumu farklı görünüyor.",
+    "review_pending": "Bu operasyonda açık inceleme kayıtları var.",
+    "output_missing": "Bu işleme ait kayıtlı çıktı dosyalarından biri artık bulunamıyor.",
+    "processed_source_missing": (
+        "Kaynakların işlenmiş dosya kaydı eksik olabilir; bu tek başına veri kaybı "
+        "veya işlem başarısızlığı anlamına gelmez."
+    ),
+}
+
+
+def operation_status_presentation(
+    view: UnifiedOperationView,
+) -> OperationStatusPresentation:
+    """Translate stable read-model codes without changing their raw facts."""
+    title, explanation, severity, action_hint = _CONSISTENCY_PRESENTATION[
+        view.consistency_status
+    ]
+    return OperationStatusPresentation(
+        title=title,
+        explanation=explanation,
+        severity=severity,
+        action_hint=action_hint,
+        reason_texts=tuple(
+            _ATTENTION_REASON_TEXT.get(reason, reason)
+            for reason in view.attention_reasons
+        ),
+    )
 
 
 def build_operation_center_snapshot(

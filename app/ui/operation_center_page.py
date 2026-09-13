@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from app.core.operation_center import (
     build_operation_center_snapshot,
     operation_attention_text,
+    operation_status_presentation,
 )
 from app.core.operation_history import (
     ERP_REJECTION_REASON_LABELS,
@@ -42,8 +43,10 @@ from app.core.operation_simulation import (
     attach_simulation_details,
     simulation_summary_from_payload,
 )
+from app.core.operation_read_model import OperationReadModel
 from app.core.operation_trends import build_operation_trend_summary, filter_operation_records
 from app.core.identity import AuthenticatedSession, IdentityError, IdentityStore
+from app.core.processed_files_log import ProcessedFilesLog
 from app.core.publication_journal import PublicationJournal
 from app.core.review_queue import ReviewQueue
 from app.core.review_workflow import ReviewWorkflow
@@ -74,6 +77,20 @@ class OperationCenterPage(QWidget):
             history.database_path.parent / "publication_journal.sqlite3",
             company_id=history.company_id,
         )
+        self.review_workflow = (
+            ReviewWorkflow(self.review_queue, self.identity_store, self.session)
+            if self.identity_store and self.session
+            else None
+        )
+        self.operation_read_model = OperationReadModel(
+            history,
+            publication_journal=self.publication_journal,
+            review_queue=self.review_queue,
+            review_workflow=self.review_workflow,
+            processed_files=ProcessedFilesLog(
+                history.database_path.parent / "processed_files.json"
+            ),
+        )
         self._attention_records = ()
         self._review_groups = ()
         self._pending_publications = ()
@@ -101,8 +118,9 @@ class OperationCenterPage(QWidget):
             "Günlük finans işlemlerinin durumunu, inceleme bekleyen kayıtları ve üretilen çıktıları tek yerde takip edin.",
         )
 
-        workflow = ReviewWorkflow(self.review_queue, self.identity_store, self.session) if self.identity_store and self.session else None
-        self.review_board = ReviewBoard(workflow)
+        self._build_consistency_card(layout)
+
+        self.review_board = ReviewBoard(self.review_workflow)
         layout.addWidget(self.review_board)
 
         metrics = QGridLayout()
@@ -382,6 +400,64 @@ class OperationCenterPage(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll)
 
+    def _build_consistency_card(self, layout: QVBoxLayout) -> None:
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 18, 20, 20)
+        card_layout.setSpacing(10)
+
+        header = QHBoxLayout()
+        titles = QVBoxLayout()
+        title = QLabel("Operasyon tutarlılık görünümü")
+        title.setObjectName("cardTitle")
+        subtitle = QLabel(
+            "Geçmiş, yayın, inceleme ve fiziksel çıktı durumunu tek operasyonda birlikte görün."
+        )
+        subtitle.setObjectName("cardSubtitle")
+        subtitle.setWordWrap(True)
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
+        header.addLayout(titles, 1)
+        self.consistency_operation_combo = QComboBox()
+        self.consistency_operation_combo.setMinimumWidth(350)
+        self.consistency_operation_combo.setAccessibleName(
+            "Tutarlılığı incelenecek operasyon"
+        )
+        self.consistency_operation_combo.currentIndexChanged.connect(
+            self._render_operation_consistency
+        )
+        header.addWidget(self.consistency_operation_combo)
+        card_layout.addLayout(header)
+
+        status_row = QHBoxLayout()
+        self.consistency_status = QLabel("Operasyon seçin")
+        self.consistency_status.setAlignment(Qt.AlignCenter)
+        self.consistency_status.setMinimumWidth(190)
+        self.consistency_status.setAccessibleName("Operasyon tutarlılık durumu")
+        status_row.addWidget(self.consistency_status, 0, Qt.AlignLeft)
+        self.consistency_explanation = QLabel()
+        self.consistency_explanation.setObjectName("miniInfoText")
+        self.consistency_explanation.setWordWrap(True)
+        status_row.addWidget(self.consistency_explanation, 1)
+        card_layout.addLayout(status_row)
+
+        self.consistency_facts = QLabel()
+        self.consistency_facts.setObjectName("softPanel")
+        self.consistency_facts.setWordWrap(True)
+        self.consistency_facts.setTextFormat(Qt.PlainText)
+        self.consistency_facts.setContentsMargins(12, 10, 12, 10)
+        card_layout.addWidget(self.consistency_facts)
+        self.consistency_reasons = QLabel()
+        self.consistency_reasons.setWordWrap(True)
+        self.consistency_reasons.setTextFormat(Qt.PlainText)
+        card_layout.addWidget(self.consistency_reasons)
+        self.consistency_hint = QLabel()
+        self.consistency_hint.setObjectName("cardSubtitle")
+        self.consistency_hint.setWordWrap(True)
+        card_layout.addWidget(self.consistency_hint)
+        layout.addWidget(card)
+
     def _metric_card(self, key: str, title_text: str, subtitle_text: str) -> QFrame:
         card = QFrame()
         card.setObjectName("surfaceCard")
@@ -464,6 +540,7 @@ class OperationCenterPage(QWidget):
         for key, value in weekly_values.items():
             self._weekly_metric_values[key].setText(str(value))
         self._render_erp_quality_summary(records)
+        self._populate_consistency_operations(records)
         self._attention_records = snapshot.attention_records
         self._completed_manim_records = tuple(
             record
@@ -485,6 +562,142 @@ class OperationCenterPage(QWidget):
         self._render_pending_publications()
         self._update_recovery_actions()
         self._render_attention_records()
+
+    def _populate_consistency_operations(self, records) -> None:
+        previous_id = self.consistency_operation_combo.currentData()
+        self.consistency_operation_combo.blockSignals(True)
+        self.consistency_operation_combo.clear()
+        for record in records:
+            self.consistency_operation_combo.addItem(
+                f"#{record.id} · {self._display_date(record.started_at)} · {record.module_name}",
+                record.id,
+            )
+        selected = self.consistency_operation_combo.findData(previous_id)
+        self.consistency_operation_combo.setCurrentIndex(
+            selected if selected >= 0 else (0 if records else -1)
+        )
+        self.consistency_operation_combo.blockSignals(False)
+        self._render_operation_consistency()
+
+    def _render_operation_consistency(self) -> None:
+        operation_id = self.consistency_operation_combo.currentData()
+        view = self.operation_read_model.get_operation_view(
+            operation_id,
+            company_id=self.history.company_id,
+        )
+        if view is None:
+            self.consistency_status.setText("Operasyon yok")
+            self.consistency_status.setStyleSheet(self._consistency_chip_style("neutral"))
+            self.consistency_explanation.setText(
+                "Firma kapsamında görüntülenecek bir operasyon bulunmuyor."
+            )
+            self.consistency_facts.setText("Geçmiş: Kayıt yok")
+            self.consistency_reasons.clear()
+            self.consistency_hint.clear()
+            return
+
+        presentation = operation_status_presentation(view)
+        self.consistency_status.setText(presentation.title)
+        self.consistency_status.setProperty("consistencySeverity", presentation.severity)
+        self.consistency_status.setStyleSheet(
+            self._consistency_chip_style(presentation.severity)
+        )
+        self.consistency_explanation.setText(presentation.explanation)
+        publication = self._publication_status_text(view.publication_status)
+        review = (
+            f"{view.open_review_group_count} açık grup · "
+            f"{view.pending_review_count} kayıt"
+            if view.open_review_group_count
+            else "Açık kayıt yok"
+        )
+        phases = sorted(
+            {item.phase for item in view.reviews if item.phase is not None}
+        )
+        if phases:
+            review += " · " + ", ".join(
+                self._review_phase_text(phase) for phase in phases
+            )
+        self.consistency_facts.setText(
+            " · ".join((
+                f"Geçmiş: {self._history_status_text(view.history_status)}",
+                f"Yayın: {publication}",
+                f"İnceleme: {review}",
+                f"Çıktı: {self._output_presence_text(view.output_presence_state)}",
+                f"Kaynak kaydı: {self._processed_source_text(view.processed_source_state)}",
+            ))
+        )
+        self.consistency_reasons.setText(
+            "\n".join(f"• {reason}" for reason in presentation.reason_texts)
+            if presentation.reason_texts
+            else "Kontrol nedeni bulunmuyor."
+        )
+        self.consistency_hint.setText(presentation.action_hint)
+
+    @staticmethod
+    def _consistency_chip_style(severity: str) -> str:
+        colors = {
+            "success": ("#E7F6EC", "#187A43", "#B7DFC7"),
+            "warning": ("#FFF4DF", "#9A5A00", "#EBCB91"),
+            "critical": ("#FDECEC", "#A12A2A", "#E9B5B5"),
+            "neutral": ("#EEF3F7", "#456273", "#CEDAE2"),
+        }
+        background, foreground, border = colors.get(severity, colors["neutral"])
+        return (
+            "QLabel {"
+            f"background:{background}; color:{foreground}; border:1px solid {border};"
+            "border-radius:12px; padding:7px 12px; font-weight:700;"
+            "}"
+        )
+
+    @staticmethod
+    def _history_status_text(status: str) -> str:
+        return {
+            "SUCCESS": "Başarılı",
+            "PARTIAL": "Kısmi",
+            "FAILED": "Hatalı",
+            "INTERRUPTED": "Yarım kaldı",
+            "RUNNING": "Çalışıyor",
+        }.get(status, status)
+
+    @staticmethod
+    def _publication_status_text(status: str | None) -> str:
+        return {
+            "COMMITTED": "Tamamlandı",
+            "PUBLISHED": "Yayımlandı · tamamlanma bekliyor",
+            "RECOVERY_CONFIRMED": "Yeniden işleme onaylandı",
+            None: "Kayıt yok",
+        }.get(status, status or "Kayıt yok")
+
+    @staticmethod
+    def _review_phase_text(phase: str) -> str:
+        return {
+            "OPEN": "Açık",
+            "ASSIGNED": "Atandı",
+            "IN_REVIEW": "İnceleniyor",
+            "PENDING_APPROVAL": "Onay bekliyor",
+            "APPROVED": "Onaylandı",
+            "REJECTED": "Düzeltme bekliyor",
+            "CANCELLED": "İptal",
+        }.get(phase, phase)
+
+    @staticmethod
+    def _output_presence_text(state: str) -> str:
+        return {
+            "PRESENT": "Dosyalar mevcut",
+            "PARTIALLY_MISSING": "Bazı dosyalar bulunamıyor",
+            "MISSING": "Kayıtlı dosyalar bulunamıyor",
+            "NONE_RECORDED": "Kayıtlı çıktı yok",
+        }.get(state, state)
+
+    @staticmethod
+    def _processed_source_text(state: str) -> str:
+        return {
+            "ALL_PROCESSED": "Tam",
+            "PARTIALLY_PROCESSED": "Kısmi",
+            "NONE_PROCESSED": "İşlenmiş kaydı yok",
+            "UNKNOWN": "Bilinmiyor",
+            "NO_SOURCES": "Bağlı kaynak yok",
+        }.get(state, state)
 
     def _render_erp_quality_summary(self, records) -> None:
         last_week = filter_operation_records(records, period_days=7)
