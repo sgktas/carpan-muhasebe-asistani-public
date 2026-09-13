@@ -314,4 +314,3 @@ def test_publication_journal_does_not_validate_missing_or_modified_outputs(tmp_p
     assert committed.output_files == (str(changed),)
     assert changed.read_bytes() == b"after"
     assert published_id != committed_id
-

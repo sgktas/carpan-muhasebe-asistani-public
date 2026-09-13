@@ -103,4 +103,3 @@ P3-C şunları değiştirmemelidir:
 - operation kimliği üretimi;
 - MANİM, Netsis, FOM veya muhasebe kuralları;
 - mevcut kısmi durumları rollback ile gizlemek.
-
