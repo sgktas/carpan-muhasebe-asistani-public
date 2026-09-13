@@ -6,7 +6,16 @@ from typing import TYPE_CHECKING, Iterable
 
 from app.core.erp_acceptance_target import aggregate_erp_acceptance
 from app.core.operation_history import ERP_REJECTION_REASON_LABELS, OperationRecord
-from app.core.operation_read_model import ATTENTION, CONSISTENT, RECOVERY_REQUIRED
+from app.core.operation_read_model import (
+    ATTENTION,
+    CONSISTENT,
+    HISTORY_PUBLICATION_MISMATCH,
+    OUTPUT_MISSING,
+    PROCESSED_SOURCE_MISSING,
+    PUBLICATION_PENDING_COMMIT,
+    RECOVERY_REQUIRED,
+    REVIEW_PENDING,
+)
 
 if TYPE_CHECKING:
     from app.core.operation_read_model import UnifiedOperationView
@@ -43,6 +52,19 @@ class OperationCenterSnapshot:
 
 
 @dataclass(frozen=True)
+class OperationReasonPresentation:
+    """User-facing explanation for one stable read-model reason code."""
+
+    code: str
+    title: str
+    explanation: str
+    severity: str
+    action_hint: str
+    navigation_target: str | None = None
+    navigation_label: str | None = None
+
+
+@dataclass(frozen=True)
 class OperationStatusPresentation:
     """Human-readable rendering of a read model; never a new domain state."""
 
@@ -50,7 +72,13 @@ class OperationStatusPresentation:
     explanation: str
     severity: str
     action_hint: str
-    reason_texts: tuple[str, ...]
+    reasons: tuple[OperationReasonPresentation, ...]
+    navigation_target: str | None
+    navigation_label: str | None
+
+    @property
+    def reason_texts(self) -> tuple[str, ...]:
+        return tuple(reason.explanation for reason in self.reasons)
 
 
 _CONSISTENCY_PRESENTATION = {
@@ -74,14 +102,65 @@ _CONSISTENCY_PRESENTATION = {
     ),
 }
 
-_ATTENTION_REASON_TEXT = {
-    "publication_pending_commit": "Çıktı yayımlandı; yerel tamamlanma kaydı bekliyor.",
-    "history_publication_mismatch": "İşlem geçmişi ile tamamlanmış yayın durumu farklı görünüyor.",
-    "review_pending": "Bu operasyonda açık inceleme kayıtları var.",
-    "output_missing": "Bu işleme ait kayıtlı çıktı dosyalarından biri artık bulunamıyor.",
-    "processed_source_missing": (
-        "Kaynakların işlenmiş dosya kaydı eksik olabilir; bu tek başına veri kaybı "
-        "veya işlem başarısızlığı anlamına gelmez."
+_ATTENTION_REASON_PRESENTATION = {
+    PUBLICATION_PENDING_COMMIT: OperationReasonPresentation(
+        code=PUBLICATION_PENDING_COMMIT,
+        title="Yayın tamamlanma kontrolü",
+        explanation=(
+            "Çıktı yayımlandı ancak işlemin yerel tamamlanma kaydı henüz oluşmamış. "
+            "Sessiz yeniden çalışma güvenlik amacıyla engellenir."
+        ),
+        severity="critical",
+        action_hint=(
+            "Yayın ve kurtarma kontrolü bölümünde mevcut çıktının dış sisteme "
+            "aktarılmadığını doğrulayın."
+        ),
+        navigation_target="publication_recovery",
+        navigation_label="Yayın ve kurtarma kontrolüne git",
+    ),
+    HISTORY_PUBLICATION_MISMATCH: OperationReasonPresentation(
+        code=HISTORY_PUBLICATION_MISMATCH,
+        title="Geçmiş ve yayın durumu farklı",
+        explanation=(
+            "Çıktı yayını tamamlanmış, fakat operasyon geçmişi tamamlanmamış."
+        ),
+        severity="warning",
+        action_hint="Geçmiş İşlemler ekranından operasyon ayrıntılarını inceleyin.",
+    ),
+    REVIEW_PENDING: OperationReasonPresentation(
+        code=REVIEW_PENDING,
+        title="İnceleme kararı bekleniyor",
+        explanation="Bu operasyonda açık inceleme kayıtları var.",
+        severity="warning",
+        action_hint="Ekip görevleri ve onaylar bölümündeki açık kayıtları inceleyin.",
+        navigation_target="review_board",
+        navigation_label="İnceleme kayıtlarına git",
+    ),
+    OUTPUT_MISSING: OperationReasonPresentation(
+        code=OUTPUT_MISSING,
+        title="Kayıtlı çıktı dosyası bulunamıyor",
+        explanation=(
+            "Bu işleme ait kayıtlı çıktı dosyalarından biri artık bulunamıyor. "
+            "Bu uyarı yalnız kayıtlı dosyanın fiziksel varlığını bildirir."
+        ),
+        severity="warning",
+        action_hint=(
+            "Kayıtlı çıktı konumunu ve dosyanın taşınıp taşınmadığını kontrol edin; "
+            "çıktı otomatik olarak yeniden üretilmez."
+        ),
+    ),
+    PROCESSED_SOURCE_MISSING: OperationReasonPresentation(
+        code=PROCESSED_SOURCE_MISSING,
+        title="İşlenmiş kaynak kaydı eksik",
+        explanation=(
+            "İşlenmiş dosya kaydı bulunamadı. Bu durum tek başına veri kaybı veya "
+            "işlem başarısızlığı anlamına gelmez."
+        ),
+        severity="warning",
+        action_hint=(
+            "Operasyon geçmişi ve yayın kayıtlarını birlikte kontrol edin; kaynak "
+            "otomatik olarak işlenmiş sayılmaz."
+        ),
     ),
 }
 
@@ -93,14 +172,34 @@ def operation_status_presentation(
     title, explanation, severity, action_hint = _CONSISTENCY_PRESENTATION[
         view.consistency_status
     ]
+    reasons = tuple(
+        _ATTENTION_REASON_PRESENTATION.get(
+            reason,
+            OperationReasonPresentation(
+                code=reason,
+                title="Kontrol ayrıntısı",
+                explanation=reason,
+                severity="warning",
+                action_hint="Operasyon kayıtlarını kontrol edin.",
+            ),
+        )
+        for reason in view.attention_reasons
+    )
+    navigation_reason = next(
+        (reason for reason in reasons if reason.navigation_target is not None),
+        None,
+    )
     return OperationStatusPresentation(
         title=title,
         explanation=explanation,
         severity=severity,
         action_hint=action_hint,
-        reason_texts=tuple(
-            _ATTENTION_REASON_TEXT.get(reason, reason)
-            for reason in view.attention_reasons
+        reasons=reasons,
+        navigation_target=(
+            navigation_reason.navigation_target if navigation_reason else None
+        ),
+        navigation_label=(
+            navigation_reason.navigation_label if navigation_reason else None
         ),
     )
 

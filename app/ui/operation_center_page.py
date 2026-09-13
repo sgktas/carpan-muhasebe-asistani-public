@@ -104,6 +104,7 @@ class OperationCenterPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
+        self.operation_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -354,9 +355,9 @@ class OperationCenterPage(QWidget):
         card_layout.addWidget(self.table)
         layout.addWidget(card)
 
-        recovery_card = QFrame()
-        recovery_card.setObjectName("surfaceCard")
-        recovery_layout = QVBoxLayout(recovery_card)
+        self.recovery_card = QFrame()
+        self.recovery_card.setObjectName("surfaceCard")
+        recovery_layout = QVBoxLayout(self.recovery_card)
         recovery_layout.setContentsMargins(20, 18, 20, 20)
         recovery_layout.setSpacing(10)
         recovery_title = QLabel("Yayın ve kurtarma kontrolü")
@@ -386,16 +387,25 @@ class OperationCenterPage(QWidget):
         recovery_actions = QHBoxLayout()
         self.open_recovery_output_button = QPushButton("Çıktı Klasörünü Aç")
         self.open_recovery_output_button.setObjectName("secondary")
+        self.open_recovery_output_button.setAccessibleName(
+            "Seçili yayın kaydının çıktı klasörünü aç"
+        )
         self.open_recovery_output_button.clicked.connect(self._open_recovery_output)
         self.approve_retry_button = QPushButton("Yeniden İşlem İçin Onayla")
         self.approve_retry_button.setObjectName("secondary")
+        self.approve_retry_button.setAccessibleName(
+            "Seçili yayın kaydını yeniden işlemek için onayla"
+        )
+        self.approve_retry_button.setToolTip(
+            "Eski çıktıyı silmez; yalnız doğrulama sonrasında yeniden işlemeye izin verir."
+        )
         self.approve_retry_button.clicked.connect(self._approve_recovery_retry)
         recovery_actions.addWidget(self.open_recovery_output_button)
         recovery_actions.addWidget(self.approve_retry_button)
         recovery_actions.addStretch(1)
         recovery_layout.addLayout(recovery_actions)
         self.recovery_table.itemSelectionChanged.connect(self._update_recovery_actions)
-        layout.addWidget(recovery_card)
+        layout.addWidget(self.recovery_card)
         layout.addStretch()
         scroll.setWidget(content)
         root.addWidget(scroll)
@@ -447,15 +457,35 @@ class OperationCenterPage(QWidget):
         self.consistency_facts.setWordWrap(True)
         self.consistency_facts.setTextFormat(Qt.PlainText)
         self.consistency_facts.setContentsMargins(12, 10, 12, 10)
+        self.consistency_facts.setAccessibleName("Operasyonun ham durumları")
         card_layout.addWidget(self.consistency_facts)
+        self.consistency_diagnostics = QLabel()
+        self.consistency_diagnostics.setObjectName("miniInfoText")
+        self.consistency_diagnostics.setWordWrap(True)
+        self.consistency_diagnostics.setTextFormat(Qt.PlainText)
+        self.consistency_diagnostics.setAccessibleName("Operasyon tanı bilgileri")
+        card_layout.addWidget(self.consistency_diagnostics)
         self.consistency_reasons = QLabel()
         self.consistency_reasons.setWordWrap(True)
         self.consistency_reasons.setTextFormat(Qt.PlainText)
+        self.consistency_reasons.setAccessibleName("Kontrol nedenleri ve güvenli adımlar")
         card_layout.addWidget(self.consistency_reasons)
         self.consistency_hint = QLabel()
         self.consistency_hint.setObjectName("cardSubtitle")
         self.consistency_hint.setWordWrap(True)
         card_layout.addWidget(self.consistency_hint)
+        self.consistency_action_button = QPushButton()
+        self.consistency_action_button.setObjectName("secondary")
+        self.consistency_action_button.setVisible(False)
+        self.consistency_action_button.setAccessibleName(
+            "Önerilen güvenli operasyon bölümüne git"
+        )
+        self.consistency_action_button.clicked.connect(
+            self._navigate_consistency_action
+        )
+        card_layout.addWidget(self.consistency_action_button, 0, Qt.AlignLeft)
+        self._consistency_action_target = None
+        self._selected_consistency_view = None
         layout.addWidget(card)
 
     def _metric_card(self, key: str, title_text: str, subtitle_text: str) -> QFrame:
@@ -586,24 +616,32 @@ class OperationCenterPage(QWidget):
             company_id=self.history.company_id,
         )
         if view is None:
+            self._selected_consistency_view = None
             self.consistency_status.setText("Operasyon yok")
             self.consistency_status.setStyleSheet(self._consistency_chip_style("neutral"))
             self.consistency_explanation.setText(
                 "Firma kapsamında görüntülenecek bir operasyon bulunmuyor."
             )
             self.consistency_facts.setText("Geçmiş: Kayıt yok")
+            self.consistency_diagnostics.clear()
             self.consistency_reasons.clear()
             self.consistency_hint.clear()
+            self._set_consistency_action(None, None)
             return
 
+        self._selected_consistency_view = view
         presentation = operation_status_presentation(view)
         self.consistency_status.setText(presentation.title)
         self.consistency_status.setProperty("consistencySeverity", presentation.severity)
         self.consistency_status.setStyleSheet(
             self._consistency_chip_style(presentation.severity)
         )
+        self.consistency_status.setAccessibleDescription(
+            f"Önem düzeyi: {self._severity_text(presentation.severity)}. "
+            f"{presentation.explanation}"
+        )
         self.consistency_explanation.setText(presentation.explanation)
-        publication = self._publication_status_text(view.publication_status)
+        publication = self._publication_status_summary(view.publications)
         review = (
             f"{view.open_review_group_count} açık grup · "
             f"{view.pending_review_count} kayıt"
@@ -618,7 +656,7 @@ class OperationCenterPage(QWidget):
                 self._review_phase_text(phase) for phase in phases
             )
         self.consistency_facts.setText(
-            " · ".join((
+            "\n".join((
                 f"Geçmiş: {self._history_status_text(view.history_status)}",
                 f"Yayın: {publication}",
                 f"İnceleme: {review}",
@@ -626,12 +664,63 @@ class OperationCenterPage(QWidget):
                 f"Kaynak kaydı: {self._processed_source_text(view.processed_source_state)}",
             ))
         )
+        publication_ids = ", ".join(
+            item.publication_id for item in view.publications
+        ) or "—"
+        self.consistency_diagnostics.setText(
+            " · ".join((
+                f"Operasyon #{view.operation_id}",
+                f"Başlangıç: {self._display_date(view.history_started_at)}",
+                f"Bitiş: {self._display_date(view.history_finished_at) if view.history_finished_at else '—'}",
+                f"Yayın kaydı: {len(view.publications)}",
+                f"Yayın kimliği: {publication_ids}",
+                f"İnceleme grubu: {len(view.reviews)}",
+                f"Bekleyen kayıt: {view.pending_review_count}",
+            ))
+        )
         self.consistency_reasons.setText(
-            "\n".join(f"• {reason}" for reason in presentation.reason_texts)
-            if presentation.reason_texts
+            "\n".join(
+                f"• {reason.title}: {reason.explanation}\n"
+                f"  Güvenli sonraki adım: {reason.action_hint}"
+                for reason in presentation.reasons
+            )
+            if presentation.reasons
             else "Kontrol nedeni bulunmuyor."
         )
         self.consistency_hint.setText(presentation.action_hint)
+        self._set_consistency_action(
+            presentation.navigation_target,
+            presentation.navigation_label,
+        )
+
+    def _set_consistency_action(
+        self, target: str | None, label: str | None,
+    ) -> None:
+        self._consistency_action_target = target
+        self.consistency_action_button.setText(label or "")
+        self.consistency_action_button.setToolTip(
+            "Seçili operasyon için ilgili bölümü gösterir; kayıtları değiştirmez."
+            if target
+            else ""
+        )
+        self.consistency_action_button.setVisible(bool(target and label))
+        self.consistency_action_button.setEnabled(bool(target and label))
+
+    def _navigate_consistency_action(self) -> None:
+        target = self._consistency_action_target
+        if target == "review_board":
+            self.operation_scroll.ensureWidgetVisible(self.review_board, 0, 24)
+            self.review_board.setFocus(Qt.OtherFocusReason)
+            return
+        if target == "publication_recovery":
+            view = self._selected_consistency_view
+            if view is not None:
+                for row, publication in enumerate(self._pending_publications):
+                    if publication.operation_id == view.operation_id:
+                        self.recovery_table.selectRow(row)
+                        break
+            self.operation_scroll.ensureWidgetVisible(self.recovery_card, 0, 24)
+            self.recovery_table.setFocus(Qt.OtherFocusReason)
 
     @staticmethod
     def _consistency_chip_style(severity: str) -> str:
@@ -648,6 +737,15 @@ class OperationCenterPage(QWidget):
             "border-radius:12px; padding:7px 12px; font-weight:700;"
             "}"
         )
+
+    @staticmethod
+    def _severity_text(severity: str) -> str:
+        return {
+            "success": "normal",
+            "warning": "kontrol gerekiyor",
+            "critical": "kurtarma kontrolü gerekiyor",
+            "neutral": "bilgi",
+        }.get(severity, "bilgi")
 
     @staticmethod
     def _history_status_text(status: str) -> str:
@@ -667,6 +765,20 @@ class OperationCenterPage(QWidget):
             "RECOVERY_CONFIRMED": "Yeniden işleme onaylandı",
             None: "Kayıt yok",
         }.get(status, status or "Kayıt yok")
+
+    @classmethod
+    def _publication_status_summary(cls, publications) -> str:
+        if not publications:
+            return cls._publication_status_text(None)
+        statuses = []
+        for publication in publications:
+            if publication.status not in statuses:
+                statuses.append(publication.status)
+        return " · ".join(
+            f"{cls._publication_status_text(status)}"
+            f" ({sum(item.status == status for item in publications)})"
+            for status in statuses
+        )
 
     @staticmethod
     def _review_phase_text(phase: str) -> str:

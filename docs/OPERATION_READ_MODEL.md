@@ -112,6 +112,64 @@ Doğrudan store okumaları şimdilik korunur:
 Bu ilk UI geçişi aynı görünür tutarlılık sonucunu iki ayrı yerde hesaplamaz;
 birleşik durum kartının tek hesap kaynağı `UnifiedOperationView`'dır.
 
+## P3-E gözlemlenebilirlik ve güvenli yönlendirme sözleşmesi
+
+Operasyon Merkezi, birleşik görünümü açıklarken ham gerçekleri tek bir başarı
+veya hata etiketinin arkasına saklamaz. Geçmiş, yayın, inceleme, fiziksel çıktı
+ve işlenmiş kaynak durumları ayrı metin etiketleriyle görünür kalır. Renk yalnız
+destekleyici bir işarettir; genel önem düzeyi kartta metinle ve erişilebilir
+açıklamayla da bildirilir.
+
+Makine tarafından okunabilir neden kodlarının Türkçe sunumu
+`app/core/operation_center.py` içindeki merkezi eşlemede tutulur. Her neden:
+
+- kısa bir başlık ve ölçülü açıklama;
+- `success`, `warning` veya `critical` sunum seviyesi;
+- yalnız mevcut ve güvenli işlemlere yönelten bir sonraki adım;
+- varsa Operasyon Merkezi içindeki mevcut bölüme ait yerel gezinme hedefi
+
+sağlar. Qt dalları muhasebe veya recovery kararı üretmez. Birden fazla neden,
+read model'in kararlı sırasıyla gösterilir; `publication_pending_commit`
+kurtarma yönlendirmesinde önceliklidir.
+
+Güvenli sonraki adım politikası şöyledir:
+
+- `publication_pending_commit`, mevcut **Yayın ve kurtarma kontrolü** bölümüne
+  götürür. Sessiz yeniden çalışma engelinin nedeni açıklanır; onay işlemi yine
+  yalnız `PublicationJournal.approve_retry()` üzerinden yürür.
+- `review_pending`, sayfadaki mevcut **Ekip görevleri ve onaylar** bölümüne
+  götürür. Review kararı read model veya sunum katmanında verilmez.
+- `history_publication_mismatch`, Geçmiş İşlemler ekranında inceleme önerir.
+  Uygulamada ortak ve gevşek bağlı bir sayfalar arası gezinme sinyali olmadığı
+  için P3-E yeni coupling kurmaz ve yalnız metinle yönlendirir.
+- `output_missing`, kayıtlı fiziksel dosyanın bulunamadığını söyler. Dosya
+  bozukluğu sonucuna varmaz, otomatik yeniden üretim veya dosya onarımı yapmaz.
+- `processed_source_missing`, tek başına veri kaybı ya da operasyon
+  başarısızlığı sayılmaz; kaynak otomatik olarak işlenmiş işaretlenmez.
+
+Split-state sunumu özellikle şu ayrımları korur:
+
+- history `INTERRUPTED` + publication `COMMITTED`: “Çıktı yayını tamamlanmış,
+  fakat operasyon geçmişi tamamlanmamış” açıklaması gösterilir; sonuç düz başarı
+  veya genel “işlem başarısız” metnine indirgenmez.
+- publication `PUBLISHED`: history durumu ne olursa olsun kurtarma gereksinimi
+  görünür ve yönlendirmede önceliklidir.
+- history `SUCCESS` + açık review: operasyon başarısız sayılmaz; bekleyen karar
+  ayrı bir dikkat nedeni olarak gösterilir.
+- publication `COMMITTED` + eksik çıktı: yalnız kayıtlı dosyanın fiziksel olarak
+  bulunamadığı belirtilir; çalışma kitabı bozukluğu iddia edilmez.
+
+Kompakt tanı satırı yalnız güvenilir mevcut alanları gösterir: operasyon ID,
+başlangıç/bitiş zamanı, publication ID ve sayısı, review grup sayısı ve bekleyen
+üye sayısı. Yeni zaman veya durum tahmin edilmez. `operation_id=None` olan eski
+ya da bağlantısız kayıtlar için sahte kimlik üretilmez ve bunlar operasyon
+seçimine eklenmez.
+
+Performans sınırı değişmemiştir: son operasyon listesi bir kez
+`OperationHistory` üzerinden alınır, birleşik store görünümü yalnız seçili
+operasyon için hesaplanır. Yerel yönlendirme yeni toplu read, cache veya N+1
+tarama oluşturmaz.
+
 ## Sınırlamalar
 
 - Tek-operation lookup mevcut public store API'leri üzerinden firma kapsamlı

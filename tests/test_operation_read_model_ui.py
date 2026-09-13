@@ -6,6 +6,7 @@ import sqlite3
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.core import identity
@@ -70,6 +71,9 @@ def test_operation_center_renders_consistent_unified_state(tmp_path):
     assert "Yayın: Tamamlandı" in page.consistency_facts.text()
     assert "Açık kayıt yok" in page.consistency_facts.text()
     assert page.consistency_reasons.text() == "Kontrol nedeni bulunmuyor."
+    assert f"Operasyon #{operation_id}" in page.consistency_diagnostics.text()
+    assert "Yayın kaydı: 1" in page.consistency_diagnostics.text()
+    assert "Önem düzeyi: normal" in page.consistency_status.accessibleDescription()
     page.deleteLater()
 
 
@@ -89,7 +93,8 @@ def test_operation_center_shows_committed_and_interrupted_split_state(
     assert page.consistency_status.text() == "Kontrol gerekiyor"
     assert "Geçmiş: Yarım kaldı" in page.consistency_facts.text()
     assert "Yayın: Tamamlandı" in page.consistency_facts.text()
-    assert "İşlem geçmişi ile tamamlanmış yayın durumu farklı" in page.consistency_reasons.text()
+    assert "Çıktı yayını tamamlanmış, fakat operasyon geçmişi tamamlanmamış" in page.consistency_reasons.text()
+    assert "Durum tutarlı" not in page.consistency_status.text()
     page.deleteLater()
 
 
@@ -102,7 +107,11 @@ def test_operation_center_shows_published_recovery_required(tmp_path):
 
     assert page.consistency_status.text() == "Kurtarma kontrolü gerekiyor"
     assert "Yayın: Yayımlandı · tamamlanma bekliyor" in page.consistency_facts.text()
-    assert "yerel tamamlanma kaydı bekliyor" in page.consistency_reasons.text()
+    assert "yerel tamamlanma kaydı henüz oluşmamış" in page.consistency_reasons.text()
+    assert "Sessiz yeniden çalışma" in page.consistency_reasons.text()
+    assert page.consistency_action_button.text() == "Yayın ve kurtarma kontrolüne git"
+    assert not page.consistency_action_button.isHidden()
+    assert page._consistency_action_target == "publication_recovery"
     assert page.recovery_table.rowCount() == 1
     page.deleteLater()
 
@@ -123,6 +132,8 @@ def test_operation_center_shows_open_review_without_replacing_review_board(tmp_p
     assert page.consistency_status.text() == "Kontrol gerekiyor"
     assert "İnceleme: 1 açık grup · 1 kayıt" in page.consistency_facts.text()
     assert "açık inceleme kayıtları" in page.consistency_reasons.text()
+    assert page.consistency_action_button.text() == "İnceleme kayıtlarına git"
+    assert page._consistency_action_target == "review_board"
     assert page.review_board is not None
     page.deleteLater()
 
@@ -140,6 +151,7 @@ def test_operation_center_shows_missing_output_without_calling_it_corrupt(tmp_pa
     assert "Çıktı: Kayıtlı dosyalar bulunamıyor" in page.consistency_facts.text()
     assert "artık bulunamıyor" in page.consistency_reasons.text()
     assert "bozuk" not in page.consistency_reasons.text().casefold()
+    assert "otomatik olarak yeniden üretilmez" in page.consistency_reasons.text()
     page.deleteLater()
 
 
@@ -153,6 +165,57 @@ def test_processed_source_missing_wording_is_explicitly_non_fatal(tmp_path):
     assert page.consistency_status.text() == "Kontrol gerekiyor"
     assert "İşlenmiş kaydı yok" in page.consistency_facts.text()
     assert "tek başına veri kaybı veya işlem başarısızlığı anlamına gelmez" in page.consistency_reasons.text()
+    page.deleteLater()
+
+
+def test_multiple_attention_reasons_render_in_stable_priority_order(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(OperationHistory, "LEASE_SECONDS", -1)
+    database = tmp_path / "data" / "operations.sqlite3"
+    history = OperationHistory(database, company_id=7, instance_id="first")
+    operation_id, source, output = _operation(
+        tmp_path, history, status="RUNNING", name="multi-reason",
+    )
+    _publication(history, operation_id, output)
+    queue = ReviewQueue(history.database_path, company_id=7)
+    queue.enqueue(
+        [ReviewMember(source.name, 2, 10.0, "TEST-REGION", "TEST-BANK", "Review")],
+        operation_id=operation_id,
+    )
+    output.unlink()
+    restarted = OperationHistory(database, company_id=7, instance_id="second")
+
+    page = OperationCenterPage(restarted)
+    reasons = page.consistency_reasons.text()
+
+    titles = (
+        "Geçmiş ve yayın durumu farklı",
+        "İnceleme kararı bekleniyor",
+        "Kayıtlı çıktı dosyası bulunamıyor",
+        "İşlenmiş kaynak kaydı eksik",
+    )
+    assert all(title in reasons for title in titles)
+    assert [reasons.index(title) for title in titles] == sorted(
+        reasons.index(title) for title in titles
+    )
+    assert page.consistency_action_button.text() == "İnceleme kayıtlarına git"
+    page.deleteLater()
+
+
+def test_severity_is_expressed_in_text_and_accessible_description(tmp_path):
+    history = OperationHistory(tmp_path / "data" / "operations.sqlite3", company_id=7)
+    operation_id, _source, output = _operation(tmp_path, history, status="RUNNING")
+    _publication(history, operation_id, output, committed=False)
+
+    page = OperationCenterPage(history)
+
+    assert page.consistency_status.text() == "Kurtarma kontrolü gerekiyor"
+    assert "kurtarma kontrolü gerekiyor" in (
+        page.consistency_status.accessibleDescription().casefold()
+    )
+    assert page.consistency_status.property("consistencySeverity") == "critical"
+    assert page.consistency_action_button.focusPolicy() != Qt.NoFocus
     page.deleteLater()
 
 
