@@ -325,4 +325,3 @@ def test_legacy_operation_remains_visible_through_read_model(tmp_path):
     assert view.company_id == 7
     assert view.history_status == "SUCCESS"
     assert view.consistency_status == CONSISTENT
-

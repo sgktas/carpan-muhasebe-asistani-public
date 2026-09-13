@@ -98,4 +98,3 @@ Gelecekte Operasyon Merkezi:
 - Consumption state operation düzeyinde gösterilmez.
 - Processed-files firma kimliğini kaydın içinde taşımaz; firma ayrımı aktif
   workspace dosya sınırıyla sağlanır.
-

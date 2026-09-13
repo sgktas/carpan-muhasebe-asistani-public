@@ -308,4 +308,3 @@ class OperationReadModel:
             member_count=len(group.members),
             updated_at=group.updated_at,
         )
-
