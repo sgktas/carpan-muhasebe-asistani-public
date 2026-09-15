@@ -6,20 +6,22 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QWidget
 
-BRAND_NAVY = "#214866"
-BRAND_NAVY_DARK = "#17364D"
-BRAND_ORANGE = "#CF642D"
-BRAND_ORANGE_DARK = "#A84A20"
-BRAND_ORANGE_SOFT = "#FFF1E8"
+from app.ui.design_system import TOKENS
 
-TEXT_PRIMARY = "#17212B"
-TEXT_SECONDARY = "#667584"
-TEXT_MUTED = "#8B98A5"
-BORDER = "#DDE4EA"
-BORDER_STRONG = "#C7D2DC"
-APP_BACKGROUND = "#F4F6F8"
-SURFACE = "#FFFFFF"
-SIDEBAR_BACKGROUND = "#FFFFFF"
+# Compatibility aliases keep existing pages on the central V1 design tokens.
+BRAND_NAVY = TOKENS.brand
+BRAND_NAVY_DARK = TOKENS.brand_hover
+BRAND_ORANGE = TOKENS.brand
+BRAND_ORANGE_DARK = TOKENS.brand_hover
+BRAND_ORANGE_SOFT = TOKENS.brand_soft
+TEXT_PRIMARY = TOKENS.text_primary
+TEXT_SECONDARY = TOKENS.text_secondary
+TEXT_MUTED = TOKENS.text_muted
+BORDER = TOKENS.border
+BORDER_STRONG = TOKENS.border_strong
+APP_BACKGROUND = TOKENS.app_background
+SURFACE = TOKENS.surface
+SIDEBAR_BACKGROUND = TOKENS.sidebar
 
 MAIN_STYLE = f"""
 QWidget#mainRoot {{
@@ -439,6 +441,112 @@ QComboBox { padding: 7px 9px; border: 1px solid #CFDBE4; border-radius: 7px; bac
 QTabWidget::pane { border: 1px solid #E1E8EE; border-radius: 8px; background: #FFFFFF; }
 QTabBar::tab { padding: 10px 16px; color: #617484; background: #F3F6F8; border-bottom: 2px solid transparent; }
 QTabBar::tab:selected { color: #17364D; background: #FFFFFF; border-bottom: 2px solid #CF642D; font-weight: 600; }
+"""
+
+# Phase 1 shell overrides. Existing working pages retain their object names;
+# their visual language is brought forward through tokens rather than rewrites.
+MAIN_STYLE += f"""
+QWidget#mainRoot {{ background:{TOKENS.app_background}; color:{TOKENS.text_primary}; }}
+QFrame#workspace {{ background:{TOKENS.app_background}; }}
+QFrame#workspaceHeader {{ background:{TOKENS.surface}; border-bottom:1px solid {TOKENS.border}; }}
+QLabel#workspaceHeading {{ color:{TOKENS.text_primary}; font-size:15px; font-weight:650; }}
+QLabel#workspaceSubtitle {{ color:{TOKENS.text_secondary}; font-size:11px; }}
+QLabel#workspaceStatus {{ background:{TOKENS.surface_secondary}; border:1px solid {TOKENS.border}; color:{TOKENS.text_secondary}; border-radius:{TOKENS.radius_small}px; padding:4px 8px; }}
+QFrame#sidebar {{ background:{TOKENS.sidebar}; border-right:1px solid {TOKENS.sidebar_hover}; }}
+QFrame#brandArea {{ background:#F7FAFF; border:1px solid #2C4260; border-radius:{TOKENS.radius_panel}px; }}
+QLabel#brandDescriptor {{ color:#607087; }}
+QLabel#navSection {{ color:#A8B5C8; }}
+QPushButton.navItem {{ color:#D5DDEA; border:1px solid transparent; border-radius:{TOKENS.radius_control}px; padding:7px 10px; min-height:30px; text-align:left; }}
+QPushButton.navItem:hover {{ background:{TOKENS.sidebar_hover}; color:#FFFFFF; }}
+QPushButton.navItem[active="true"] {{ background:{TOKENS.sidebar_selected}; color:#FFFFFF; border-color:#36558A; font-weight:650; }}
+QFrame#sidebarItem {{ background:transparent; border:none; }}
+QScrollArea#sidebarNavigationScroll {{ background:transparent; border:none; }}
+QWidget#sidebarNavigationContent {{ background:transparent; }}
+QScrollArea#sidebarNavigationScroll QScrollBar:vertical {{
+    background:transparent;
+    width:6px;
+    margin:2px 0;
+}}
+QScrollArea#sidebarNavigationScroll QScrollBar::handle:vertical {{
+    background:#465971;
+    border-radius:3px;
+    min-height:32px;
+}}
+QScrollArea#sidebarNavigationScroll QScrollBar::handle:vertical:hover {{ background:#60738B; }}
+QScrollArea#sidebarNavigationScroll QScrollBar::add-line:vertical,
+QScrollArea#sidebarNavigationScroll QScrollBar::sub-line:vertical {{ height:0; }}
+QScrollArea#sidebarNavigationScroll QScrollBar::add-page:vertical,
+QScrollArea#sidebarNavigationScroll QScrollBar::sub-page:vertical {{ background:transparent; }}
+QPushButton#sidebarToggle {{ background:transparent; border:1px solid #33465F; color:#C6D1E0; border-radius:{TOKENS.radius_small}px; }}
+QPushButton#sidebarToggle:hover {{ background:{TOKENS.sidebar_hover}; color:#FFFFFF; }}
+QFrame#userCard {{ background:{TOKENS.sidebar_hover}; border:1px solid #30445D; border-radius:{TOKENS.radius_panel}px; }}
+QLabel#userName {{ color:#FFFFFF; }} QLabel#userStatus {{ color:#B7C4D4; }}
+QPushButton#logoutButton {{ color:#B7C4D4; }} QPushButton#logoutButton:hover {{ color:#FFFFFF; }}
+QFrame#surfaceCard, QFrame#placeholderCard {{ border-radius:{TOKENS.radius_panel}px; border-color:{TOKENS.border}; }}
+QFrame#toolRow {{ background:{TOKENS.surface}; border:1px solid {TOKENS.border}; border-radius:{TOKENS.radius_panel}px; }}
+QLabel#automationNotice {{ background:{TOKENS.info_soft}; border:1px solid #CFE0FF; color:{TOKENS.text_secondary}; border-radius:{TOKENS.radius_small}px; padding:12px; }}
+QLabel#sectionTitle {{ color:{TOKENS.text_primary}; font-size:15px; font-weight:650; }}
+QLabel#sectionSubtitle, QLabel#cardSubtitle {{ color:{TOKENS.text_secondary}; font-size:12px; }}
+QLabel#panelTitle {{ color:{TOKENS.text_primary}; font-size:13px; font-weight:650; }}
+QFrame#emptyState {{ background:{TOKENS.surface}; border:1px solid {TOKENS.border}; border-radius:{TOKENS.radius_panel}px; }}
+QLabel#emptyStateTitle {{ color:{TOKENS.text_primary}; font-size:17px; font-weight:650; }}
+QLabel#emptyStateDetail {{ color:{TOKENS.text_secondary}; font-size:13px; }}
+QPushButton#primary {{ background:{TOKENS.brand}; border-color:{TOKENS.brand}; border-radius:{TOKENS.radius_control}px; }}
+QPushButton#primary:hover:!disabled {{ background:{TOKENS.brand_hover}; border-color:{TOKENS.brand_hover}; }}
+QPushButton#secondary {{ color:{TOKENS.brand}; border-color:{TOKENS.border_strong}; border-radius:{TOKENS.radius_control}px; }}
+QPushButton#secondary:hover {{ background:{TOKENS.brand_soft}; border-color:{TOKENS.brand}; }}
+QPushButton#danger {{ background:{TOKENS.critical}; color:#FFFFFF; border:1px solid {TOKENS.critical}; border-radius:{TOKENS.radius_control}px; padding:9px 14px; font-weight:600; }}
+QPushButton#iconButton {{ background:transparent; color:{TOKENS.text_secondary}; border:1px solid transparent; border-radius:{TOKENS.radius_small}px; padding:6px; }}
+QPushButton:focus {{ outline:none; border:2px solid {TOKENS.brand}; }}
+QTableWidget#historyTable {{ selection-background-color:{TOKENS.brand_soft}; selection-color:{TOKENS.text_primary}; border-radius:{TOKENS.radius_control}px; }}
+QHeaderView::section {{ background:{TOKENS.surface_secondary}; color:{TOKENS.text_secondary}; border-color:{TOKENS.border}; }}
+"""
+
+# Phase 1B: one visual language for the shell and hosted legacy widgets.
+MAIN_STYLE += f"""
+QWidget {{ font-family:"{TOKENS.font_family}"; font-size:{TOKENS.body_size}px; color:{TOKENS.text_primary}; }}
+QFrame#workspace, QStackedWidget, QScrollArea {{ background:{TOKENS.app_background}; border:none; }}
+QWidget#pageCanvas {{ background:{TOKENS.app_background}; }}
+QFrame#workspaceHeader {{ background:{TOKENS.surface}; border-bottom:1px solid {TOKENS.border}; }}
+QLabel#workspaceHeading {{ font-size:14px; font-weight:600; }}
+QLabel#workspaceSubtitle {{ font-size:11px; color:{TOKENS.text_secondary}; }}
+QLineEdit#globalSearch {{ background:{TOKENS.surface_secondary}; border:1px solid {TOKENS.border}; border-radius:7px; padding:9px 12px; color:{TOKENS.text_muted}; font-size:12px; }}
+QLabel#topbarCompany {{ font-size:12px; font-weight:600; padding:0 8px; }}
+QLabel#topbarAvatar {{ color:{TOKENS.brand}; background:{TOKENS.brand_soft}; border-radius:16px; font-size:14px; font-weight:600; }}
+QFrame#brandArea {{ background:transparent; border:none; border-radius:0; }}
+QLabel#brandDescriptor {{ color:#A0B0C4; font-size:10px; font-weight:400; letter-spacing:0; }}
+QLabel#navSection {{ color:#8596AE; font-size:10px; font-weight:600; padding:7px 8px 2px 8px; }}
+QPushButton.navItem {{ background:transparent; color:#D4DEEB; font-size:12px; border:none; border-radius:6px; padding:4px 6px; min-height:26px; text-align:left; }}
+QPushButton.navItem:hover {{ background:#1D2E46; color:#FFFFFF; }}
+QPushButton.navItem[active="true"] {{ background:#243A60; color:#FFFFFF; border:none; font-weight:600; }}
+QPushButton#sidebarToggle {{ background:transparent; border:none; color:#96A8C0; padding:4px 8px; font-size:11px; }}
+QFrame#userCard {{ background:transparent; border:none; border-top:1px solid #2B3B52; border-radius:0; }}
+QLabel#userName {{ color:#EDF2FA; font-size:12px; font-weight:600; }}
+QLabel#userStatus {{ color:#96A8C0; font-size:11px; }}
+QPushButton#logoutButton {{ background:transparent; border:none; padding:2px 0; color:#AABAD0; font-size:11px; }}
+QLabel#pageTitle {{ font-size:{TOKENS.page_title_size}px; font-weight:600; color:{TOKENS.text_primary}; }}
+QLabel#pageSubtitle, QLabel#cardSubtitle {{ font-size:{TOKENS.body_size}px; color:{TOKENS.text_secondary}; }}
+QLabel#sectionTitle {{ font-size:{TOKENS.section_title_size}px; font-weight:600; }}
+QLabel#panelTitle, QLabel#cardTitle {{ font-size:{TOKENS.panel_title_size}px; font-weight:600; }}
+QFrame#metricTile, QFrame#metricCard {{ background:{TOKENS.surface}; border:1px solid {TOKENS.border}; border-radius:10px; }}
+QLabel#metricValue {{ color:{TOKENS.text_primary}; font-size:{TOKENS.financial_value_size}px; font-weight:600; }}
+QLabel#metricLabel {{ color:{TOKENS.text_secondary}; font-size:{TOKENS.metadata_size}px; }}
+QPushButton {{ background:{TOKENS.surface}; color:{TOKENS.text_primary}; border:1px solid {TOKENS.border}; border-radius:7px; padding:8px 12px; font-size:13px; }}
+QPushButton:hover {{ background:{TOKENS.surface_secondary}; border-color:{TOKENS.border_strong}; }}
+QPushButton:disabled {{ color:{TOKENS.text_muted}; background:{TOKENS.surface_secondary}; border-color:{TOKENS.border}; }}
+QPushButton#primary {{ background:{TOKENS.brand}; color:#FFFFFF; border:1px solid {TOKENS.brand}; }}
+QPushButton#primary:hover:!disabled {{ background:{TOKENS.brand_hover}; }}
+QPushButton#secondary {{ background:{TOKENS.surface}; color:{TOKENS.brand}; border:1px solid {TOKENS.border}; }}
+QPushButton#danger {{ background:{TOKENS.critical}; color:#FFFFFF; border:1px solid {TOKENS.critical}; }}
+QTabWidget::pane {{ background:{TOKENS.app_background}; border:none; border-top:1px solid {TOKENS.border}; }}
+QTabBar::tab {{ background:transparent; color:{TOKENS.text_secondary}; padding:10px 20px; border:none; border-bottom:2px solid transparent; }}
+QTabBar::tab:selected {{ color:{TOKENS.brand}; background:{TOKENS.surface}; border-bottom:2px solid {TOKENS.brand}; }}
+QFrame#surfaceCard, QFrame#toolRow, QFrame#emptyState {{ background:{TOKENS.surface}; border:1px solid {TOKENS.border}; border-radius:10px; }}
+QFrame#workflowSteps {{ background:#EEF2F6; border:1px solid {TOKENS.border}; border-radius:8px; }}
+QLabel#automationNotice {{ background:#EDF2F8; color:#52637A; border:none; border-radius:8px; padding:14px 16px; font-size:12px; }}
+QLabel#moduleBadge {{ background:{TOKENS.brand_soft}; color:{TOKENS.brand}; border:none; border-radius:5px; padding:4px 8px; font-size:10px; }}
+QLabel#emptyStateTitle {{ font-size:18px; font-weight:600; }}
+QLabel#emptyStateDetail {{ font-size:13px; color:{TOKENS.text_secondary}; }}
 """
 
 LOGIN_STYLE = f"""

@@ -95,10 +95,14 @@ def test_approver_sees_only_authorized_module_and_operations_views(tmp_path, mon
     window = main_window.MainWindow(approver, store)
 
     assert [item[0] for item in window.nav_items] == [
-        "manim_transfer",
-        "operations_center",
-        "history",
+        "dashboard", "accounting_automation", "tax_automation", "banking",
+        "einvoice", "reconciliation", "integrations", "operations", "reports", "settings",
     ]
+    assert window.product_module_states["accounting_automation"] == "ACTIVE"
+    assert window.product_module_states["reconciliation"] == "LOCKED"
+    assert window.product_module_states["integrations"] == "LOCKED"
+    window.navigate_to("manim_transfer")
+    assert window.pages.currentWidget() is window._pages_by_id["manim_transfer"]
     window.close()
 
 
@@ -136,9 +140,11 @@ def test_main_window_intersects_local_modules_with_central_license(tmp_path, mon
         ),
     )
 
-    assert [item[0] for item in window.nav_items] == [
-        "manim_transfer", "operations_center", "history", "team", "audit", "integrations", "settings"
-    ]
+    assert window.product_module_states["accounting_automation"] == "ACTIVE"
+    assert window.product_module_states["reconciliation"] == "LOCKED"
+    assert window.product_module_states["reports"] == "LOCKED"
+    window.navigate_to("manim_transfer")
+    assert window.pages.currentWidget() is window._pages_by_id["manim_transfer"]
     window.close()
 
 
@@ -163,9 +169,14 @@ def test_main_window_keeps_navigation_usable_when_sidebar_is_collapsed(tmp_path,
     assert window.sidebar.width() == 78
     assert all(not button.text() and button.toolTip() for button in window.nav_buttons)
     window._on_nav_clicked(0)
-    assert window.workspace_heading.text() == "MANİM Aktarma"
-    assert "Banka hareketlerini" in window.workspace_subtitle.text()
+    assert window.workspace_heading.text() == "Ana Kontrol"
+    accounting_index = next(
+        index for index, (item_id, _label) in enumerate(window.nav_items)
+        if item_id == "accounting_automation"
+    )
+    window._on_nav_clicked(accounting_index)
+    assert window.workspace_heading.text() == "Muhasebe Otomasyonu"
     window._toggle_sidebar()
-    assert window.sidebar.width() == 250
-    assert window.nav_buttons[0].text() == "MANİM Aktarma"
+    assert window.sidebar.width() == main_window.SIDEBAR_EXPANDED_WIDTH
+    assert window.nav_buttons[0].text() == "Ana Kontrol"
     window.close()

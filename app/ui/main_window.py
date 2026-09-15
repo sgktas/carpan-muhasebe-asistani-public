@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Slot, QThread
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -26,7 +30,20 @@ from app.ui.audit_page import AuditPage
 from app.ui.background_task import BackgroundWorker
 from app.ui.settings_page import SettingsPage
 from app.ui.team_page import ROLE_LABELS, TeamPage
-from app.ui.theme import BRAND_ORANGE, MAIN_STYLE, asset_icon, crisp_pixmap
+from app.ui.components import SidebarItem, SidebarSection
+from app.ui.design_system import TOKENS
+from app.ui.product_pages import AutomationHubPage, ProductStatePage
+from app.ui.product_registry import (
+    ACTIVE,
+    LOCKED,
+    ProductModule,
+    grouped_product_modules,
+)
+from app.ui.theme import MAIN_STYLE, asset_icon, crisp_pixmap
+
+
+SIDEBAR_EXPANDED_WIDTH = 288
+SIDEBAR_COLLAPSED_WIDTH = 78
 
 
 class MainWindow(QWidget):
@@ -117,9 +134,25 @@ class MainWindow(QWidget):
                 ("settings", "Ayarlar", "settings", lambda: SettingsPage(self.session, self.history))
             )
 
+        self._available_page_ids = {
+            *(module.module_id for module in self.modules),
+            *(item_id for item_id, _label, _icon, _factory in self.management_items),
+        }
+        self.product_module_states = {
+            definition.module_id: self._product_module_state(
+                definition, self._available_page_ids,
+            )
+            for _group, definitions in grouped_product_modules()
+            for definition in definitions
+        }
+
         self.nav_buttons: list[QPushButton] = []
         self.nav_icon_names: list[str] = []
         self.nav_items: list[tuple[str, str]] = []
+        self._nav_status_labels: list[QLabel] = []
+        self.nav_item_widgets: list[SidebarItem] = []
+        self._nav_parent_by_target: dict[str, str] = {}
+        self._page_indices: dict[str, int] = {}
         self._nav_section_labels: list[QLabel] = []
         self._sidebar_collapsed = False
         self._central_refresh_thread: QThread | None = None
@@ -127,9 +160,12 @@ class MainWindow(QWidget):
         self._pending_logout = False
 
         self.setObjectName("mainRoot")
+        shell_font = QFont(TOKENS.font_family)
+        shell_font.setPixelSize(TOKENS.body_size)
+        self.setFont(shell_font)
         self.setWindowTitle("Çarpan Muhasebe Asistanı")
-        self.resize(1180, 760)
-        self.setMinimumSize(940, 640)
+        self.resize(1366, 768)
+        self.setMinimumSize(1024, 680)
         self.setStyleSheet(MAIN_STYLE)
         self._build_ui()
 
@@ -149,15 +185,15 @@ class MainWindow(QWidget):
         workspace_layout.addWidget(self._build_workspace_header())
 
         self.pages = QStackedWidget()
+        # Inactive legacy pages must not enlarge the application window.
+        # Their own scroll areas retain access to taller content.
+        self.pages.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self._pages_by_id: dict[str, QWidget] = {}
         for module in self.modules:
-            page = module.page_factory()
-            self.pages.addWidget(page)
-            self._pages_by_id[module.module_id] = page
+            self._register_page(module.module_id, module.page_factory())
         for _item_id, _label, _icon, page_factory in self.management_items:
-            page = page_factory()
-            self.pages.addWidget(page)
-            self._pages_by_id[_item_id] = page
+            self._register_page(_item_id, page_factory())
+        self._register_product_pages()
         workspace_layout.addWidget(self.pages, 1)
         root.addWidget(workspace, 1)
 
@@ -168,7 +204,99 @@ class MainWindow(QWidget):
             )
 
         if self.nav_buttons:
-            self._set_active_nav(0)
+            self.navigate_to(self.nav_items[0][0])
+
+    def _register_page(self, page_id: str, page: QWidget) -> None:
+        for scroll in [page, *page.findChildren(QScrollArea)]:
+            if isinstance(scroll, QScrollArea) and scroll.widget() is not None:
+                canvas = scroll.widget()
+                canvas.setObjectName("pageCanvas")
+                if canvas.layout() is not None:
+                    canvas.layout().setContentsMargins(24, 24, 24, 24)
+        self.pages.addWidget(page)
+        self._pages_by_id[page_id] = page
+        self._page_indices[page_id] = self.pages.count() - 1
+
+    def _register_product_pages(self) -> None:
+        """Bind product-level navigation to safe landing pages or existing pages."""
+        available = set(self._pages_by_id)
+        automation_targets = tuple(
+            (item_id, title, detail)
+            for item_id, title, detail in (
+                ("manim_transfer", "Hareket aktarma", "MANİM kaynak adaptörüyle dosya hareketlerini eşleştirin ve çıktı planlayın."),
+                ("report_editing", "Rapor standardizasyonu", "FOM kaynak adaptörüyle müşteri, satış ve tahsilat raporlarını hazırlayın."),
+                ("customer_list_import", "Müşteri listesi", "Kaynak müşteri verilerini yerel çalışma için düzenleyin."),
+            )
+            if item_id in available
+        )
+        reconciliation_targets = tuple(
+            (item_id, title, detail)
+            for item_id, title, detail in (
+                ("bank_reconciliation", "Banka mutabakatı", "Banka ve Netsis hareketlerini karşılaştırın."),
+                ("cari_reconciliation", "Cari mutabakat", "Müşteri bazında mutabakat kontrolü yapın."),
+            )
+            if item_id in available
+        )
+        operations_targets = tuple(
+            (item_id, title, detail)
+            for item_id, title, detail in (
+                ("operations_center", "Operasyon görünümü", "İşlem durumlarını, inceleme kayıtlarını ve kurtarma yönlendirmelerini görün."),
+                ("history", "Geçmiş işlemler", "Tamamlanan işlemleri ve çıktı sonuçlarını inceleyin."),
+                ("audit", "Güvenlik kayıtları", "Erişim ve güvenlik olaylarını inceleyin."),
+            )
+            if item_id in available
+        )
+        reports_targets = tuple(
+            (item_id, title, detail)
+            for item_id, title, detail in (
+                ("report_editing", "Rapor standardizasyonu", "FOM kaynak adaptörüyle satış ve tahsilat raporlarını onaylı çıktı biçimlerine hazırlayın."),
+            )
+            if item_id in available
+        )
+        for _group, definitions in grouped_product_modules():
+            for definition in definitions:
+                state = self._product_module_state(definition, available)
+                if definition.module_id == "accounting_automation":
+                    page = AutomationHubPage(definition, automation_targets)
+                    for target, _title, _detail in automation_targets:
+                        self._nav_parent_by_target[target] = definition.module_id
+                elif definition.module_id == "reconciliation":
+                    page = AutomationHubPage(definition, reconciliation_targets)
+                    for target, _title, _detail in reconciliation_targets:
+                        self._nav_parent_by_target[target] = definition.module_id
+                elif definition.module_id == "operations":
+                    page = AutomationHubPage(definition, operations_targets)
+                    for target, _title, _detail in operations_targets:
+                        self._nav_parent_by_target[target] = definition.module_id
+                elif definition.module_id == "reports":
+                    page = AutomationHubPage(definition, reports_targets)
+                    for target, _title, _detail in reports_targets:
+                        self._nav_parent_by_target[target] = definition.module_id
+                elif definition.legacy_target and state == ACTIVE and definition.legacy_target in available:
+                    page = self._pages_by_id[definition.legacy_target]
+                    self._page_indices[definition.module_id] = self._page_indices[definition.legacy_target]
+                    self._pages_by_id[definition.module_id] = page
+                    continue
+                else:
+                    page = ProductStatePage(definition, state=state)
+                if isinstance(page, (AutomationHubPage, ProductStatePage)):
+                    page.open_requested.connect(self.navigate_to)
+                self._register_page(definition.module_id, page)
+
+    def _product_module_state(self, definition: ProductModule, available: set[str]) -> str:
+        if definition.default_state != ACTIVE:
+            return definition.default_state
+        if definition.capability and not self.session.can(definition.capability):
+            return LOCKED
+        required_targets = {
+            "accounting_automation": {"manim_transfer", "report_editing", "customer_list_import"},
+            "reconciliation": {"bank_reconciliation", "cari_reconciliation"},
+            "reports": {"report_editing"},
+            "operations": {"operations_center", "history"},
+        }.get(definition.module_id)
+        if required_targets is not None and not (required_targets & available):
+            return LOCKED
+        return ACTIVE
 
     def _build_workspace_header(self) -> QFrame:
         header = QFrame()
@@ -187,7 +315,27 @@ class MainWindow(QWidget):
         layout.addLayout(title_column, 1)
         self.workspace_status = QLabel("Yerel çalışma alanı")
         self.workspace_status.setObjectName("workspaceStatus")
-        layout.addWidget(self.workspace_status)
+        search = QLineEdit()
+        search.setObjectName("globalSearch")
+        search.setPlaceholderText("Çalışma alanında ara · Yakında")
+        search.setAccessibleName("Genel arama — yakında")
+        search.setEnabled(False)
+        search.setMaximumWidth(275)
+        layout.addWidget(search, 1)
+        company = QLabel(self.session.company_name)
+        company.setObjectName("topbarCompany")
+        company.setToolTip(self.session.company_name)
+        company.setMaximumWidth(200)
+        company.setMinimumWidth(100)
+        company.setWordWrap(True)
+        layout.addWidget(company)
+        account = QLabel(self.username[:1].upper())
+        account.setObjectName("topbarAvatar")
+        account.setFixedSize(32, 32)
+        account.setAlignment(Qt.AlignCenter)
+        account.setToolTip(f"{self.username} · {self.session.company_name}")
+        layout.addWidget(account)
+        self.workspace_status.hide()
         return header
 
     @Slot(object)
@@ -207,43 +355,39 @@ class MainWindow(QWidget):
         except Exception as error:
             QMessageBox.warning(self, "Yeniden çalışma hazırlanamadı", str(error))
             return
-        index = next(
-            (position for position, (item_id, _label) in enumerate(self.nav_items) if item_id == "manim_transfer"),
-            -1,
-        )
-        if index >= 0:
-            self._on_nav_clicked(index)
+        self.navigate_to("manim_transfer")
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(250)
+        sidebar.setFixedWidth(SIDEBAR_EXPANDED_WIDTH)
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(TOKENS.space_2)
 
         brand_area = QFrame()
         brand_area.setObjectName("brandArea")
         brand_layout = QVBoxLayout(brand_area)
-        brand_layout.setContentsMargins(8, 0, 8, 0)
-        brand_layout.setSpacing(3)
+        brand_layout.setContentsMargins(10, 4, 10, 8)
+        brand_layout.setSpacing(TOKENS.space_1)
 
         logo_label = QLabel()
-        logo_path = APP_PATHS.assets_dir / "carpan-logo-orijinal.png"
+        logo_path = APP_PATHS.assets_dir / "carpan-logo-beyaz.png"
         if logo_path.is_file():
-            logo_label.setPixmap(crisp_pixmap(self, logo_path, target_width=184))
+            logo_label.setPixmap(crisp_pixmap(self, logo_path, target_width=150))
         else:
             logo_label.setText("Çarpan")
             logo_label.setStyleSheet(
-                "color:#214866; font-size:25px; font-weight:700;"
+                "color:#FFFFFF; font-size:25px; font-weight:700;"
             )
         logo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         brand_layout.addWidget(logo_label)
+        self.brand_logo_label = logo_label
 
-        descriptor = QLabel("MUHASEBE ASİSTANI")
+        descriptor = QLabel("Finansal Operasyon Platformu")
         descriptor.setObjectName("brandDescriptor")
-        descriptor.setAlignment(Qt.AlignRight)
+        descriptor.setAlignment(Qt.AlignLeft)
         brand_layout.addWidget(descriptor)
         self.brand_descriptor = descriptor
         layout.addWidget(brand_area)
@@ -252,34 +396,43 @@ class MainWindow(QWidget):
         self.sidebar_toggle.setCursor(Qt.PointingHandCursor)
         self.sidebar_toggle.clicked.connect(self._toggle_sidebar)
         layout.addWidget(self.sidebar_toggle)
-        layout.addSpacing(12)
 
-        modules_label = QLabel("MODÜLLER")
-        modules_label.setObjectName("navSection")
-        self._nav_section_labels.append(modules_label)
-        layout.addWidget(modules_label)
-        layout.addSpacing(3)
+        navigation_scroll = QScrollArea()
+        navigation_scroll.setObjectName("sidebarNavigationScroll")
+        navigation_scroll.setWidgetResizable(True)
+        navigation_scroll.setFrameShape(QFrame.NoFrame)
+        navigation_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        navigation_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        navigation_scroll.setFocusPolicy(Qt.NoFocus)
+        navigation_content = QWidget()
+        navigation_content.setObjectName("sidebarNavigationContent")
+        navigation_layout = QVBoxLayout(navigation_content)
+        navigation_layout.setContentsMargins(
+            0,
+            TOKENS.space_2,
+            TOKENS.space_2,
+            TOKENS.space_2,
+        )
+        navigation_layout.setSpacing(TOKENS.space_2)
+        for group, definitions in grouped_product_modules():
+            section = SidebarSection(group)
+            self._nav_section_labels.append(section.title_label)
+            for definition in definitions:
+                self._add_nav_button(
+                    section.layout,
+                    definition.display_name,
+                    definition.icon_name,
+                    definition.module_id,
+                    self.product_module_states[definition.module_id],
+                )
+            navigation_layout.addWidget(section)
+        navigation_layout.addStretch(1)
+        navigation_scroll.setWidget(navigation_content)
+        self.sidebar_navigation_scroll = navigation_scroll
+        layout.addWidget(navigation_scroll, 1)
 
-        for module in self.modules:
-            self._add_nav_button(
-                layout,
-                module.nav_label,
-                module.icon_name,
-                module.module_id,
-            )
-
-        if self.management_items:
-            layout.addSpacing(18)
-            management_label = QLabel("YÖNETİM")
-            management_label.setObjectName("navSection")
-            self._nav_section_labels.append(management_label)
-            layout.addWidget(management_label)
-            layout.addSpacing(3)
-            for item_id, label, icon_name, _factory in self.management_items:
-                self._add_nav_button(layout, label, icon_name, item_id)
-
-        layout.addStretch()
-        layout.addWidget(self._build_user_card())
+        self.sidebar_user_card = self._build_user_card()
+        layout.addWidget(self.sidebar_user_card)
         return sidebar
 
     def _build_user_card(self) -> QFrame:
@@ -293,7 +446,7 @@ class MainWindow(QWidget):
         avatar.setFixedSize(34, 34)
         avatar.setAlignment(Qt.AlignCenter)
         avatar.setStyleSheet(
-            f"background-color:{BRAND_ORANGE}; color:#ffffff; "
+            f"background-color:{TOKENS.brand}; color:{TOKENS.surface}; "
             "border-radius:17px; font-size:13px; font-weight:700;"
         )
         user_layout.addWidget(avatar)
@@ -329,12 +482,21 @@ class MainWindow(QWidget):
     def _toggle_sidebar(self) -> None:
         self._sidebar_collapsed = not self._sidebar_collapsed
         collapsed = self._sidebar_collapsed
-        self.sidebar.setFixedWidth(78 if collapsed else 250)
+        self.sidebar.setFixedWidth(
+            SIDEBAR_COLLAPSED_WIDTH if collapsed else SIDEBAR_EXPANDED_WIDTH
+        )
         self.brand_descriptor.setVisible(not collapsed)
+        logo_path = APP_PATHS.assets_dir / "carpan-logo-beyaz.png"
+        if logo_path.is_file():
+            self.brand_logo_label.setPixmap(
+                crisp_pixmap(self, logo_path, target_width=38 if collapsed else 150)
+            )
         self.sidebar_toggle.setText("Menüyü aç" if collapsed else "Menüyü daralt")
         self.sidebar_toggle.setToolTip("Gezinme menüsünü aç" if collapsed else "Gezinme menüsünü daralt")
         for label in self._nav_section_labels:
             label.setVisible(not collapsed)
+        for status in self._nav_status_labels:
+            status.setVisible(not collapsed)
         self.user_name_label.setVisible(not collapsed)
         self.user_status_label.setVisible(not collapsed)
         self._central_status_label.setVisible(not collapsed)
@@ -344,7 +506,7 @@ class MainWindow(QWidget):
             label = self.nav_items[index][1]
             button.setText("" if collapsed else label)
             button.setToolTip(label)
-            button.setMinimumHeight(44)
+            button.setMinimumHeight(34)
         self.sidebar.style().unpolish(self.sidebar)
         self.sidebar.style().polish(self.sidebar)
         self.sidebar.update()
@@ -425,31 +587,46 @@ class MainWindow(QWidget):
         label: str,
         icon_name: str,
         item_id: str,
+        state: str,
     ) -> None:
         index = len(self.nav_buttons)
-        button = QPushButton(label)
-        button.setProperty("class", "navItem")
-        button.setProperty("active", "false")
+        item = SidebarItem(label, state)
+        button = item.button
         button.setIcon(asset_icon(APP_PATHS.assets_dir, icon_name))
         button.setIconSize(QSize(18, 18))
-        button.setMinimumHeight(44)
-        button.setCursor(Qt.PointingHandCursor)
+        button.setMinimumHeight(34)
         button.clicked.connect(
             lambda _checked=False, page_index=index: self._on_nav_clicked(
                 page_index
             )
         )
-        layout.addWidget(button)
+        layout.addWidget(item)
         self.nav_buttons.append(button)
         self.nav_icon_names.append(icon_name)
         self.nav_items.append((item_id, label))
+        self._nav_status_labels.append(item.status)
+        self.nav_item_widgets.append(item)
 
     def _on_nav_clicked(self, index: int) -> None:
-        self.pages.setCurrentIndex(index)
-        page = self.pages.widget(index)
+        if not (0 <= index < len(self.nav_items)):
+            return
+        self.navigate_to(self.nav_items[index][0])
+
+    @Slot(str)
+    def navigate_to(self, page_id: str) -> None:
+        page_index = self._page_indices.get(page_id)
+        if page_index is None:
+            return
+        self.pages.setCurrentIndex(page_index)
+        page = self.pages.widget(page_index)
         refresh = getattr(page, "refresh", None)
         if callable(refresh):
             refresh()
+        navigation_id = self._nav_parent_by_target.get(page_id, page_id)
+        index = next(
+            (position for position, (item_id, _label) in enumerate(self.nav_items) if item_id == navigation_id),
+            -1,
+        )
         self._set_active_nav(index)
 
     def _set_active_nav(self, active_index: int) -> None:
@@ -474,6 +651,14 @@ class MainWindow(QWidget):
     def _workspace_subtitle(self, index: int) -> str:
         item_id = self.nav_items[index][0]
         subtitles = {
+            "dashboard": "Modüler muhasebe otomasyon çalışma alanına genel bakış.",
+            "accounting_automation": "Kaynakları sınıflandırın, eşleştirme kurallarını uygulayın ve incelemeleri yönetin.",
+            "tax_automation": "Vergi otomasyonu modülünün ürün hazırlık durumu.",
+            "banking": "Banka bağlantısı yapılandırma ve kaynak hazırlık durumu.",
+            "einvoice": "E-Fatura modül lisans ve bağlantı durumu.",
+            "reconciliation": "Banka ve cari mutabakat çalışma araçları.",
+            "operations": "Operasyon görünümü, geçmiş işlemler ve güvenlik kayıtları.",
+            "reports": "Rapor standardizasyonu ve çıktı hazırlama çalışma alanı.",
             "manim_transfer": "Banka hareketlerini kontrol edin, eşleştirin ve aktarım planını yönetin.",
             "report_editing": "Satış ve tahsilat raporlarını Netsis/Psoft aktarımına hazırlayın.",
             "bank_reconciliation": "Banka ve Netsis hareketlerini karşılaştırıp farkları inceleyin.",
