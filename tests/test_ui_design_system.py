@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QScrollArea
+from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QScrollArea
 from PySide6.QtTest import QTest
+from PySide6.QtCore import QPoint
 
 from app.core import identity
 from app.core.identity import IdentityStore
@@ -22,6 +23,59 @@ from app.ui.product_registry import (
 
 
 _APP = QApplication.instance() or QApplication([])
+
+
+def test_accounting_parent_and_chevron_toggle_without_changing_workspace(tmp_path, monkeypatch):
+    window = _window(tmp_path, monkeypatch)
+    window.resize(1600, 900)
+    window.show()
+    window._open_accounting_mode('new')
+    _APP.processEvents()
+    item = next(item for (key, _), item in zip(window.nav_items, window.nav_item_widgets) if key == 'accounting_automation')
+    page = window.pages.currentWidget()
+    assert not window.accounting_subnav.isHidden()
+    item.button.click()
+    assert window.accounting_subnav.isHidden()
+    assert item.chevron.text() == '⌄'
+    item.chevron.click()
+    assert not window.accounting_subnav.isHidden()
+    assert item.chevron.text() == '⌃'
+    assert window.pages.currentWidget() is page
+    assert not item.button.geometry().intersects(item.chevron.geometry())
+    item.button.click()
+    window._toggle_sidebar()
+    window._toggle_sidebar()
+    assert window.accounting_subnav.isHidden()
+    window._open_accounting_mode('new')
+    assert not window.accounting_subnav.isHidden()
+    window.close()
+
+
+def test_workspace_actions_remain_in_viewport_after_narrow_resize(tmp_path, monkeypatch):
+    from app.ui.theme import MAIN_STYLE
+    from app.ui.accounting_view import AccountingView, SourceView
+    from tests.test_accounting_view import record
+    window = _window(tmp_path, monkeypatch)
+    window.setStyleSheet(MAIN_STYLE)
+    window._open_accounting_mode('new')
+    module = window._pages_by_id['accounting_automation']
+    workspace = module.accounting_workspace
+    row = record(issue='Sentetik şube kontrolü')
+    workspace.view = AccountingView((SourceView(row.source, 'MANİM Excel', (row,)),))
+    workspace.render()
+    window.show()
+    for width, height in ((1920, 1080), (1366, 768), (1600, 900)):
+        window.resize(width, height)
+        _APP.processEvents()
+        workspace.records.selectRow(0)
+        _APP.processEvents()
+        assert module.work_scroll.verticalScrollBar().maximum() == 0
+        bottom = workspace.output_button.mapTo(window, QPoint(0, workspace.output_button.height()))
+        assert bottom.y() <= window.height()
+        assert workspace.evidence_scroll.widget().width() <= workspace.evidence_scroll.viewport().width()
+        for button in (workspace.attention_tab, workspace.ready_tab, workspace.all_tab):
+            assert button.width() >= button.fontMetrics().horizontalAdvance(button.text()) + 12
+    window.close()
 
 
 def _window(tmp_path, monkeypatch):
@@ -115,7 +169,7 @@ def test_sidebar_keeps_every_module_name_and_state_in_one_inline_row(
     assert len(window.nav_item_widgets) == len(PRODUCT_MODULES)
 
     for definition, item in zip(PRODUCT_MODULES, window.nav_item_widgets):
-        assert isinstance(item.layout(), QHBoxLayout)
+        assert isinstance(item.layout(), QGridLayout)
         assert item.button.text() == definition.display_name
         assert item.button.accessibleName() == definition.display_name
         assert item.status.state == window.product_module_states[definition.module_id]
@@ -149,6 +203,13 @@ def test_sidebar_compact_layout_preserves_navigation_and_bottom_account_area(
         assert window.sidebar.width() == main_window.SIDEBAR_EXPANDED_WIDTH
         assert window.sidebar_navigation_scroll.verticalScrollBar().width() <= 6
         for item in window.nav_item_widgets:
+            # Settings intentionally lives beside the profile and its legacy
+            # sidebar item stays hidden for navigation/index compatibility.
+            # Hidden Qt widgets are not laid out and may retain the default
+            # 640x480 geometry, so only visible navigation rows participate in
+            # the viewport-geometry assertion.
+            if item.isHidden():
+                continue
             assert item.status.width() >= item.status.sizeHint().width()
             assert item.button.width() >= item.button.minimumSizeHint().width()
             assert item.status.geometry().right() < item.width()
@@ -160,4 +221,42 @@ def test_sidebar_compact_layout_preserves_navigation_and_bottom_account_area(
     assert window.pages.currentWidget().module.module_id == "banking"
     window.navigate_to("einvoice")
     assert window.pages.currentWidget().module.module_id == "einvoice"
+    window.close()
+
+
+def test_shell_exposes_company_in_topbar_and_keeps_bottom_profile_compact(tmp_path, monkeypatch):
+    window = _window(tmp_path, monkeypatch)
+
+    assert window.topbar_company_label.text() == "Synthetic Company"
+    assert window.topbar_company_label.toolTip() == "Synthetic Company"
+    assert window.user_name_label.text() == "Synthetic Administrator"
+    assert "Synthetic Company" not in window.user_status_label.text()
+    assert window._central_status_label.isHidden()
+    assert window.logout_button.toolTip() == "Çıkış yap"
+    window.close()
+
+
+def test_accounting_sources_navigation_uses_integrated_source_preparation(tmp_path, monkeypatch):
+    window = _window(tmp_path, monkeypatch)
+    page = window._pages_by_id["accounting_automation"]
+    tabs = page.tabs
+    assert tabs.count() >= 3
+
+    window._open_accounting_mode("sources")
+    assert tabs.currentIndex() == 2
+    source_page = tabs.currentWidget()
+    labels = [label.text() for label in source_page.findChildren(QLabel)]
+    assert "Kaynaklar" in labels
+    assert "Ham FOM kaynakları" in labels
+    assert "FOM Rapor Düzenleme" not in labels
+
+    page.accounting_workspace.source_tools_requested.emit()
+    _APP.processEvents()
+    assert tabs.currentIndex() == 2
+
+    window.navigate_to("reports")
+    reports_page = window.pages.currentWidget()
+    report_labels = [label.text() for label in reports_page.findChildren(QLabel)]
+    assert "FOM Rapor Motoru" not in report_labels
+    assert "Rapor standardizasyonu" not in report_labels
     window.close()

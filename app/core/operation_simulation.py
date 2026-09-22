@@ -60,6 +60,10 @@ class SimulationBucket:
 class SimulationSummary:
     buckets: tuple[SimulationBucket, ...] = field(default_factory=tuple)
     ignored_records: int = 0
+    # Live presentation evidence only; not a new accounting bucket or gate.
+    # Historical snapshots without output rows intentionally leave this unknown.
+    branch_output_total: Decimal | None = field(default=None, compare=False)
+    branch_output_buckets: tuple[tuple[str, str, Decimal], ...] = field(default=(), compare=False)
 
     @property
     def manim_total(self) -> Decimal:
@@ -149,7 +153,11 @@ class OperationSimulation:
             category = self._CATEGORIES.get(outcome)
             if category:
                 entry[category] += amount
+        branch_output_total = None
+        branch_output_buckets = {}
         if netsis_records is not None:
+            branch_output_total = Decimal("0.00")
+            branch_output_buckets = {key: Decimal("0.00") for key in buckets}
             for entry in buckets.values():
                 entry["netsis_total"] = Decimal("0.00")
             for record in netsis_records:
@@ -159,6 +167,9 @@ class OperationSimulation:
                     ignored += 1
                     continue
                 buckets[key]["netsis_total"] += _money(record.tutar)
+                if getattr(record, "kaynak", "") in {"SUBELI_TAHSILAT", "BIRLESIK_BANKA_HAREKETI"}:
+                    branch_output_total += _money(record.tutar)
+                    branch_output_buckets[key] += _money(record.tutar)
         for entry in buckets.values():
             matched_source = sum((d.amount for d in entry["details"] if d.outcome in self._NETSIS_OUTCOMES), Decimal("0.00"))
             retained = matched_source - entry["netsis_total"]
@@ -171,7 +182,8 @@ class OperationSimulation:
             SimulationBucket(region=region, bank=bank, **values)
             for (region, bank), values in sorted(buckets.items())
         )
-        return SimulationSummary(buckets=result, ignored_records=ignored)
+        return SimulationSummary(buckets=result, ignored_records=ignored, branch_output_total=branch_output_total,
+            branch_output_buckets=tuple((region, bank, amount) for (region, bank), amount in sorted(branch_output_buckets.items())))
 
 
 def simulation_summary_payload(summary: SimulationSummary | None) -> dict:

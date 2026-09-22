@@ -1,6 +1,8 @@
 from __future__ import annotations
 from app.ui.operation_activity import OperationActivity
 from app.ui.simulation_dashboard import SimulationDashboard
+from app.ui.accounting_workspace import AccountingWorkspace
+from app.ui.operation_breakdown import presentation_evidence
 
 from dataclasses import dataclass, field
 import logging
@@ -43,6 +45,8 @@ from app.core.operation_simulation import simulation_summary_payload
 from app.core.output_profile import OutputProfileStore
 from app.core.personnel_list_cache import PersonnelListCache
 from app.core.processing_engine import ManualResolution, ProcessingEngine
+from app.core.manim_input_classifier import ManimInputClassifier
+from app.modules.report_editing.engine import ReportEditingEngine
 from app.core.region_config import RegionConfig, active_region_config_path
 from app.models.records import TahsilatRecord
 from app.ui.common import Disclosure, WorkflowSteps, add_page_header
@@ -55,6 +59,15 @@ MODULE_ID = "manim_transfer"
 MODULE_NAME = "MANİM Aktarma"
 
 logger = logging.getLogger(LOGGER_NAME)
+
+
+class _AccountingCanvas(QWidget):
+    """Let the workspace's own scroll areas handle long documents."""
+
+    def heightForWidth(self, width: int) -> int:
+        # A preferred wrapped-document height would expand the outer legacy
+        # scroll area, moving persistent output actions below the viewport.
+        return self.minimumSizeHint().height()
 
 
 @dataclass
@@ -113,6 +126,9 @@ class _SimulationWorker(QObject):
 
 
 class ManimModulePage(QWidget):
+    source_preparation_requested = Signal(object)
+    integrated_manual_review_requested = Signal(object)
+
     def __init__(self, history: OperationHistory, parent=None):
         super().__init__(parent)
         self.history = history
@@ -125,6 +141,7 @@ class ManimModulePage(QWidget):
         self._simulation_thread: QThread | None = None
         self._simulation_worker: _SimulationWorker | None = None
         self._operation_id: int | None = None
+        self._active_manual_review_request: _ManualReviewRequest | None = None
         self._preflight_summary = None
         self._preflight_fingerprint: str | None = None
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
@@ -147,18 +164,11 @@ class ManimModulePage(QWidget):
         page.setFrameShape(QFrame.NoFrame)
         page.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        content = QWidget()
-        content.setMinimumHeight(710)
+        content = _AccountingCanvas()
+        content.setMinimumHeight(620)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(34, 30, 34, 30)
-        layout.setSpacing(18)
-
-        add_page_header(
-            layout,
-            "MANİM Aktarma",
-            "MANİM ve tahsilat raporlarını güvenli şekilde Netsis aktarımına hazırlayın.",
-            "MODÜL 01",
-        )
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         self.workflow_steps = WorkflowSteps(
             [
@@ -169,12 +179,13 @@ class ManimModulePage(QWidget):
             ]
         )
         layout.addWidget(self.workflow_steps)
+        self.workflow_steps.hide()
 
         upload_card = QFrame()
         upload_card.setObjectName("surfaceCard")
         upload_layout = QVBoxLayout(upload_card)
-        upload_layout.setContentsMargins(22, 20, 22, 20)
-        upload_layout.setSpacing(14)
+        upload_layout.setContentsMargins(14, 12, 14, 12)
+        upload_layout.setSpacing(8)
 
         upload_header = QHBoxLayout()
         upload_header.setSpacing(12)
@@ -208,8 +219,8 @@ class ManimModulePage(QWidget):
         self.drop_frame = QFrame()
         self.drop_frame.setObjectName("dropArea")
         self.drop_frame.setProperty("hasFiles", "false")
-        self.drop_frame.setMinimumHeight(174)
-        self.drop_frame.setMaximumHeight(220)
+        self.drop_frame.setMinimumHeight(110)
+        self.drop_frame.setMaximumHeight(140)
         drop_layout = QVBoxLayout(self.drop_frame)
         drop_layout.setContentsMargins(18, 16, 18, 16)
         drop_layout.setSpacing(8)
@@ -268,6 +279,7 @@ class ManimModulePage(QWidget):
         file_actions.addWidget(self.select_button)
         upload_layout.addLayout(file_actions)
         self.input_panel = Disclosure("Girdi dosyaları · seç / kontrol et", upload_card, expanded=True)
+        self.input_panel.hide()
         layout.addWidget(self.input_panel)
 
         process_card = QFrame()
@@ -321,6 +333,11 @@ class ManimModulePage(QWidget):
             summary_grid.addWidget(metric, 0, column)
             self.summary_metrics[key] = value
         process_layout.addLayout(summary_grid)
+        process_layout.removeItem(summary_grid)
+        summary_title.hide()
+        for value in self.summary_metrics.values():
+            value.parentWidget().hide()
+        self.progress.hide()  # Runtime text communicates actual stages, not a synthetic percentage.
         primary_actions = QHBoxLayout()
         primary_actions.addStretch(1)
         process_layout.addLayout(primary_actions)
@@ -356,7 +373,17 @@ class ManimModulePage(QWidget):
         self.start_button.setMinimumHeight(42)
         self.start_button.clicked.connect(self.start_process)
         primary_actions.addWidget(self.start_button)
+        process_card.hide()
         layout.addWidget(process_card)
+        self.accounting_workspace = AccountingWorkspace(self.history, APP_PATHS)
+        self.accounting_workspace.sources_ready.connect(lambda: self.input_panel.set_expanded(False))
+        self.accounting_workspace.add_sources_requested.connect(self.select_files)
+        self.accounting_workspace.clear_sources_requested.connect(self.clear_files)
+        self.accounting_workspace.preview_requested.connect(self.run_preflight_simulation)
+        self.accounting_workspace.output_requested.connect(self.start_process)
+        upload_layout.removeWidget(self.retry_context_label)
+        layout.addWidget(self.retry_context_label)
+        layout.addWidget(self.accounting_workspace, 1)
 
         log_card = QFrame()
         log_card.setObjectName("surfaceCard")
@@ -386,11 +413,14 @@ class ManimModulePage(QWidget):
         self.operation_tabs.addTab(self.dashboard, "Aktarım planı")
         self.operation_tabs.addTab(self.log, "İşlem günlüğü")
         log_layout.addWidget(self.operation_tabs, 1)
-        layout.addWidget(log_card, 1)
+        self.execution_details = Disclosure("İşlem günlüğü ve ayrıntılı motor dağılımı", log_card)
+        self.execution_details.hide()
+        layout.addWidget(self.execution_details)
 
         page.setWidget(content)
-        self.tabs.addTab(page, "Aktarım")
-        self.tabs.addTab(self._build_output_settings_tab(), "Aktarım Ayarları")
+        self.tabs.addTab(page, "Muhasebe Otomasyonu")
+        self.tabs.addTab(self._build_output_settings_tab(), "Çıktı Ayarları")
+        self.tabs.tabBar().hide()
         root.addWidget(self.tabs)
 
     def _build_output_settings_tab(self) -> QWidget:
@@ -531,18 +561,51 @@ class ManimModulePage(QWidget):
             if Path(url.toLocalFile()).suffix.lower() in {".xlsx", ".xls"}
         ]
         if files:
+            if self._route_raw_fom_sources(files):
+                event.acceptProposedAction()
+                return
             self._load_files(files)
             event.acceptProposedAction()
 
     def select_files(self) -> None:
         selected, _ = QFileDialog.getOpenFileNames(
             self,
-            "MANİM aktarım dosyalarını seçin",
+            "Muhasebe kaynak dosyalarını seçin",
             str(Path.home()),
             "Excel dosyaları (*.xlsx *.xls)",
         )
         if selected:
-            self._load_files([Path(path) for path in selected])
+            files = [Path(path) for path in selected]
+            if self._route_raw_fom_sources(files):
+                return
+            self._load_files(files)
+
+    def _route_raw_fom_sources(self, files: list[Path]) -> bool:
+        """Send raw FOM-only selections to Kaynak Hazırlama instead of MANİM preview.
+
+        Accounting output still requires at least one MANİM source.  When every
+        selected file is a raw FOM customer/sales/collections report and there
+        is no MANİM source, routing it into the accounting engine would only
+        produce the misleading "En az bir MANİM raporu bulunamadı" error.
+        """
+        if not files:
+            return False
+        try:
+            bundle = ManimInputClassifier().classify(files)
+        except Exception:
+            return False
+        if bundle.manim_files:
+            return False
+        recognized = []
+        for path in files:
+            try:
+                recognized.append(ReportEditingEngine.classify_file(path))
+            except Exception:
+                return False
+        if not recognized or any(file_type is None for file_type in recognized):
+            return False
+        self.source_preparation_requested.emit(tuple(files))
+        return True
 
     def _load_files(self, files: list[Path]) -> None:
         if self._processing_thread is not None or self._simulation_thread is not None:
@@ -558,6 +621,8 @@ class ManimModulePage(QWidget):
                 seen.add(key)
                 unique.append(path)
         self.files = unique
+        self.accounting_workspace.load(self.files)
+        self.accounting_workspace.set_runtime_status("Yerel çalışma · Kaynaklar okunuyor…")
         self.last_output_dir = None
         self.open_output_button.setVisible(False)
         self.review_odeme_button.setVisible(False)
@@ -631,6 +696,8 @@ class ManimModulePage(QWidget):
         self.input_panel.set_expanded(True)
         self._reset_simulation()
         self.files = []
+        self.accounting_workspace.load([])
+        self.accounting_workspace.set_runtime_status("Yerel çalışma · Kaynak bekleniyor")
         self.retry_context_label.clear()
         self.retry_context_label.setVisible(False)
         self.last_output_dir = None
@@ -662,6 +729,7 @@ class ManimModulePage(QWidget):
     def start_process(self) -> None:
         if self._processing_thread is not None or self._simulation_thread is not None or not self.files:
             return
+        self.accounting_workspace.set_busy(True, "Yerel çalışma · Muhasebe kararı hazırlanıyor…")
         self.start_button.setEnabled(False)
         self.select_button.setEnabled(False)
         self.preflight_button.setEnabled(False)
@@ -690,15 +758,6 @@ class ManimModulePage(QWidget):
                 self.log.append(
                     "UYARI: Simülasyondan sonra profil veya bölge ayarı değişti; aktarım sonucu önizlemeden farklılaşabilir."
                 )
-            self._operation_id = self.history.start(
-                MODULE_ID, MODULE_NAME, self.files,
-                configuration=configuration,
-            )
-            engine.operation_id = self._operation_id
-            revision = self.history.configuration(self._operation_id)
-            if revision is not None:
-                self.log.append(f"Bu işlemde kullanılan ayar sürümü: {revision.revision}")
-
             duplicates = engine.find_duplicate_manim_files()
             allow_duplicate_files: set[str] = set()
             if duplicates:
@@ -708,14 +767,45 @@ class ManimModulePage(QWidget):
                 )
                 answer = QMessageBox.question(
                     self,
-                    "Bu dosya(lar) daha önce işlenmiş",
-                    f"Şu dosya(lar) daha önce işlenmiş görünüyor:\n\n{file_list}\n\n"
-                    "Yine de tekrar işlemek istiyor musunuz?",
+                    "Daha önce işlenmiş kaynaklar",
+                    f"Şu MANİM kaynakları daha önce işlenmiş:\n\n{file_list}\n\n"
+                    "Tekrar işlerseniz mevcut çıktılar silinmez; aynı işlem tarihi için "
+                    "yeni bir çıktı klasörü oluşturulur (örneğin _2, _3).\n\n"
+                    "Bu kaynakları tekrar işleyip yeni çıktı oluşturmak istiyor musunuz?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No,
                 )
-                if answer == QMessageBox.Yes:
-                    allow_duplicate_files = {info["hash"] for info in duplicates.values()}
+                if answer != QMessageBox.Yes:
+                    self.log.append(
+                        "Tekrar işleme iptal edildi; daha önce işlenmiş kaynaklar değiştirilmedi."
+                    )
+                    self.progress.setRange(0, 100)
+                    self.progress.setValue(0)
+                    self.progress_detail.setText(
+                        "Tekrar işleme iptal edildi. Kaynaklar yüklü durumda bırakıldı."
+                    )
+                    self._processing_finished()
+                    self.accounting_workspace.set_runtime_status(
+                        "Yerel çalışma · Tekrar işleme iptal edildi"
+                    )
+                    return
+                allow_duplicate_files = {info["hash"] for info in duplicates.values()}
+                self.log.append(
+                    f"{len(duplicates)} mükerrer MANİM kaynağı kullanıcı onayıyla yeniden işlenecek; "
+                    "yeni çıktı klasörü oluşturulacak."
+                )
+
+            # Kullanıcı mükerrer kaynak kararını verdikten sonra operasyon kaydı
+            # açılır. İptal edilen bir tekrar denemesi geçmişte sahte SUCCESS/0
+            # çıktı işlemi oluşturmamalıdır.
+            self._operation_id = self.history.start(
+                MODULE_ID, MODULE_NAME, self.files,
+                configuration=configuration,
+            )
+            engine.operation_id = self._operation_id
+            revision = self.history.configuration(self._operation_id)
+            if revision is not None:
+                self.log.append(f"Bu işlemde kullanılan ayar sürümü: {revision.revision}")
         except Exception as error:
             self._process_failed(str(error))
             self._processing_finished()
@@ -737,15 +827,33 @@ class ManimModulePage(QWidget):
 
     @Slot(object)
     def _handle_manual_review(self, request: _ManualReviewRequest) -> None:
-        self.progress_detail.setText("3/4 • Belirsiz kayıtlar kullanıcı onayı bekliyor.")
+        """Pause processing and move manual decisions into the product workspace."""
+        self._active_manual_review_request = request
+        self.accounting_workspace.set_runtime_status(
+            "Yerel çalışma · Belirsiz kayıtlar Eşleştirme & Kurallar ekranında karar bekliyor"
+        )
+        self.progress_detail.setText(
+            "3/4 • Belirsiz kayıtlar Eşleştirme & Kurallar ekranında kullanıcı onayı bekliyor."
+        )
         self.workflow_steps.set_state(2, "attention")
+        self.integrated_manual_review_requested.emit(request)
+
+    @Slot(object)
+    def submit_integrated_manual_resolutions(self, raw_resolutions) -> None:
+        """Resume the waiting ProcessingEngine worker with integrated UI decisions."""
+        request = self._active_manual_review_request
+        if request is None:
+            return
         try:
-            request.resolutions = self._resolve_pending_manually(
-                request.pending_items,
-                request.customers,
-                request.tahsilat,
+            request.resolutions = self._manual_resolution_objects(raw_resolutions)
+            self.accounting_workspace.set_runtime_status(
+                "Yerel çalışma · Eşleştirme kararları uygulanıyor…"
+            )
+            self.progress_detail.setText(
+                "3/4 • Eşleştirme kararları motora aktarılıyor…"
             )
         finally:
+            self._active_manual_review_request = None
             request.completed.set()
 
     @Slot(object)
@@ -798,6 +906,7 @@ class ManimModulePage(QWidget):
                     "operation_result": simulation_summary_payload(
                         result.simulation_summary
                     ),
+                    "operation_presentation": presentation_evidence(result.simulation_summary),
                 },
                 status=status,
                 financial_movements=result.decision_audits,
@@ -840,13 +949,28 @@ class ManimModulePage(QWidget):
         self._last_summary_is_preview = False
         self.dashboard.set_summary(result.simulation_summary, preview=False)
         self.operation_tabs.setCurrentIndex(0)
-        self.work_scroll.ensureWidgetVisible(self.dashboard)
+        self.work_scroll.ensureWidgetVisible(self.accounting_workspace)
         self._compare_with_preflight(result.simulation_summary)
         self.simulation_button.setVisible(result.simulation_summary is not None)
         self.upload_subtitle.setText(self._input_files_description())
+        try:
+            self.accounting_workspace.set_result(
+                result, preview=False, operation_id=self._operation_id
+            )
+        except Exception as error:
+            # The engine/persistence work is already complete here.  A visual
+            # refresh problem must not make a successful accounting operation
+            # appear to run forever.
+            logger.exception("Muhasebe otomasyon merkezi görünümü yenilenemedi")
+            self.log.append(f"UYARI: Çıktı hazırlandı ancak çalışma alanı yenilenemedi: {error}")
+            self.accounting_workspace.set_busy(
+                False, "Yerel çalışma · Çıktı hazır; görünüm yenileme uyarısı"
+            )
 
     @Slot(str)
     def _process_failed(self, error: str) -> None:
+        self.accounting_workspace.set_busy(False, "Yerel çalışma · İşlem tamamlanamadı")
+        self.execution_details.set_expanded(True)
         logger.error("MANİM aktarımı tamamlanamadı: %s", error)
         if self._operation_id is not None:
             self.history.fail(self._operation_id, error)
@@ -880,6 +1004,7 @@ class ManimModulePage(QWidget):
     def run_preflight_simulation(self) -> None:
         if not self.files or self._simulation_thread is not None or self._processing_thread is not None:
             return
+        self.accounting_workspace.set_busy(True, "Yerel çalışma · Plan önizlemesi hazırlanıyor…")
         self._reset_simulation()
         self.preflight_button.setEnabled(False)
         self.start_button.setEnabled(False)
@@ -919,12 +1044,20 @@ class ManimModulePage(QWidget):
         self.operation_tabs.setCurrentIndex(0)
         self._preflight_summary = result.simulation_summary
         self._preflight_fingerprint = str(fingerprint)
+        try:
+            self.accounting_workspace.set_result(result, preview=True)
+        except Exception as error:
+            logger.exception("Muhasebe otomasyon merkezi önizleme görünümü yenilenemedi")
+            self.log.append(f"UYARI: Önizleme tamamlandı ancak çalışma alanı yenilenemedi: {error}")
+            self.accounting_workspace.set_busy(
+                False, "Yerel çalışma · Önizleme hazır; görünüm yenileme uyarısı"
+            )
         self.input_panel.set_expanded(False)
         self.progress_detail.setText("Simülasyon tamamlandı; çıktı ve işlenmiş dosya kaydı oluşturulmadı.")
         self.workflow_steps.set_active(2)
         self.simulation_button.setVisible(True)
         self.dashboard.setFocus()
-        self.work_scroll.ensureWidgetVisible(self.dashboard)
+        self.work_scroll.ensureWidgetVisible(self.accounting_workspace)
 
     def _reset_simulation(self) -> None:
         self._preflight_summary = None
@@ -935,6 +1068,7 @@ class ManimModulePage(QWidget):
 
     @Slot(str)
     def _simulation_failed(self, error: str) -> None:
+        self.accounting_workspace.set_busy(False, "Yerel çalışma · Simülasyon tamamlanamadı")
         self.progress_detail.setText("Simülasyon tamamlanamadı.")
         self.workflow_steps.set_state(1, "attention")
         QMessageBox.critical(self, "Simülasyon hatası", error)
@@ -943,6 +1077,7 @@ class ManimModulePage(QWidget):
     def _simulation_finished(self) -> None:
         self._simulation_thread = None
         self._simulation_worker = None
+        self.accounting_workspace.set_busy(False)
         self.preflight_button.setEnabled(bool(self.files) and self._processing_thread is None)
         self.start_button.setEnabled(bool(self.files) and self._processing_thread is None)
         self.select_button.setEnabled(self._processing_thread is None)
@@ -984,6 +1119,7 @@ class ManimModulePage(QWidget):
         self._processing_thread = None
         self._processing_worker = None
         self._operation_id = None
+        self.accounting_workspace.set_busy(False)
         self.start_button.setEnabled(bool(self.files))
         self.preflight_button.setEnabled(bool(self.files))
         self.select_button.setEnabled(True)
@@ -1020,13 +1156,10 @@ class ManimModulePage(QWidget):
         )
         dialog.exec()
 
-    def _resolve_pending_manually(self, pending_items, customers, tahsilat):
-        if not pending_items:
-            return {}
-        dialog = ManualMatchDialog(pending_items, customers, self)
-        dialog.exec()
+    @staticmethod
+    def _manual_resolution_objects(raw_resolutions) -> dict[int, ManualResolution]:
         resolutions: dict[int, ManualResolution] = {}
-        for index, (route, rows, allow_partial) in dialog.get_resolutions().items():
+        for index, (route, rows, allow_partial) in dict(raw_resolutions or {}).items():
             if route == "HAVALE" and rows:
                 tahsilat_rows = [
                     TahsilatRecord(
@@ -1045,3 +1178,11 @@ class ManimModulePage(QWidget):
             else:
                 resolutions[index] = ManualResolution(route=route, rows=None)
         return resolutions
+
+    def _resolve_pending_manually(self, pending_items, customers, tahsilat):
+        """Legacy fallback for direct compatibility callers/tests only."""
+        if not pending_items:
+            return {}
+        dialog = ManualMatchDialog(pending_items, customers, self)
+        dialog.exec()
+        return self._manual_resolution_objects(dialog.get_resolutions())

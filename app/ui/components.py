@@ -4,6 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -131,14 +132,16 @@ class MetricTile(QFrame):
 
 
 class SidebarItem(QFrame):
-    """A compact navigation row with its module state shown inline."""
+    """Navigation title with a secondary status line and a separate chevron."""
 
     def __init__(self, label: str, state: str, parent=None):
         super().__init__(parent)
         self.setObjectName("sidebarItem")
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(TOKENS.space_2)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 1)
+        layout.setHorizontalSpacing(0)
+        layout.setVerticalSpacing(0)
+        layout.setAlignment(Qt.AlignTop)
         self.button = QPushButton(label)
         self.button.setProperty("class", "navItem")
         self.button.setProperty("active", "false")
@@ -146,21 +149,43 @@ class SidebarItem(QFrame):
         self.button.setCursor(Qt.PointingHandCursor)
         self.status = ModuleStatusBadge(state)
         self.status.setProperty("moduleState", state)
+        tone = {
+            "ACTIVE": "#58C99A",
+            "UNCONFIGURED": "#E9B44C",
+            "COMING_SOON": "#8FB3FF",
+            "LOCKED": "#9AA9BC",
+        }.get(state, "#9AA9BC")
+        self.status.setText(f"●  {self.status.text()}")
         self.status.setStyleSheet(
-            "background:#203149; color:#AFBED1; border:none; "
-            "border-radius:4px; padding:3px 5px; font-size:10px; font-weight:400;"
+            f"background:transparent; color:{tone}; border:none; "
+            "padding:0px; font-size:9px; font-weight:500;"
         )
         self.status.setFixedWidth(self.status.sizeHint().width())
-        self.status.setAlignment(Qt.AlignCenter)
+        self.status.setFixedHeight(11)
+        self.status.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.status.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        layout.addWidget(self.button, 1)
-        layout.addWidget(self.status, 0, Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(self.button, 0, 0)
+        layout.addWidget(self.status, 1, 0, Qt.AlignLeft)
+        layout.setColumnStretch(0, 1)
+        # Keep the state visually attached to the title instead of letting it
+        # drift toward the next module row.
+        self.status.setContentsMargins(27, 0, 0, 0)
+        self.status.setFixedWidth(self.status.sizeHint().width() + 27)
+        self.chevron = QPushButton("⌃")
+        self.chevron.setObjectName("sidebarChevron")
+        self.chevron.setFixedSize(20, 20)
+        self.chevron.setAccessibleName("Alt menüyü daralt")
+        layout.addWidget(self.chevron, 0, 1)
+        self.chevron.hide()
+        self.expandable = False
+        self.show_status = True
 
     def set_collapsed(self, collapsed: bool) -> None:
         label = self.button.accessibleName()
         self.button.setText("" if collapsed else label)
         self.button.setToolTip(label)
-        self.status.setVisible(not collapsed)
+        self.status.setVisible(self.show_status and not collapsed)
+        self.chevron.setVisible(self.expandable and not collapsed)
 
 
 class SidebarSection(QFrame):
@@ -171,7 +196,7 @@ class SidebarSection(QFrame):
         self.setObjectName("sidebarSection")
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(TOKENS.space_1)
+        self.layout.setSpacing(4)
         self.title_label = QLabel(title)
         self.title_label.setObjectName("navSection")
         self.layout.addWidget(self.title_label)

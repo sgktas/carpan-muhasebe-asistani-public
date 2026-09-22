@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QUrl
+from PySide6.QtCore import QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
@@ -34,6 +34,7 @@ from app.core.backup_service import BackupError, create_local_backup, restore_lo
 from app.core.customer_list_profile import CustomerListProfileStore
 from app.core.input_profile import InputProfileStore
 from app.core.installation_identity import InstallationIdentityStore
+from app.core.identity import IdentityError, IdentityStore
 from app.core.output_location import OutputLocationStore, resolve_output_dir
 from app.core.output_profile import OutputProfileStore
 from app.core.region_config import RegionConfigStore, active_region_config_path
@@ -57,7 +58,9 @@ _LATEST_CONFIGURATION_FINGERPRINT = object()
 
 
 class SettingsPage(QWidget):
-    def __init__(self, local_session=None, history: OperationHistory | None = None, parent=None):
+    company_renamed = Signal(object)
+
+    def __init__(self, local_session=None, history: OperationHistory | None = None, identity_store: IdentityStore | None = None, parent=None):
         super().__init__(parent)
         self._active_profiles = ActiveProfileStore(APP_PATHS.data_root)
         self._configuration_audit = (
@@ -101,6 +104,7 @@ class SettingsPage(QWidget):
         self._platform_store = PlatformConnectionStore(installation_root)
         self._platform_session_store = PlatformSessionStore(installation_root)
         self._local_session = local_session
+        self._identity_store = identity_store
         self._profile_row_widgets: list[QWidget] = []
         self._build_ui()
 
@@ -769,6 +773,56 @@ class SettingsPage(QWidget):
             self._profile_layout.addWidget(row)
             self._profile_row_widgets.append(row)
 
+
+    def _company_identity_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("surfaceCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("Firma çalışma alanı")
+        title.setObjectName("cardTitle")
+        subtitle = QLabel(
+            "Sol menüde görünen firma adını buradan tanımlayın. Firma kodu ve geçmiş operasyon bağlantıları değişmez."
+        )
+        subtitle.setObjectName("cardSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        row = QHBoxLayout()
+        self._company_name_input = QLineEdit()
+        self._company_name_input.setPlaceholderText("Firma adı")
+        if self._local_session is not None:
+            current = str(getattr(self._local_session, "company_name", "") or "").strip()
+            generic = {"çarpan muhasebe asistanı", "carpan muhasebe asistani", "çarpan", "carpan"}
+            if current.casefold() not in generic:
+                self._company_name_input.setText(current)
+        row.addWidget(self._company_name_input, 1)
+        save = QPushButton("Firma adını kaydet")
+        save.setObjectName("secondary")
+        save.setEnabled(self._identity_store is not None and self._local_session is not None)
+        save.clicked.connect(self._save_company_name)
+        row.addWidget(save)
+        layout.addLayout(row)
+        return card
+
+    def _save_company_name(self) -> None:
+        if self._identity_store is None or self._local_session is None:
+            return
+        try:
+            updated = self._identity_store.rename_company(
+                self._local_session, self._company_name_input.text()
+            )
+        except IdentityError as error:
+            QMessageBox.warning(self, "Firma adı", str(error))
+            return
+        self._local_session = updated
+        self._company_name_input.setText(updated.company_name)
+        self.company_renamed.emit(updated)
+        QMessageBox.information(self, "Firma adı", "Firma adı güncellendi.")
+
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -789,6 +843,9 @@ class SettingsPage(QWidget):
             "Ayarlar",
             "Uygulamanın kalıcı veri ve görünür çıktı konumlarını yönetin.",
         )
+
+        if self._local_session is not None:
+            layout.addWidget(self._company_identity_card())
 
         card = QFrame()
         card.setObjectName("surfaceCard")

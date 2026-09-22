@@ -2,15 +2,18 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -18,6 +21,38 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.money import money, money_sum
+
+
+class _BulkPasteLineEdit(QLineEdit):
+    """Forward Ctrl+C/Ctrl+V to the table even while a cell editor is open."""
+
+    def __init__(self, table, parent=None):
+        super().__init__(parent)
+        self._table = table
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.matches(QKeySequence.StandardKey.Paste):
+            self._table._paste_from_clipboard()
+            item = self._table.item(self._table.currentRow(), self._table.currentColumn())
+            if item is not None:
+                self.setText(item.text())
+                self.selectAll()
+            return
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self._table._copy_to_clipboard()
+            return
+        super().keyPressEvent(event)
+
+
+class _BulkPasteDelegate(QStyledItemDelegate):
+    def __init__(self, table):
+        super().__init__(table)
+        self._table = table
+
+    def createEditor(self, parent, option, index):
+        editor = _BulkPasteLineEdit(self._table, parent)
+        editor.setAlignment(Qt.AlignRight if index.column() == 1 else Qt.AlignLeft)
+        return editor
 
 
 class _PasteableTableWidget(QTableWidget):
@@ -51,14 +86,17 @@ class _PasteableTableWidget(QTableWidget):
         if start_col < 0:
             start_col = 0
 
-        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        lines = [line for line in lines if line != ""] or [""]
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        lines = normalized.split("\n") if normalized else [""]
+        required_rows = start_row + len(lines)
+        while self.rowCount() < required_rows:
+            self.insertRow(self.rowCount())
         for row_offset, line in enumerate(lines):
             cells = line.split("\t")
             for col_offset, cell_text in enumerate(cells):
                 row = start_row + row_offset
                 col = start_col + col_offset
-                if row >= self.rowCount() or col >= self.columnCount():
+                if col >= self.columnCount():
                     continue
                 item = self.item(row, col)
                 if item is None:
@@ -71,6 +109,10 @@ class _PasteableTableWidget(QTableWidget):
 
         selected = self.selectedRanges()
         if not selected:
+            current = self.currentItem()
+            if current is None:
+                return
+            QApplication.clipboard().setText(current.text().strip())
             return
         sel = selected[0]
         rows = []
@@ -78,9 +120,11 @@ class _PasteableTableWidget(QTableWidget):
             cells = []
             for col in range(sel.leftColumn(), sel.rightColumn() + 1):
                 item = self.item(row, col)
-                cells.append(item.text() if item else "")
+                cells.append(item.text().strip() if item else "")
+            while cells and not cells[-1]:
+                cells.pop()
             rows.append("\t".join(cells))
-        QApplication.clipboard().setText("\n".join(rows))
+        QApplication.clipboard().setText("\n".join(rows).rstrip(" \t\r\n"))
 
 
 class ManualMatchDialog(QDialog):
@@ -158,6 +202,8 @@ class ManualMatchDialog(QDialog):
 
         self.table = _PasteableTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Müşteri Kodu", "Tutar"])
+        self.table.setItemDelegate(_BulkPasteDelegate(self.table))
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.CurrentChanged
             | QAbstractItemView.EditTrigger.DoubleClicked
@@ -403,6 +449,17 @@ class ManualMatchDialog(QDialog):
             )
             return
         allow_partial = total < target
+        if allow_partial and item.group_records:
+            remaining = target - total
+            QMessageBox.warning(
+                self,
+                "Toplu havale eksik",
+                f"Toplu banka hareketlerinin {remaining:,.2f} TL tutarı henüz cari dağılımına "
+                "eklenmedi. Tahsilat raporunda eksik müşteri varsa cari kodunu ve tutarını "
+                "yeni satır olarak ekleyin; toplu havale banka toplamıyla tamamen eşleşmeden "
+                "rapor hazırlanamaz.",
+            )
+            return
         if allow_partial:
             remaining = target - total
             answer = QMessageBox.question(
