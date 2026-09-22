@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from app.core.money import money, money_sum
+from app.core.money import CENT, money, money_sum
 from app.core.movement_classifier import MovementRoute
 from app.core.movement_router import MovementDecision, MovementRouter
 from app.core.output_profile import OutputProfile
@@ -253,11 +253,18 @@ class CombinedBankMovementMatcher:
                 items[0].combined_suggested_rows or items[0].suggested_rows
             )
             target = money(money_sum(row.tutar for row in target_rows))
-            total = money_sum(item.record.tutar for item in items)
+            total = money(money_sum(item.record.tutar for item in items))
             movements = " + ".join(f"{money(item.record.tutar):,.2f}" for item in items)
+            difference = total - target
 
-            if total == target:
-                for candidate in target_rows:
+            # Tekil şubeli eşleştirmede olduğu gibi birleşik banka hareketlerinde
+            # de yalnız 1 kuruşluk rapor yuvarlamasını güvenle dengele. Önceki
+            # davranış tam eşitlik istiyordu; gerçek dosyada 89.002,23 banka
+            # toplamı ile 89.002,24 tahsilat toplamı gereksiz manuel gruba
+            # düşüyordu ve kullanıcı onayından sonra mutabakat farkı yaratıyordu.
+            if target_rows and abs(difference) <= CENT:
+                balanced_rows = self._balance_rows_to_total(target_rows, total)
+                for candidate in balanced_rows:
                     netsis_record = processor._netsis_record(
                         items[0].record,
                         str(candidate.musteri_kodu).strip(),
@@ -274,7 +281,15 @@ class CombinedBankMovementMatcher:
                     )
                     produced += 1
                 consumed.update(indexes)
+                # Output rounding belongs to the bank allocation, not to the
+                # immutable source balance. Consume the matched source rows
+                # in full: neither overdraw them nor leave a reusable cent.
                 consumption_rows.extend(target_rows)
+                rule_code = (
+                    "COMBINED_BANK_MOVEMENTS_EXACT"
+                    if difference == 0
+                    else "COMBINED_BANK_MOVEMENTS_CENT_BALANCED"
+                )
                 decision_audits.extend(
                     build_decision_audit(
                         item.record,
@@ -282,19 +297,26 @@ class CombinedBankMovementMatcher:
                         bank,
                         decision="MATCH",
                         outcome="HAVALE",
-                        rule_code="COMBINED_BANK_MOVEMENTS_EXACT",
+                        rule_code=rule_code,
                     )
                     for item in items
                 )
-                logs.append(
-                    f"Birleşik havale eşleşti: {movements} TL = {target:,.2f} TL "
-                    f"({len(items)} banka hareketi)."
-                )
+                if difference == 0:
+                    logs.append(
+                        f"Birleşik havale eşleşti: {movements} TL = {target:,.2f} TL "
+                        f"({len(items)} banka hareketi)."
+                    )
+                else:
+                    logs.append(
+                        f"Birleşik havale 1 kuruş yuvarlama farkıyla dengelendi: "
+                        f"{movements} TL = {total:,.2f} TL; tahsilat {target:,.2f} TL."
+                    )
                 continue
 
             consumed.update(indexes)
             review_reason = (
-                f"{len(items)} banka hareketinin toplamı tahsilat hedefiyle eşleşmiyor."
+                f"{len(items)} banka hareketinin toplamı tahsilat önerisiyle eşleşmiyor; "
+                "manuel dağılım banka toplamına tamamlanmalı."
             )
             decision_audits.extend(
                 build_decision_audit(
@@ -313,17 +335,23 @@ class CombinedBankMovementMatcher:
                     record=items[0].record,
                     region=region,
                     reason=(
-                        f"Aynı müşteri için {len(items)} havale bulundu. Tutarları düzenleyip "
-                        "tahsilat hedefiyle eşitleyerek birlikte onaylayın."
+                        f"Aynı müşteri için {len(items)} havale bulundu. Banka hareketleri "
+                        f"toplamı {total:,.2f} TL; tahsilat önerisi {target:,.2f} TL. "
+                        "Eksik/yanlış tahsilat satırını düzeltip dağılımı banka toplamına tamamlayın."
                     ),
                     suggested_rows=list(target_rows),
                     group_records=[item.record for item in items],
-                    group_target_amount=float(target),
+                    # Manuel eşleştirmede muhasebe hedefi tahsilat raporunun
+                    # eksik olabilen öneri toplamı değil, bankadaki gerçek
+                    # hareketlerin toplamıdır. Böylece eksik müşteri kullanıcı
+                    # tarafından eklenebilir ve çıktı bankayla birebir kapanır.
+                    group_target_amount=float(total),
                 )
             )
             logs.append(
-                f"Toplu havale kontrol bekliyor: {movements} TL; "
-                f"tahsilat hedefi {target:,.2f} TL ({len(items)} banka hareketi)."
+                f"Toplu havale kontrol bekliyor: {movements} TL; banka toplamı "
+                f"{total:,.2f} TL, tahsilat önerisi {target:,.2f} TL "
+                f"({len(items)} banka hareketi)."
             )
 
         remaining = [
@@ -336,6 +364,31 @@ class CombinedBankMovementMatcher:
             decision_audits=decision_audits,
             consumption_rows=consumption_rows,
         )
+
+
+    @staticmethod
+    def _balance_rows_to_total(
+        rows: list[TahsilatRecord],
+        target_total,
+    ) -> list[TahsilatRecord]:
+        """En fazla 1 kuruşluk birleşik farkı en büyük satıra yansıtır."""
+        if not rows:
+            return []
+        target = money(target_total)
+        current = money_sum(row.tutar for row in rows)
+        difference = target - current
+        if difference == 0:
+            return list(rows)
+        if abs(difference) > CENT:
+            return list(rows)
+        largest_index = max(range(len(rows)), key=lambda index: money(rows[index].tutar))
+        balanced: list[TahsilatRecord] = []
+        for index, row in enumerate(rows):
+            amount = money(row.tutar)
+            if index == largest_index:
+                amount += difference
+            balanced.append(replace(row, tutar=float(amount)))
+        return balanced
 
     @staticmethod
     def _suggested_signature(
