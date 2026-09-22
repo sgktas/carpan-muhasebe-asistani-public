@@ -151,3 +151,17 @@ def test_audit_chain_detects_database_tampering(tmp_path):
         )
 
     assert not store.audit_chain_is_valid()
+
+
+def test_admin_can_rename_company_without_changing_workspace_identity(tmp_path):
+    store = IdentityStore(tmp_path / "platform.sqlite3")
+    admin = _create_admin(store)
+
+    updated = store.rename_company(admin, "Örnek Dağıtım A.Ş.")
+
+    assert updated.company_id == admin.company_id
+    assert updated.company_code == admin.company_code
+    assert updated.company_name == "Örnek Dağıtım A.Ş."
+    assert store.companies()[0].name == "Örnek Dağıtım A.Ş."
+    assert store.audit_events(updated)[0].action == "COMPANY_RENAMED"
+    assert store.audit_chain_is_valid()

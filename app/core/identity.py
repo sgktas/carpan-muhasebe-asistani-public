@@ -330,6 +330,35 @@ class IdentityStore:
             ).fetchall()
         return [Company(int(row["id"]), str(row["code"]), str(row["name"])) for row in rows]
 
+    def rename_company(self, session: AuthenticatedSession, company_name: str) -> AuthenticatedSession:
+        """Rename the local company workspace without changing its stable code/id."""
+        self._require_admin(session)
+        company_name = " ".join(str(company_name).split())
+        if len(company_name) < 2 or len(company_name) > 160:
+            raise IdentityError("Firma adı 2-160 karakter olmalı.")
+        current = self.current_session(session)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT name FROM companies WHERE id = ? AND active = 1",
+                (current.company_id,),
+            ).fetchone()
+            if row is None:
+                raise IdentityError("Firma çalışma alanı bulunamadı.")
+            old_name = str(row["name"])
+            connection.execute(
+                "UPDATE companies SET name = ? WHERE id = ?",
+                (company_name, current.company_id),
+            )
+            self._append_audit(
+                connection,
+                company_id=current.company_id,
+                user_id=current.user_id,
+                action="COMPANY_RENAMED",
+                outcome="SUCCESS",
+                details={"old_name": old_name, "new_name": company_name},
+            )
+        return self.current_session(current)
+
     def members(self, session: AuthenticatedSession) -> list[CompanyMember]:
         self._require_admin(session)
         with self._connect() as connection:
