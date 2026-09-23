@@ -329,7 +329,7 @@ def test_xlsx_contract_preserves_template_sheet_set_and_two_bank_codes(tmp_path)
         sheet.append(profile.headers())
         sheet.append([
             "BANK-SOURCE", 1, None, "06.09.2026", "06.09.2026", None, None,
-            "BANK-TARGET", None, None, None, None, 0, None, 1250, "TEST",
+            "BANK-TARGET", 0, 0, 0, None, 0, None, 1250, "TEST",
             None, None, "R00", 101, "TEST", None, None, None, None, None,
             None, None, None, None, None, None,
         ])
@@ -369,7 +369,7 @@ def _write_virman_contract_pair(tmp_path: Path) -> tuple[Path, Path, object]:
     output = tmp_path / "virman-output.xlsx"
     values = [
         TEST_VIRMAN_SOURCE_BANK_CODE, 1, None, "11.09.2026", "11.09.2026", None, None,
-        TEST_VIRMAN_TARGET_BANK_CODE, None, None, None, None, 0, None, 2_000_000, "TEST",
+        TEST_VIRMAN_TARGET_BANK_CODE, 0, 0, 0, None, 0, None, 2_000_000, "TEST",
         None, None, "G01", 210, "00", None, None, None, None, None,
         None, None, None, None, None, None,
     ]
@@ -384,6 +384,22 @@ def _write_virman_contract_pair(tmp_path: Path) -> tuple[Path, Path, object]:
         workbook.save(path)
     record = type("Record", (), {"tutar": 2_000_000})()
     return template, output, (profile, [record])
+
+
+def test_virman_contract_requires_zero_in_bank_detail_columns(tmp_path):
+    profile = OutputProfileStore(Path(__file__).resolve().parents[1] / "config").get(
+        "netsis_virman_toplu"
+    )
+    fixed_values = [profile.columns[index].value for index in (8, 9, 10)]
+    assert fixed_values == [0, 0, 0]
+
+    template, output, (profile, records) = _write_virman_contract_pair(tmp_path)
+    workbook = load_workbook(output)
+    workbook.active.cell(2, 9, 1)
+    workbook.save(output)
+
+    with pytest.raises(OutputContractError, match="sabit alanları"):
+        validate_netsis_output(output, profile, records, template)
 
 
 def test_virman_contract_rejects_any_changed_template_cell_format(tmp_path):
