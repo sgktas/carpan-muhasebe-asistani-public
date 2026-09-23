@@ -514,7 +514,7 @@ class _MetricTile(QFrame):
         text.setSpacing(0)
         self.label = _label(label, "automationMetricLabel")
         self.label.setToolTip(label)
-        self.value = _FitCurrencyLabel("—", self) if net_metric else _label("—", "automationMetricValue")
+        self.value = _FitCurrencyLabel("—", self) if finance_metric else _label("—", "automationMetricValue")
         self.detail = _label("Henüz hesaplanmadı", "automationMetricDetail")
         for text_widget in (self.label, self.value, self.detail):
             text_widget.setProperty("variant", "finance" if finance_metric else "status")

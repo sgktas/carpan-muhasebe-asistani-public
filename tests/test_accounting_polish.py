@@ -355,6 +355,41 @@ def test_net_movement_financial_value_fits_without_ellipsis(tmp_path, size, valu
     page.close()
 
 
+@pytest.mark.parametrize('size', [(1146, 650), (1380, 782), (1452, 823), (1920, 1080)])
+@pytest.mark.parametrize(('metric_name', 'value_text'), [
+    ('metric_incoming', '11.206.585,41 ₺'),
+    ('metric_outgoing', '22.170.000,00 ₺'),
+    ('metric_net', '-7.066.349,25 ₺'),
+])
+def test_financial_kpi_values_fit_without_clipping(tmp_path, size, metric_name, value_text):
+    from PySide6.QtGui import QFontMetricsF
+
+    page = AccountingWorkspace(SimpleNamespace(recent=lambda _limit: []),
+        SimpleNamespace(resource_root=tmp_path, data_root=tmp_path))
+    page.setStyleSheet(MAIN_STYLE)
+    row = record(issue='Synthetic control')
+    page.view = AccountingView((SourceView(row.source, 'MANİM Excel', (row,)),))
+    page.resize(*size)
+    page.show()
+    page.render()
+    page.set_inspector_visible(True, animated=False)
+    tile = getattr(page, metric_name)
+    tile.set_value(value_text, 'Kaynak hareketleri')
+    APP.processEvents()
+
+    value = tile.value
+    assert value.text() == value_text
+    assert value.toolTip() == value_text
+    assert QFontMetricsF(value.font()).horizontalAdvance(value.text()) <= value.contentsRect().width()
+    text_column = tile.layout().itemAt(0).layout().itemAt(1).layout()
+    title_rect = text_column.itemAt(0).widget().geometry()
+    value_rect = value.geometry()
+    detail_rect = text_column.itemAt(2).widget().geometry()
+    assert title_rect.x() == value_rect.x() == detail_rect.x()
+    assert tile.icon.geometry().right() < value_rect.left()
+    page.close()
+
+
 def test_source_summary_uses_signed_source_values_and_real_filters(tmp_path):
     page = AccountingWorkspace(SimpleNamespace(recent=lambda _limit: []),
         SimpleNamespace(resource_root=tmp_path, data_root=tmp_path))
